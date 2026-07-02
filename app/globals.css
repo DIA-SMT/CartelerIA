@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --brand-blue: #0868f7;
+  --brand-sky: #31adef;
+  --brand-yellow: #ffda00;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #fafaf8; color: #12221d; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, input, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+
+@layer components {
+  .page-shell { @apply mx-auto w-full max-w-[1240px] px-5 md:px-8; }
+  .font-display { font-family: Manrope, Inter, ui-sans-serif, system-ui, sans-serif; }
+  .icon-button { @apply place-items-center rounded-xl size-10 text-slate-500 transition hover:bg-slate-100 hover:text-ink; }
+  .primary-button { @apply inline-flex min-h-11 items-center gap-2 rounded-xl bg-municipal-700 px-5 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-municipal-900 hover:shadow-lg; }
+  .secondary-button { @apply inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-600 shadow-sm transition hover:border-municipal-500/40 hover:text-municipal-700; }
+  .compact { @apply min-h-10 px-4 text-xs; }
+  .eyebrow { @apply inline-flex items-center gap-2 rounded-full border border-municipal-500/15 bg-white/70 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-[.13em] text-municipal-700 shadow-sm; }
+  .stat-card { @apply flex items-center gap-4 rounded-2xl border border-black/5 bg-white p-5 shadow-card; }
+  .section-block { @apply page-shell mt-20 scroll-mt-24; }
+  .section-heading { @apply mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end; }
+  .section-heading h2 { @apply mt-1 font-display text-2xl font-extrabold tracking-tight text-ink md:text-3xl; }
+  .section-heading p { @apply mt-2 text-sm text-slate-500; }
+  .section-kicker { @apply text-[10px] font-extrabold uppercase tracking-[.18em] text-municipal-600; }
+  .map-control { @apply grid size-9 place-items-center rounded-lg text-slate-600 transition hover:bg-slate-100; }
+  .map-pin { @apply grid size-10 place-items-center rounded-full rounded-bl-md border-[3px] border-white bg-municipal-700 text-white shadow-lg; transform: rotate(-45deg); }
+  .map-pin svg { transform: rotate(45deg); }
+  .filter-input { @apply flex h-11 items-center gap-2 rounded-xl bg-slate-50 px-3 text-slate-400 ring-1 ring-inset ring-slate-100 focus-within:ring-municipal-500; }
+  .filter-input input { @apply w-full bg-transparent text-xs text-ink outline-none placeholder:text-slate-400; }
+  .filter-select { @apply h-11 rounded-xl border-0 bg-slate-50 px-3 text-xs font-semibold text-slate-600 outline-none ring-1 ring-inset ring-slate-100 focus:ring-municipal-500; }
+  .empty-state { @apply rounded-[24px] border border-dashed border-slate-200 bg-white px-6 py-16 text-center; }
+  .empty-state > span { @apply mx-auto grid size-12 place-items-center rounded-2xl bg-slate-50 text-slate-400; }
+  .empty-state h3 { @apply mt-4 font-display text-base font-bold text-ink; }
+  .empty-state p { @apply mt-1 text-sm text-slate-400; }
+  .detail-title { @apply text-xs font-extrabold uppercase tracking-wider text-slate-400; }
+}
+
+.hero-grid { background-image: linear-gradient(rgba(8,100,201,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(8,100,201,.045) 1px, transparent 1px); background-size: 48px 48px; mask-image: linear-gradient(to right, black, transparent 80%); }
+.mini-map, .map-canvas { background-color: #eaf2f7; background-image: linear-gradient(33deg, transparent 47%, rgba(255,255,255,.85) 48%, rgba(255,255,255,.85) 51%, transparent 52%), linear-gradient(112deg, transparent 40%, rgba(255,255,255,.65) 41%, rgba(255,255,255,.65) 44%, transparent 45%), radial-gradient(circle at 70% 30%, rgba(34,168,237,.16), transparent 28%); }
+.map-roads { opacity: .85; background-image: linear-gradient(15deg, transparent 43%, rgba(255,255,255,.9) 44%, rgba(255,255,255,.9) 46%, transparent 47%), linear-gradient(98deg, transparent 38%, rgba(255,255,255,.85) 39%, rgba(255,255,255,.85) 41%, transparent 42%), linear-gradient(155deg, transparent 60%, rgba(255,255,255,.65) 61%, rgba(255,255,255,.65) 63%, transparent 64%); }
+
+@media (max-width: 640px) { .section-block { margin-top: 4rem; } }
