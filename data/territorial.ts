@@ -5,18 +5,18 @@ export type EnablementStatus = "habilitado" | "habilitable" | "no_habilitable" |
 export type TerritorialContext = "avenida_comercial" | "corredor" | "microcentro" | "escuela" | "hospital" | "plaza" | "zona_residencial" | "zona_patrimonial" | "estacion_servicio";
 export type SupportType = "led" | "cartel_tradicional" | "medianera" | "cerca_obra" | "gigantografia";
 export type ControlPriority = "baja" | "media" | "alta" | "critica";
+export type AdministrativeVisualStatus = "habilitado" | "deuda" | "fuera_zona" | "no_registrado";
 export type MainTerritorialFilter = "todos" | "fuera_corredor" | "dentro_corredor" | "no_paga" | "deuda" | "no_registrado" | "habilitado" | "habilitable" | "no_habilitable" | "prioridad_alta" | "zona_sensible";
 
 export type TerritorialFilterState = {
-  main: MainTerritorialFilter;
-  tax: "todos" | TaxStatus;
-  registry: "todos" | RegistryStatus;
-  enablement: "todos" | EnablementStatus;
-  context: "todos" | TerritorialContext;
-  support: "todos" | SupportType;
+  main: Exclude<MainTerritorialFilter, "todos">[];
+  tax: TaxStatus[];
+  registry: RegistryStatus[];
+  enablement: EnablementStatus[];
+  support: SupportType[];
 };
 
-export const initialTerritorialFilters: TerritorialFilterState = { main: "todos", tax: "todos", registry: "todos", enablement: "todos", context: "todos", support: "todos" };
+export const initialTerritorialFilters: TerritorialFilterState = { main: [], tax: [], registry: [], enablement: [], support: [] };
 
 export type GeoPoint = {
   type: "Feature";
@@ -65,6 +65,28 @@ export const analysisColors: Record<AnalysisStatus, string> = {
   fuera_zona_permitida: "#dc2626"
 };
 
+export const administrativeLabels: Record<AdministrativeVisualStatus, string> = {
+  habilitado: "Habilitado",
+  deuda: "Con deuda",
+  fuera_zona: "Fuera de zona permitida",
+  no_registrado: "No registrado"
+};
+
+export const administrativeColors: Record<AdministrativeVisualStatus, string> = {
+  habilitado: "#16a34a",
+  deuda: "#eab308",
+  fuera_zona: "#f97316",
+  no_registrado: "#dc2626"
+};
+
+export function getAdministrativeVisualStatus(cartel: AnalyzedCartel): AdministrativeVisualStatus {
+  const properties = cartel.properties;
+  if (properties.registryStatus === "no_registrado") return "no_registrado";
+  if (properties.analysisStatus === "fuera_zona_permitida") return "fuera_zona";
+  if (properties.taxStatus === "deuda") return "deuda";
+  return "habilitado";
+}
+
 export const CORRIDOR_BUFFER_M = 75;
 export const ALLOWED_PLACE_REVIEW_BUFFER_M = 150;
 
@@ -91,23 +113,23 @@ function applyReviewBuffer(carteles: FeatureCollection<AnalyzedCartel>): Feature
 export function filterTerritorialCarteles(carteles: AnalyzedCartel[], filters: TerritorialFilterState) {
   return carteles.filter(cartel => {
     const p = cartel.properties;
-    const mainMatches = filters.main === "todos"
-      || (filters.main === "fuera_corredor" && p.analysisStatus !== "dentro_corredor")
-      || (filters.main === "dentro_corredor" && p.analysisStatus === "dentro_corredor")
-      || (filters.main === "no_paga" && p.taxStatus === "no_paga")
-      || (filters.main === "deuda" && p.taxStatus === "deuda")
-      || (filters.main === "no_registrado" && p.registryStatus === "no_registrado")
-      || (filters.main === "habilitado" && p.enablementStatus === "habilitado")
-      || (filters.main === "habilitable" && p.enablementStatus === "habilitable")
-      || (filters.main === "no_habilitable" && p.enablementStatus === "no_habilitable")
-      || (filters.main === "prioridad_alta" && (p.controlPriority === "alta" || p.controlPriority === "critica"))
-      || (filters.main === "zona_sensible" && p.sensitiveZone);
+    const mainMatches = filters.main.length === 0 || filters.main.some(filter =>
+      (filter === "fuera_corredor" && getAdministrativeVisualStatus(cartel) === "fuera_zona")
+      || (filter === "dentro_corredor" && p.analysisStatus === "dentro_corredor")
+      || (filter === "no_paga" && p.taxStatus === "no_paga")
+      || (filter === "deuda" && getAdministrativeVisualStatus(cartel) === "deuda")
+      || (filter === "no_registrado" && getAdministrativeVisualStatus(cartel) === "no_registrado")
+      || (filter === "habilitado" && getAdministrativeVisualStatus(cartel) === "habilitado")
+      || (filter === "habilitable" && p.enablementStatus === "habilitable")
+      || (filter === "no_habilitable" && p.enablementStatus === "no_habilitable")
+      || (filter === "prioridad_alta" && (p.controlPriority === "alta" || p.controlPriority === "critica"))
+      || (filter === "zona_sensible" && p.sensitiveZone)
+    );
     return mainMatches
-      && (filters.tax === "todos" || p.taxStatus === filters.tax)
-      && (filters.registry === "todos" || p.registryStatus === filters.registry)
-      && (filters.enablement === "todos" || p.enablementStatus === filters.enablement)
-      && (filters.context === "todos" || p.territorialContext === filters.context)
-      && (filters.support === "todos" || p.supportType === filters.support);
+      && (filters.tax.length === 0 || filters.tax.includes(p.taxStatus))
+      && (filters.registry.length === 0 || filters.registry.includes(p.registryStatus))
+      && (filters.enablement.length === 0 || filters.enablement.includes(p.enablementStatus))
+      && (filters.support.length === 0 || filters.support.includes(p.supportType));
   });
 }
 

@@ -3,7 +3,7 @@
 import { Fragment, useEffect } from "react";
 import { Circle, CircleMarker, GeoJSON, MapContainer, ScaleControl, TileLayer, Tooltip, useMap, ZoomControl } from "react-leaflet";
 import type { AnalyzedCartel, FeatureCollection, GeoLine, GeoPoint } from "@/data/territorial";
-import { ALLOWED_PLACE_REVIEW_BUFFER_M, analysisColors, analysisLabels } from "@/data/territorial";
+import { ALLOWED_PLACE_REVIEW_BUFFER_M, administrativeColors, administrativeLabels, getAdministrativeVisualStatus } from "@/data/territorial";
 
 function Recenter({ selected }: { selected: AnalyzedCartel | null }) {
   const map = useMap();
@@ -37,8 +37,9 @@ export default function CarteleriaMap({ carteles, corridors, allowedPlaces, sele
     {carteles.map(cartel => {
       const [longitude, latitude] = cartel.geometry.coordinates;
       const active = selected?.properties.id === cartel.properties.id;
-      return <CircleMarker key={String(cartel.properties.id)} center={[latitude, longitude]} radius={active ? 11 : 7} pathOptions={{ color: "white", weight: active ? 4 : 2, fillColor: analysisColors[cartel.properties.analysisStatus], fillOpacity: 1 }} eventHandlers={{ click: () => onSelect(cartel) }}>
-        <Tooltip direction="top" offset={[0, -7]}><strong>{cartel.properties.name || "Cartel relevado"}</strong><br/>{analysisLabels[cartel.properties.analysisStatus]}<br/>{Math.round(Number(cartel.properties.distanceToCorridorM || 0))} m del corredor más cercano</Tooltip>
+      const visualStatus = getAdministrativeVisualStatus(cartel);
+      return <CircleMarker key={String(cartel.properties.id)} center={[latitude, longitude]} radius={active ? 11 : 7} pathOptions={{ color: "white", weight: active ? 4 : 2, fillColor: administrativeColors[visualStatus], fillOpacity: 1 }} eventHandlers={{ click: () => onSelect(cartel) }}>
+        <Tooltip direction="top" offset={[0, -7]}><strong>{cartel.properties.name || "Cartel relevado"}</strong><br/>{administrativeLabels[visualStatus]}<br/>{Math.round(Number(cartel.properties.distanceToCorridorM || 0))} m del corredor más cercano</Tooltip>
       </CircleMarker>;
     })}
     <Recenter selected={selected}/>
