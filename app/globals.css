@@ -10,7 +10,7 @@
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: #fafaf8; color: #12221d; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body { margin: 0; background: #f8fbff; color: #12221d; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 button, input, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
@@ -46,4 +46,6 @@ button { cursor: pointer; }
 .mini-map, .map-canvas { background-color: #eaf2f7; background-image: linear-gradient(33deg, transparent 47%, rgba(255,255,255,.85) 48%, rgba(255,255,255,.85) 51%, transparent 52%), linear-gradient(112deg, transparent 40%, rgba(255,255,255,.65) 41%, rgba(255,255,255,.65) 44%, transparent 45%), radial-gradient(circle at 70% 30%, rgba(34,168,237,.16), transparent 28%); }
 .map-roads { opacity: .85; background-image: linear-gradient(15deg, transparent 43%, rgba(255,255,255,.9) 44%, rgba(255,255,255,.9) 46%, transparent 47%), linear-gradient(98deg, transparent 38%, rgba(255,255,255,.85) 39%, rgba(255,255,255,.85) 41%, transparent 42%), linear-gradient(155deg, transparent 60%, rgba(255,255,255,.65) 61%, rgba(255,255,255,.65) 63%, transparent 64%); }
 
-@media (max-width: 640px) { .section-block { margin-top: 4rem; } }
+@media (max-width: 640px) {
+  .section-block { margin-top: 4rem; }
+}

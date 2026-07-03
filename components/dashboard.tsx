@@ -12,6 +12,7 @@ import { MapPreview } from "./map-preview";
 import { PdfLibrary } from "./pdf-library";
 import { PdfViewer } from "./pdf-viewer";
 import { StatsCards } from "./stats-cards";
+import { TryhardHeroMap } from "./TryhardHeroMap";
 
 const emptyLines: FeatureCollection<GeoLine> = { type: "FeatureCollection", features: [] };
 const emptyPoints: FeatureCollection<GeoPoint> = { type: "FeatureCollection", features: [] };
@@ -37,7 +38,8 @@ export function Dashboard() {
 
   return <>
     <Header/>
-    <main>
+    <TryhardHeroMap/>
+    <main className="relative z-[1]">
       <Hero/>
       <StatsCards cartelesCount={analyzedCarteles.length}/>
       <MapPreview carteles={filteredAnalyzed} allCarteles={analyzedCarteles} corridors={corridors} allowedPlaces={allowedPlaces} filters={filters} onFilters={setFilters}/>
@@ -45,7 +47,7 @@ export function Dashboard() {
       <PdfLibrary onOpen={setSelectedDocument}/>
       <CorridorsSection/>
     </main>
-    <footer className="mt-20 border-t border-slate-200 bg-white"><div className="page-shell flex flex-col justify-between gap-4 py-8 sm:flex-row sm:items-center"><div className="text-xs text-slate-400"><b className="block text-ink">Cartelería Urbana SMT</b>Municipalidad de San Miguel de Tucumán</div><span className="text-xs text-slate-400">Capas territoriales estáticas · GeoJSON</span></div></footer>
+    <footer className="relative z-[1] mt-20 border-t border-slate-200 bg-white/90 backdrop-blur-sm"><div className="page-shell flex flex-col justify-between gap-4 py-8 sm:flex-row sm:items-center"><div className="text-xs text-slate-400"><b className="block text-ink">Cartelería Urbana SMT</b>Municipalidad de San Miguel de Tucumán</div><span className="text-xs text-slate-400">Capas territoriales estáticas · GeoJSON</span></div></footer>
     <PdfViewer document={selectedDocument} onClose={() => setSelectedDocument(null)}/>
   </>;
 }

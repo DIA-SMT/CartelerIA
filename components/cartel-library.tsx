@@ -3,13 +3,13 @@
 import { ExternalLink, MapPin, Route, Search, ShieldCheck, Signpost } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { AnalyzedCartel } from "@/data/territorial";
-import { analysisColors, analysisLabels } from "@/data/territorial";
+import { administrativeColors, administrativeLabels, getAdministrativeVisualStatus } from "@/data/territorial";
 
 export function CartelLibrary({ carteles }: { carteles: AnalyzedCartel[] }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 12;
-  const filtered = useMemo(() => carteles.filter(item => `${item.properties.name || ""} ${item.properties.nearestCorridor || ""} ${analysisLabels[item.properties.analysisStatus]}`.toLowerCase().includes(query.toLowerCase())), [carteles, query]);
+  const filtered = useMemo(() => carteles.filter(item => `${item.properties.name || ""} ${item.properties.nearestCorridor || ""} ${administrativeLabels[getAdministrativeVisualStatus(item)]}`.toLowerCase().includes(query.toLowerCase())), [carteles, query]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -22,11 +22,12 @@ export function CartelLibrary({ carteles }: { carteles: AnalyzedCartel[] }) {
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{visible.map(item => {
       const [longitude, latitude] = item.geometry.coordinates;
       const status = item.properties.analysisStatus;
+      const visualStatus = getAdministrativeVisualStatus(item);
       const maps = `https://www.google.com/maps?q=${latitude},${longitude}`;
       const street = `https://www.google.com/maps?q=&layer=c&cbll=${latitude},${longitude}`;
       return <article key={String(item.properties.id)} className="group flex flex-col rounded-2xl border border-slate-200 bg-white p-5 transition duration-200 hover:-translate-y-0.5 hover:border-municipal-500/40 hover:shadow-card">
         <div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-municipal-50 text-municipal-700"><Signpost size={19}/></span><div className="min-w-0"><span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Cartel relevado</span><h3 className="mt-1 min-h-10 font-display text-sm font-extrabold leading-5 text-ink">{item.properties.name || "Dirección sin identificar"}</h3></div></div>
-        <span className="mt-3 w-fit rounded-full px-2.5 py-1 text-[8px] font-extrabold uppercase tracking-wider text-white" style={{ background: analysisColors[status] }}>{analysisLabels[status]}</span>
+        <span className="mt-3 w-fit rounded-full px-2.5 py-1 text-[8px] font-extrabold uppercase tracking-wider text-white" style={{ background: administrativeColors[visualStatus] }}>{administrativeLabels[visualStatus]}</span>
         <div className="mt-2 flex flex-wrap gap-1.5"><span className="rounded-full bg-slate-100 px-2 py-1 text-[8px] font-bold capitalize text-slate-600">{item.properties.taxStatus.replace("_", " ")}</span><span className="rounded-full bg-slate-100 px-2 py-1 text-[8px] font-bold capitalize text-slate-600">{item.properties.registryStatus.replace("_", " ")}</span><span className="rounded-full bg-municipal-50 px-2 py-1 text-[8px] font-bold capitalize text-municipal-700">{item.properties.enablementStatus.replace("_", " ")}</span></div>
         <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3">
           <div className="flex items-start gap-2"><Route size={14} className="mt-0.5 shrink-0 text-municipal-700"/><div><span className="block text-[8px] font-bold uppercase tracking-wider text-slate-400">Corredor más cercano</span><p className="mt-1 text-[11px] font-semibold leading-4 text-slate-700">{item.properties.nearestCorridor || "Sin referencia"}</p></div></div>
