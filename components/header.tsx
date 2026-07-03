@@ -5,7 +5,7 @@ import { Bell, Menu, Search } from "lucide-react";
 
 export function Header() {
   return (
-    <header className="sticky top-0 z-50 border-b border-black/5 bg-white/90 backdrop-blur-xl">
+    <header className="sticky top-0 z-[1000] border-b border-black/5 bg-white/90 backdrop-blur-xl">
       <div className="page-shell flex h-[72px] items-center justify-between gap-6">
         <a href="#inicio" className="flex items-center gap-3" aria-label="Inicio Cartelería SMT">
           <span className="grid size-11 place-items-center overflow-hidden rounded-xl bg-white p-1 shadow-sm ring-1 ring-slate-100"><Image src="/logo-municipalidad-smt.png" alt="Municipalidad de San Miguel de Tucumán" width={42} height={42} priority /></span>

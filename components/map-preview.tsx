@@ -1,105 +1,58 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Check, Crosshair, ExternalLink, Layers3, MapPin, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ExternalLink, Layers3, MapPin, MapPinned, RotateCcw, Route, SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { CartelRecord } from "@/data/carteles";
-import type { ContaminationLevel } from "@/data/carteles";
-import { cartelAddress, situationColors, situationLabels } from "@/data/carteles";
+import type { ReactNode } from "react";
+import type { AnalysisStatus, AnalyzedCartel, FeatureCollection, GeoLine, GeoPoint, MainTerritorialFilter, TerritorialFilterState } from "@/data/territorial";
+import { ALLOWED_PLACE_REVIEW_BUFFER_M, analysisColors, analysisLabels, CORRIDOR_BUFFER_M, initialTerritorialFilters } from "@/data/territorial";
 
-const CarteleriaMap = dynamic(() => import("./carteleria-map"), {
-  ssr: false,
-  loading: () => <div className="grid h-full place-items-center bg-slate-100 text-sm font-semibold text-slate-400">Cargando mapa urbano…</div>
-});
-const legend = Object.entries(situationLabels) as [keyof typeof situationLabels, string][];
+const CarteleriaMap = dynamic(() => import("./carteleria-map"), { ssr: false, loading: () => <div className="grid h-full place-items-center bg-slate-100 text-sm font-semibold text-slate-400">Cargando capas territoriales…</div> });
 
-type Props = {
-  carteles: CartelRecord[];
-  allCarteles: CartelRecord[];
-  editingId: string | null;
-  onEditingChange: (id: string | null) => void;
-  onUpdate: (cartel: CartelRecord) => void;
-  onReset: (id: string) => void;
-  contaminationFilter: "todos" | ContaminationLevel;
-  onContaminationFilter: (level: "todos" | ContaminationLevel) => void;
-};
+type Props = { carteles: AnalyzedCartel[]; allCarteles: AnalyzedCartel[]; corridors: FeatureCollection<GeoLine>; allowedPlaces: FeatureCollection<GeoPoint>; filters: TerritorialFilterState; onFilters: (filters: TerritorialFilterState) => void };
+const mainFilters: { value: MainTerritorialFilter; label: string; description?: string }[] = [
+  { value: "todos", label: "Todos" }, { value: "fuera_corredor", label: "Fuera de corredor" }, { value: "dentro_corredor", label: "Dentro de corredor" },
+  { value: "no_paga", label: "No paga" }, { value: "deuda", label: "Con deuda" }, { value: "no_registrado", label: "No registrado" },
+  { value: "habilitado", label: "Ya habilitado", description: "Tiene habilitación registrada." },
+  { value: "habilitable", label: "Puede regularizarse", description: "Podría habilitarse si completa los requisitos." },
+  { value: "no_habilitable", label: "No cumple requisitos", description: "Los datos actuales indican que no reúne las condiciones para habilitarse." },
+  { value: "prioridad_alta", label: "Control prioritario", description: "Casos con prioridad alta o crítica para revisión administrativa." },
+  { value: "zona_sensible", label: "Cerca de zona sensible", description: "Carteles próximos a escuelas, hospitales, plazas o áreas patrimoniales." }
+];
 
-export function MapPreview({ carteles, allCarteles, editingId, onEditingChange, onUpdate, onReset, contaminationFilter, onContaminationFilter }: Props) {
-  const editing = allCarteles.find(item => item.id === editingId) ?? null;
-  const [selected, setSelected] = useState<CartelRecord | null>(null);
-  const [domicilio, setDomicilio] = useState("");
-  const [numero, setNumero] = useState("");
-  const [draftLocation, setDraftLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const mapped = carteles.filter(item => item.latitud != null && item.longitud != null).length;
+export function MapPreview({ carteles, allCarteles, corridors, allowedPlaces, filters, onFilters }: Props) {
+  const [selected, setSelected] = useState<AnalyzedCartel | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const inside = allCarteles.filter(item => item.properties.analysisStatus === "dentro_corredor").length;
+  const outside = allCarteles.filter(item => item.properties.analysisStatus === "fuera_zona_permitida").length;
+  const review = allCarteles.filter(item => item.properties.analysisStatus === "cerca_lugar_permitido").length;
+  const outsidePercent = allCarteles.length ? Math.round(outside / allCarteles.length * 100) : 0;
+  const advancedCount = [filters.tax, filters.registry, filters.enablement, filters.context, filters.support].filter(value => value !== "todos").length;
+  useEffect(() => { if (selected && !carteles.some(item => item.properties.id === selected.properties.id)) setSelected(null); }, [carteles, selected]);
 
-  useEffect(() => {
-    if (!editing) return;
-    setDomicilio(editing.domicilio);
-    setNumero(editing.numero);
-    setDraftLocation(editing.latitud != null && editing.longitud != null ? { latitude: editing.latitud, longitude: editing.longitud } : null);
-    setSelected(editing);
-  }, [editing]);
+  return <section id="mapa" className="section-block isolate">
+    <div className="mb-6 rounded-[24px] border border-municipal-100 bg-gradient-to-br from-municipal-50 to-white p-5 shadow-sm sm:p-6"><div className="flex items-start gap-4"><span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-municipal-700 text-white"><MapPinned size={21}/></span><div><span className="section-kicker">Análisis de ubicación</span><h2 className="mt-2 font-display text-xl font-extrabold text-ink sm:text-2xl">Cruce territorial de cartelería</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">Esta visualización cruza los carteles relevados con corredores permitidos y datos administrativos estáticos para identificar casos que requieren revisión.</p><p className="mt-2 text-[10px] font-semibold text-slate-400">Referencia: {CORRIDOR_BUFFER_M} m para corredores y {ALLOWED_PLACE_REVIEW_BUFFER_M} m para lugares permitidos. No reemplaza la evaluación administrativa.</p></div></div></div>
+    <div className="section-heading"><div><span className="section-kicker">Vista territorial</span><h2>Mapa de corredores y carteles</h2><p>Filtros de diagnóstico para priorizar tareas de control.</p></div><span className="inline-flex items-center gap-2 rounded-xl bg-municipal-50 px-4 py-2 text-xs font-bold text-municipal-700"><Layers3 size={15}/>{carteles.length} carteles visibles</span></div>
 
-  function saveCorrection() {
-    if (!editing || !draftLocation) return;
-    const updated = { ...editing, domicilio: domicilio.trim(), numero: numero.trim(), latitud: draftLocation.latitude, longitud: draftLocation.longitude, locationSource: "manual" as const, locationEdited: true };
-    onUpdate(updated);
-    setSelected(updated);
-    onEditingChange(null);
-    setDraftLocation(null);
-  }
-
-  function resetLocation(cartel: CartelRecord) {
-    onReset(cartel.id);
-    onEditingChange(null);
-    setDraftLocation(null);
-    setSelected(null);
-  }
-
-  function restoreOriginalDraft() {
-    if (!editing) return;
-    setDomicilio(editing.domicilio);
-    setNumero(editing.numero);
-    setDraftLocation(editing.originalLatitud != null && editing.originalLongitud != null ? { latitude: editing.originalLatitud, longitude: editing.originalLongitud } : null);
-  }
-
-  return <section id="mapa" className="section-block">
-    <div className="section-heading">
-      <div><span className="section-kicker">Vista territorial</span><h2>Mapa de cartelería urbana</h2><p>Corregí direcciones y asigná ubicaciones directamente sobre el mapa.</p></div>
-      <span className="inline-flex items-center gap-2 rounded-xl bg-municipal-50 px-4 py-2 text-xs font-bold text-municipal-700"><Layers3 size={15}/> {mapped} visibles · {carteles.length - mapped} pendientes</span>
+    <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1"><div><b className="block text-xs text-ink">Filtros de control</b><span className="text-[10px] text-slate-400">Afectan el mapa y el listado.</span></div><button onClick={() => setAdvancedOpen(value => !value)} aria-expanded={advancedOpen} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-extrabold transition ${advancedOpen || advancedCount ? "border-municipal-300 bg-municipal-50 text-municipal-700" : "border-slate-200 text-slate-600 hover:border-municipal-300"}`}><SlidersHorizontal size={13}/>Más filtros{advancedCount > 0 && <span className="grid size-5 place-items-center rounded-full bg-municipal-700 text-[9px] text-white">{advancedCount}</span>}<ChevronDown size={12} className={`transition ${advancedOpen ? "rotate-180" : ""}`}/></button></div>
+      <div className="flex flex-wrap gap-2">{mainFilters.map(option => { const active = filters.main === option.value; return <button key={option.value} aria-pressed={active} aria-label={option.description ? `${option.label}: ${option.description}` : option.label} title={option.description} onClick={() => onFilters({ ...filters, main: option.value })} className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2.5 text-[10px] font-extrabold transition ${active ? "border-municipal-700 bg-municipal-700 text-white shadow-md ring-2 ring-municipal-100" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-municipal-300 hover:text-municipal-700"}`}>{active && <Check size={12}/>} {option.label}</button>; })}</div>
+      {filters.main !== "todos" && <p className="mt-3 rounded-xl bg-municipal-50 px-3 py-2 text-[11px] font-medium text-slate-600"><span className="font-extrabold text-municipal-800">Filtro aplicado:</span> {mainFilters.find(option => option.value === filters.main)?.description ?? "Se muestran únicamente los carteles que cumplen este criterio."}</p>}
+      {advancedOpen && <AdvancedFilters filters={filters} onFilters={onFilters}/>}
     </div>
-    <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <div><b className="block text-xs text-ink">Nivel de contaminación visual</b><span className="text-[10px] text-slate-400">Filtra simultáneamente el mapa y las cards.</span></div>
-      <div className="flex flex-wrap gap-1.5">{(["todos", "bajo", "medio", "alto", "critico"] as const).map(level => <button key={level} onClick={() => onContaminationFilter(level)} className={`rounded-lg px-3 py-2 text-[10px] font-extrabold capitalize transition ${contaminationFilter === level ? "bg-municipal-700 text-white shadow-sm" : "bg-slate-50 text-slate-500 hover:bg-municipal-50 hover:text-municipal-700"}`}>{level === "todos" ? "Todos" : level === "critico" ? "Crítico" : level}</button>)}</div>
-    </div>
-    <div className="relative h-[620px] overflow-hidden rounded-[26px] border border-slate-200 bg-slate-100 shadow-card">
-      <CarteleriaMap carteles={carteles} selected={selected} onSelect={setSelected} editing={Boolean(editing)} draftLocation={draftLocation} onLocationPick={(latitude, longitude) => setDraftLocation({ latitude, longitude })}/>
-      <div className="absolute bottom-5 left-5 z-[500] flex max-w-[calc(100%-90px)] flex-wrap gap-x-3 gap-y-2 rounded-xl border border-white/80 bg-white/95 p-3 shadow-lg backdrop-blur">{legend.map(([status, label]) => <span key={status} className="flex items-center gap-2 text-[9px] font-bold text-slate-600"><i className="size-2.5 rounded-full" style={{ background: situationColors[status] }}/>{label}</span>)}</div>
-      <div className="absolute left-5 top-5 z-[500] rounded-xl bg-white/95 px-4 py-2 text-[10px] font-semibold text-slate-500 shadow-lg">{mapped} puntos verificados</div>
 
-      {editing ? <aside className="absolute right-5 top-5 z-[600] w-[min(380px,calc(100%-40px))] rounded-2xl border border-municipal-100 bg-white/95 p-5 shadow-2xl backdrop-blur">
-        <button onClick={() => onEditingChange(null)} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="Cancelar corrección"><X size={17}/></button>
-        <span className="section-kicker">Corrección de ubicación</span>
-        <h3 className="mt-2 pr-7 font-display text-base font-extrabold text-ink">{editing.tipoCartel} · {editing.empresa || "Sin empresa"}</h3>
-        <div className="mt-4 grid gap-3">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Domicilio<input value={domicilio} onChange={event => setDomicilio(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-medium normal-case tracking-normal text-ink outline-none focus:border-municipal-500"/></label>
-          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Número / referencia<input value={numero} onChange={event => setNumero(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-medium normal-case tracking-normal text-ink outline-none focus:border-municipal-500"/></label>
-        </div>
-        {editing.googleMapsUrl?.startsWith("http") && <a href={editing.googleMapsUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold text-municipal-700">Comparar con Google Maps <ExternalLink size={12}/></a>}
-        <div className={`mt-4 flex gap-3 rounded-xl p-3 ${draftLocation ? "bg-municipal-50 text-municipal-900" : "bg-amber-50 text-amber-800"}`}><Crosshair className="shrink-0" size={18}/><div><b className="block text-xs">{draftLocation ? "Punto seleccionado" : "Hacé clic en el mapa"}</b><span className="mt-1 block text-[10px] leading-4">{draftLocation ? `${draftLocation.latitude.toFixed(6)}, ${draftLocation.longitude.toFixed(6)}` : "Elegí la ubicación exacta del cartel antes de guardar."}</span></div></div>
-        <button onClick={saveCorrection} disabled={!draftLocation} className="primary-button mt-4 w-full justify-center disabled:cursor-not-allowed disabled:opacity-40"><Check size={16}/> Guardar corrección</button>
-        <button onClick={restoreOriginalDraft} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-bold text-slate-400 hover:bg-slate-100 hover:text-slate-600"><RotateCcw size={14}/> Restaurar ubicación original</button>
-      </aside> : selected && <aside className="absolute right-5 top-5 z-[600] w-[min(370px,calc(100%-40px))] rounded-2xl border border-white bg-white/95 p-5 shadow-2xl backdrop-blur">
-        <button onClick={() => setSelected(null)} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="Cerrar detalle"><X size={17}/></button>
-        <div className="flex flex-wrap gap-2"><span className="section-kicker">{situationLabels[selected.status]}</span><span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold uppercase text-slate-500">Contaminación {selected.contaminationLevel}</span>{selected.locationEdited && <span className="rounded-full bg-municipal-50 px-2 py-1 text-[9px] font-bold uppercase text-municipal-700">Ubicación corregida</span>}</div>
-        <h3 className="mt-2 pr-7 font-display text-base font-extrabold text-ink">{selected.tipoCartel} · {selected.empresa || "Sin empresa"}</h3>
-        <p className="mt-3 flex items-start gap-2 text-xs leading-5 text-slate-500"><MapPin size={14} className="mt-0.5 shrink-0 text-municipal-700"/>{cartelAddress(selected)}</p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button onClick={() => onEditingChange(selected.id)} className="secondary-button compact"><Crosshair size={14}/> Corregir ubicación</button>
-          {selected.googleMapsUrl?.startsWith("http") && <a href={selected.googleMapsUrl} target="_blank" rel="noreferrer" className="primary-button compact"><ExternalLink size={14}/> Ver en Google Maps</a>}
-          {selected.locationEdited && <button onClick={() => resetLocation(selected)} className="secondary-button compact text-rose-600 hover:text-rose-700"><RotateCcw size={14}/> Eliminar corrección</button>}
-        </div>
-      </aside>}
-    </div>
+    <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-municipal-50 text-municipal-700"><MapPinned size={14}/></span><b className="text-xs text-ink">Diagnóstico territorial</b></div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={<MapPin size={17}/>} tone="blue" value={allCarteles.length} label="Total de carteles"/><Metric icon={<CheckCircle2 size={17}/>} tone="green" value={inside} label="Dentro de corredores"/><Metric icon={<AlertTriangle size={17}/>} tone="red" value={outside} label="Fuera de zona permitida"/><Metric icon={<Route size={17}/>} tone="yellow" value={`${outsidePercent}%`} label="Porcentaje fuera de zona"/></div></div>
+    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"><b className="mr-1 text-[10px] uppercase tracking-wider text-slate-400">Leyenda</b>{(["dentro_corredor", "cerca_lugar_permitido", "fuera_zona_permitida"] as AnalysisStatus[]).map(status => <LegendDot key={status} color={analysisColors[status]} label={status === "dentro_corredor" ? "Cartel dentro de corredor" : status === "cerca_lugar_permitido" ? "Requiere revisión" : "Fuera de corredor"}/>)}<span className="flex items-center gap-2 text-[10px] font-bold text-slate-600"><i className="h-1 w-6 rounded-full bg-green-600"/>Corredor permitido</span><span className="flex items-center gap-2 text-[10px] font-bold text-slate-600"><i className="size-4 rounded-full border-2 border-green-500 bg-[radial-gradient(circle,#ffffff_0%,#bbf7d0_45%,#4ade80_100%)] opacity-70"/>Área permitida aislada</span></div>
+    <div className="relative h-[650px] overflow-hidden rounded-[26px] border border-slate-200 bg-slate-100 shadow-card"><CarteleriaMap carteles={carteles} corridors={corridors} allowedPlaces={allowedPlaces} selected={selected} onSelect={setSelected}/><div className="absolute left-5 top-5 z-[500] rounded-xl bg-white/95 px-4 py-2 text-[10px] font-semibold text-slate-500 shadow-lg">{corridors.features.length} corredores · {review} a revisar</div>{selected && <Detail cartel={selected} onClose={() => setSelected(null)}/>}</div>
   </section>;
 }
+
+function AdvancedFilters({ filters, onFilters }: { filters: TerritorialFilterState; onFilters: (filters: TerritorialFilterState) => void }) {
+  return <div className="mt-4 border-t border-slate-100 pt-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><FilterSelect label="Estado tributario" value={filters.tax} onChange={value => onFilters({ ...filters, tax: value as TerritorialFilterState["tax"] })} options={[['paga','Paga'],['no_paga','No paga'],['deuda','Con deuda'],['sin_datos','Sin datos']]}/><FilterSelect label="Estado registral" value={filters.registry} onChange={value => onFilters({ ...filters, registry: value as TerritorialFilterState["registry"] })} options={[['registrado','Registrado'],['no_registrado','No registrado'],['incompleto','Incompleto'],['sin_datos','Sin datos']]}/><FilterSelect label="Habilitación" value={filters.enablement} onChange={value => onFilters({ ...filters, enablement: value as TerritorialFilterState["enablement"] })} options={[['habilitado','Habilitado'],['habilitable','Habilitable'],['no_habilitable','No habilitable'],['requiere_revision','Requiere revisión']]}/><FilterSelect label="Contexto territorial" value={filters.context} onChange={value => onFilters({ ...filters, context: value as TerritorialFilterState["context"] })} options={[['avenida_comercial','Avenida comercial'],['corredor','Corredor'],['microcentro','Microcentro'],['escuela','Escuela'],['hospital','Hospital'],['plaza','Plaza'],['zona_residencial','Zona residencial'],['zona_patrimonial','Zona patrimonial'],['estacion_servicio','Estación de servicio']]}/><FilterSelect label="Tipo de soporte" value={filters.support} onChange={value => onFilters({ ...filters, support: value as TerritorialFilterState["support"] })} options={[['led','LED'],['cartel_tradicional','Cartel tradicional'],['medianera','Medianera'],['cerca_obra','Cerca de obra'],['gigantografia','Gigantografía']]}/></div><button onClick={() => onFilters(initialTerritorialFilters)} className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-municipal-700"><RotateCcw size={12}/>Limpiar todos los filtros</button></div>;
+}
+
+function FilterSelect({ label, value, options, onChange }: { label: string; value: string; options: [string,string][]; onChange: (value: string) => void }) { return <label className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{label}<select value={value} onChange={event => onChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-[10px] font-bold normal-case tracking-normal text-slate-700 outline-none focus:border-municipal-500"><option value="todos">Todos</option>{options.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>; }
+function Metric({ icon, tone, value, label }: { icon: ReactNode; tone: "blue" | "green" | "red" | "yellow"; value: number | string; label: string }) { const tones = { blue: "bg-blue-50 text-blue-600", green: "bg-green-50 text-green-600", red: "bg-red-50 text-red-600", yellow: "bg-yellow-50 text-yellow-700" }; return <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${tones[tone]}`}>{icon}<div><strong className="block text-sm text-ink">{value}</strong><span className="text-[9px] font-semibold text-slate-500">{label}</span></div></div>; }
+function LegendDot({ color, label }: { color: string; label: string }) { return <span className="flex items-center gap-2 text-[10px] font-bold text-slate-600"><i className="size-3 rounded-full ring-2 ring-white shadow-sm" style={{ background: color }}/>{label}</span>; }
+function Detail({ cartel, onClose }: { cartel: AnalyzedCartel; onClose: () => void }) { const [longitude, latitude] = cartel.geometry.coordinates; const p = cartel.properties; const maps = `https://www.google.com/maps?q=${latitude},${longitude}`; const street = `https://www.google.com/maps?q=&layer=c&cbll=${latitude},${longitude}`; return <aside className="absolute right-5 top-5 z-[600] w-[min(390px,calc(100%-40px))] rounded-2xl border border-white bg-white/95 p-5 shadow-2xl backdrop-blur"><button onClick={onClose} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="Cerrar detalle"><X size={17}/></button><span className="inline-flex rounded-full px-2.5 py-1 text-[9px] font-extrabold uppercase text-white" style={{ background: analysisColors[p.analysisStatus] }}>{analysisLabels[p.analysisStatus]}</span><h3 className="mt-3 pr-7 font-display text-lg font-extrabold text-ink">{p.name || "Cartel relevado"}</h3><div className="mt-3 flex flex-wrap gap-1.5"><Tag text={p.taxStatus.replace('_',' ')}/><Tag text={p.registryStatus.replace('_',' ')}/><Tag text={p.enablementStatus.replace('_',' ')}/><Tag text={`Prioridad ${p.controlPriority}`}/></div><dl className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 text-xs"><div><dt className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Corredor más cercano</dt><dd className="mt-1 font-semibold text-slate-700">{p.nearestCorridor || "Sin referencia"}</dd></div><div><dt className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Distancia</dt><dd className="mt-1 font-semibold text-slate-700">{Math.round(Number(p.distanceToCorridorM || 0))} metros</dd></div></dl>{p.analysisStatus !== "dentro_corredor" && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-[10px] font-semibold text-amber-800">Requiere evaluación administrativa. Potencial regularización o posible retiro según corresponda.</p>}<div className="mt-4 grid grid-cols-2 gap-2"><a href={maps} target="_blank" rel="noreferrer" className="secondary-button compact justify-center">Google Maps <ExternalLink size={12}/></a><a href={street} target="_blank" rel="noreferrer" className="primary-button compact justify-center">Street View <ExternalLink size={12}/></a></div></aside>; }
+function Tag({ text }: { text: string }) { return <span className="rounded-full bg-slate-100 px-2 py-1 text-[8px] font-bold capitalize text-slate-600">{text}</span>; }
