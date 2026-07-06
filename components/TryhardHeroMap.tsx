@@ -48,7 +48,7 @@ export function TryhardHeroMap() {
       const mobile = self?.matches.mobile ?? false;
       const reducedMotion = self?.matches.reducedMotion ?? false;
       let pieceAnimations: ReturnType<typeof animate>[] = [];
-      let exploded = false;
+      const activatedPieces = new Set<number>();
 
       if (!container || !map) return;
 
@@ -129,22 +129,46 @@ export function TryhardHeroMap() {
         pieceAnimations = [];
       };
 
-      const setPiecesExploded = (exploded: boolean) => {
+      const activatePiece = (piece: HTMLElement, index: number) => {
+        if (activatedPieces.has(index)) return;
+        activatedPieces.add(index);
+        if (activatedPieces.size === 1 && mapBase) pieceAnimations.push(animate(mapBase, { opacity: 0, duration: 500, ease: "out(3)" }));
+
+        const behavior = index % 3;
+        if (behavior === 0) {
+          pieceAnimations.push(animate(piece, { rotate: index % 2 ? 360 : -360, scale: 1.06, duration: 1100, ease: "out(4)" }));
+          return;
+        }
+
+        if (behavior === 1) {
+          pieceAnimations.push(animate(piece, { rotate: index % 2 ? 180 : -180, rotateY: 180, scaleX: -1, scale: .98, duration: 1250, ease: "out(4)" }));
+          return;
+        }
+
+        const directionX = index % 2 ? 1 : -1;
+        const directionY = index % 4 < 2 ? -1 : 1;
+        const targetX = directionX * (window.innerWidth * (.28 + (index % 5) * .035));
+        const targetY = directionY * (window.innerHeight * (.2 + (index % 4) * .045));
+        pieceAnimations.push(animate(piece, {
+          x: targetX,
+          y: targetY,
+          rotate: directionX * (140 + index * 9),
+          scale: .82,
+          duration: 950,
+          ease: "out(4)",
+          onComplete: () => {
+            if (!activatedPieces.has(index)) return;
+            pieceAnimations.push(animate(piece, { y: [targetY - 12, targetY + 12], rotate: [directionX * (140 + index * 9) - 5, directionX * (140 + index * 9) + 5], duration: 2600 + index * 40, alternate: true, loop: true, ease: "inOut(2)" }));
+          },
+        }));
+      };
+
+      const resetPieces = () => {
         clearPieceAnimations();
-        if (mapBase) pieceAnimations.push(animate(mapBase, { opacity: exploded ? 0 : 1, duration: 500, ease: "out(3)" }));
-        mapPieces.forEach((piece, index) => {
-          const column = index % COLUMNS;
-          const row = Math.floor(index / COLUMNS);
-          const vectorX = (column - (COLUMNS - 1) / 2) / ((COLUMNS - 1) / 2);
-          const vectorY = (row - (ROWS - 1) / 2) / ((ROWS - 1) / 2);
-          pieceAnimations.push(animate(piece, {
-            x: exploded ? vectorX * 32 : 0,
-            y: exploded ? vectorY * 26 : 0,
-            scale: exploded ? .94 : 1,
-            duration: exploded ? 650 : 800,
-            ease: "out(4)",
-          }));
-        });
+        activatedPieces.clear();
+        if (mapBase) animate(mapBase, { opacity: 1, duration: 550, ease: "out(3)" });
+        mapPieces.forEach(piece => animate(piece, { x: 0, y: 0, rotate: 0, rotateX: 0, rotateY: 0, scale: 1, scaleX: 1, duration: 850, ease: "out(4)" }));
+        container.dataset.exploded = "false";
       };
 
       const onPointerMove = (event: PointerEvent) => {
@@ -154,14 +178,21 @@ export function TryhardHeroMap() {
         tilt.y(y * 16);
         tilt.rotateY(x * 20);
         tilt.rotateX(y * -16);
+
+        mapPieces.forEach((piece, index) => {
+          if (activatedPieces.has(index)) return;
+          const bounds = piece.getBoundingClientRect();
+          const distanceX = event.clientX - (bounds.left + bounds.width / 2);
+          const distanceY = event.clientY - (bounds.top + bounds.height / 2);
+          if (Math.hypot(distanceX, distanceY) < Math.max(46, bounds.width * .42)) activatePiece(piece, index);
+        });
       };
 
       const onBackgroundClick = (event: MouseEvent) => {
         const target = event.target as HTMLElement | null;
+        if (!target?.closest("[data-territorial-background-zone]")) return;
         if (target?.closest("a,button,input,select,textarea,article,[role='button'],.leaflet-container,.leaflet-control")) return;
-        exploded = !exploded;
-        container.dataset.exploded = String(exploded);
-        setPiecesExploded(exploded);
+        resetPieces();
       };
 
       const onPointerLeave = (event: MouseEvent) => {
@@ -188,16 +219,17 @@ export function TryhardHeroMap() {
   }, []);
 
   return (
-    <div ref={root} aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 flex items-center justify-center overflow-hidden px-3 [perspective:1200px]">
+    <div ref={root} aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden [perspective:1200px]">
+      <div className="sticky top-0 flex h-[100svh] items-center justify-center px-3">
       <div className="relative w-[96vw] max-w-[1010px] opacity-[.17] sm:w-[90vw] sm:opacity-[.2] lg:w-[68vw] lg:opacity-[.24]">
       <div className="tryhard-map-glow absolute inset-[7%] rounded-full bg-[radial-gradient(circle,rgba(45,176,255,.38)_0%,rgba(1,102,255,.17)_45%,transparent_72%)] blur-[45px] will-change-transform" />
 
       <div className="tryhard-map-shell relative opacity-0 will-change-transform">
         <div className="tryhard-map-tilt relative will-change-transform [transform-style:preserve-3d]">
-          <div className="relative aspect-[678/508] overflow-hidden rounded-[28px] border border-white/90 bg-white/75 p-2.5 shadow-[0_28px_90px_rgba(1,102,255,.18)] backdrop-blur sm:p-3.5">
-            <div className="relative size-full overflow-hidden rounded-[20px] bg-[#eaf5ff]">
-              <div className="tryhard-map-base absolute inset-0 bg-[url('/images/hero-map-smt.png')] bg-cover bg-center bg-no-repeat" />
-              <div className="absolute inset-0 grid grid-cols-7 grid-rows-5 overflow-hidden">
+          <div className="relative aspect-[678/508] overflow-visible rounded-[28px] border border-white/90 bg-white/75 p-2.5 shadow-[0_28px_90px_rgba(1,102,255,.18)] backdrop-blur sm:p-3.5">
+            <div className="relative size-full overflow-visible rounded-[20px] bg-[#eaf5ff]">
+              <div className="tryhard-map-base absolute inset-0 rounded-[20px] bg-[url('/images/hero-map-smt.png')] bg-cover bg-center bg-no-repeat" />
+              <div className="absolute inset-0 grid grid-cols-7 grid-rows-5 overflow-visible">
                 {pieces.map(({ index, column, row }) => (
                   <div
                     key={index}
@@ -231,6 +263,7 @@ export function TryhardHeroMap() {
           <span className="grid size-6 place-items-center rounded-lg bg-[#0166FF] text-white"><MapPin size={13}/></span>
           Modelo territorial interactivo
         </div>
+      </div>
       </div>
       </div>
     </div>

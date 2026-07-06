@@ -38,11 +38,15 @@ export function Dashboard() {
 
   return <>
     <Header/>
-    <TryhardHeroMap/>
     <main className="relative z-[1]">
-      <Hero/>
-      <StatsCards cartelesCount={analyzedCarteles.length}/>
-      <MapPreview carteles={filteredAnalyzed} allCarteles={analyzedCarteles} corridors={corridors} allowedPlaces={allowedPlaces} filters={filters} onFilters={setFilters}/>
+      <div data-territorial-background-zone className="relative isolate overflow-hidden">
+        <TryhardHeroMap/>
+        <div className="relative z-[1]">
+          <Hero/>
+          <StatsCards cartelesCount={analyzedCarteles.length}/>
+          <MapPreview carteles={filteredAnalyzed} allCarteles={analyzedCarteles} corridors={corridors} allowedPlaces={allowedPlaces} filters={filters} onFilters={setFilters}/>
+        </div>
+      </div>
       <CartelLibrary carteles={filteredAnalyzed}/>
       <PdfLibrary onOpen={setSelectedDocument}/>
       <CorridorsSection/>
