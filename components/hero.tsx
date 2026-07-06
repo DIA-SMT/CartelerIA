@@ -2,14 +2,13 @@ import { ArrowRight, FileSearch, MapPin } from "lucide-react";
 
 export function Hero() {
   return (
-    <section id="inicio" className="relative flex min-h-[100svh] items-center overflow-hidden border-b border-black/5 bg-transparent py-10 sm:py-14 lg:py-16">
+    <section id="inicio" className="relative flex min-h-[100svh] items-start overflow-hidden border-b border-black/5 bg-transparent pb-10 pt-5 sm:pb-14 sm:pt-7 lg:pb-16 lg:pt-9">
       <div className="hero-grid absolute inset-0 opacity-40" />
       <div className="absolute -right-32 top-0 size-[520px] rounded-full bg-[#2DB0FF]/10 blur-3xl" />
       <div className="absolute -left-36 bottom-0 size-80 rounded-full bg-[#0166FF]/5 blur-3xl" />
 
       <div className="page-shell relative grid w-full items-center gap-8 sm:gap-10 lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,.92fr)] lg:gap-8 xl:grid-cols-[minmax(0,1.12fr)_minmax(460px,.88fr)]">
-        <div className="relative max-w-[720px] py-5 sm:py-8">
-          <div className="pointer-events-none absolute -inset-x-10 -inset-y-10 -z-10 rounded-[48px] bg-[radial-gradient(ellipse_at_left,rgba(248,251,255,.98)_18%,rgba(248,251,255,.86)_58%,transparent_82%)] blur-sm" />
+        <div className="relative max-w-[720px] py-3 sm:py-5">
           <span className="eyebrow">
             <span className="size-2 rounded-full bg-brandYellow shadow-[0_0_0_4px_rgba(244,220,0,.14)]" />
             Municipalidad de San Miguel de Tucumán
