@@ -49,6 +49,10 @@ export function TryhardHeroMap() {
       const reducedMotion = self?.matches.reducedMotion ?? false;
       let pieceAnimations: ReturnType<typeof animate>[] = [];
       const activatedPieces = new Set<number>();
+      const ambientAnimations: ReturnType<typeof animate>[] = [];
+      let isVisible = true;
+      let pointerFrame: number | null = null;
+      let latestPointer: PointerEvent | null = null;
 
       if (!container || !map) return;
 
@@ -76,16 +80,16 @@ export function TryhardHeroMap() {
         ease: "out(3)",
       });
 
-      animate(".tryhard-map-glow", {
+      ambientAnimations.push(animate(".tryhard-map-glow", {
         opacity: [.5, .86],
         scale: [1, 1.08],
         duration: 4800,
         alternate: true,
         loop: true,
         ease: "inOut(2)",
-      });
+      }));
 
-      animate(".tryhard-marker", {
+      ambientAnimations.push(animate(".tryhard-marker", {
         opacity: [.42, 1],
         scale: [.78, 1.24],
         delay: stagger(260),
@@ -93,9 +97,9 @@ export function TryhardHeroMap() {
         alternate: true,
         loop: true,
         ease: "inOut(2)",
-      });
+      }));
 
-      animate(".tryhard-analysis-line", {
+      ambientAnimations.push(animate(".tryhard-analysis-line", {
         opacity: [.14, .55],
         strokeDashoffset: [42, 0],
         delay: stagger(380),
@@ -103,18 +107,29 @@ export function TryhardHeroMap() {
         alternate: true,
         loop: true,
         ease: "inOut(2)",
-      });
+      }));
 
-      animate(".tryhard-scan", {
+      ambientAnimations.push(animate(".tryhard-scan", {
         y: ["-140%", "520%"],
         opacity: [0, .5, 0],
         duration: 5200,
         delay: 1200,
         loop: true,
         ease: "inOut(2)",
-      });
+      }));
 
-      if (mobile) return;
+      const visibilityObserver = new IntersectionObserver(([entry]) => {
+        isVisible = entry.isIntersecting;
+        ambientAnimations.forEach(animation => isVisible ? animation.resume() : animation.pause());
+        if (!isVisible && pointerFrame !== null) {
+          cancelAnimationFrame(pointerFrame);
+          pointerFrame = null;
+          latestPointer = null;
+        }
+      }, { threshold: .02 });
+      visibilityObserver.observe(container);
+
+      if (mobile) return () => visibilityObserver.disconnect();
 
       const tilt = createAnimatable(map, {
         x: 520,
@@ -171,7 +186,7 @@ export function TryhardHeroMap() {
         container.dataset.exploded = "false";
       };
 
-      const onPointerMove = (event: PointerEvent) => {
+      const updatePointerInteraction = (event: PointerEvent) => {
         const x = event.clientX / window.innerWidth - .5;
         const y = event.clientY / window.innerHeight - .5;
         tilt.x(x * 20);
@@ -185,6 +200,16 @@ export function TryhardHeroMap() {
           const distanceX = event.clientX - (bounds.left + bounds.width / 2);
           const distanceY = event.clientY - (bounds.top + bounds.height / 2);
           if (Math.hypot(distanceX, distanceY) < Math.max(46, bounds.width * .42)) activatePiece(piece, index);
+        });
+      };
+
+      const onPointerMove = (event: PointerEvent) => {
+        if (!isVisible) return;
+        latestPointer = event;
+        if (pointerFrame !== null) return;
+        pointerFrame = requestAnimationFrame(() => {
+          pointerFrame = null;
+          if (latestPointer) updatePointerInteraction(latestPointer);
         });
       };
 
@@ -208,6 +233,8 @@ export function TryhardHeroMap() {
       document.documentElement.addEventListener("mouseout", onPointerLeave);
 
       return () => {
+        visibilityObserver.disconnect();
+        if (pointerFrame !== null) cancelAnimationFrame(pointerFrame);
         clearPieceAnimations();
         window.removeEventListener("pointermove", onPointerMove);
         document.removeEventListener("click", onBackgroundClick, true);

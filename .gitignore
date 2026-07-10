@@ -1,6 +1,13 @@
 node_modules
 .next
+.env
 .env*.local
 *.log
 *.tsbuildinfo
 .vercel
+reports/*.csv
+reports/*.md
+supabase/generated/
+# Config local del editor/preview y archivos de prueba
+.claude/
+.sync-probe.txt

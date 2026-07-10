@@ -6,6 +6,7 @@ export type ContaminationLevel = "bajo" | "medio" | "alto" | "critico";
 
 export interface CartelRecord {
   id: string;
+  territorialFeatureId?: string | null;
   empresa: string;
   cuit: string;
   tipoCartel: string;
