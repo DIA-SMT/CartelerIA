@@ -83,9 +83,11 @@ export function ProductTour() {
   }, [active]);
 
   // Al cambiar de paso: llevar el objetivo al centro (scroll instantáneo).
+  // No se resetea `pos` acá: el useLayoutEffect de más abajo es el único dueño de
+  // la posición. Hacerlo generaba un race (este useEffect corría DESPUÉS del
+  // layout effect y dejaba pos=null → tarjeta invisible y overlay que bloquea todo).
   useEffect(() => {
     if (!active) return;
-    setPos(null);
     if (step.selector) {
       document.querySelector(step.selector)?.scrollIntoView({ behavior: "auto", block: "center" });
     }
@@ -170,7 +172,7 @@ export function ProductTour() {
   const visible = pos !== null;
 
   return (
-    <div className="fixed inset-0 z-[2000]" role="dialog" aria-modal="true" aria-label="Recorrido guiado">
+    <div className="fixed inset-0 z-[2000]" role="dialog" aria-modal="true" aria-label="Recorrido guiado" onClick={finish}>
       {/* Capa oscura: con "hueco" sobre el objetivo, o dim completo si es centrado. */}
       {rect ? (
         <div
@@ -191,6 +193,7 @@ export function ProductTour() {
       {/* Tarjeta */}
       <div
         ref={cardRef}
+        onClick={(event) => event.stopPropagation()}
         className="absolute w-[min(360px,calc(100vw-1.5rem))] rounded-2xl border border-white bg-white p-5 shadow-2xl transition-[top,left] duration-200"
         style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999, opacity: visible ? 1 : 0 }}
       >
