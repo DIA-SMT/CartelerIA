@@ -1,5 +1,6 @@
 create table if not exists public.carteles (
   id text primary key,
+  territorial_feature_id text unique,
   empresa text not null default '',
   cuit text not null default '',
   tipo_cartel text not null default 'CARTEL',
@@ -27,6 +28,7 @@ create table if not exists public.carteles (
 create index if not exists carteles_status_idx on public.carteles(status);
 create index if not exists carteles_contamination_idx on public.carteles(contamination_level);
 create index if not exists carteles_zone_idx on public.carteles(zone);
+create index if not exists carteles_territorial_feature_idx on public.carteles(territorial_feature_id);
 
 alter table public.carteles enable row level security;
 

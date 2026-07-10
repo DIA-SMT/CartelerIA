@@ -3,7 +3,7 @@ import { initialCarteles } from "@/data/carteles";
 import { supabase } from "./supabase";
 
 type CartelRow = {
-  id: string; empresa: string; cuit: string; tipo_cartel: string; dimensiones: string;
+  id: string; territorial_feature_id?: string | null; empresa: string; cuit: string; tipo_cartel: string; dimensiones: string;
   superficie_m2: number | null; domicilio: string; numero: string; google_maps_url: string;
   padron_cisi: string; estado: CartelRecord["estado"]; latitud: number | null; longitud: number | null;
   location_source: CartelRecord["locationSource"]; status: CartelRecord["status"];
@@ -14,7 +14,7 @@ type CartelRow = {
 
 function fromRow(row: CartelRow): CartelRecord {
   return {
-    id: row.id, empresa: row.empresa, cuit: row.cuit, tipoCartel: row.tipo_cartel,
+    id: row.id, territorialFeatureId: row.territorial_feature_id ?? null, empresa: row.empresa, cuit: row.cuit, tipoCartel: row.tipo_cartel,
     dimensiones: row.dimensiones, superficieM2: row.superficie_m2, domicilio: row.domicilio,
     numero: row.numero, googleMapsUrl: row.google_maps_url, padronCisi: row.padron_cisi,
     estado: row.estado, latitud: row.latitud, longitud: row.longitud, locationSource: row.location_source,

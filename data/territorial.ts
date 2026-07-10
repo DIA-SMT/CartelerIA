@@ -9,14 +9,19 @@ export type AdministrativeVisualStatus = "habilitado" | "deuda" | "fuera_zona" |
 export type MainTerritorialFilter = "todos" | "fuera_corredor" | "dentro_corredor" | "no_paga" | "deuda" | "no_registrado" | "habilitado" | "habilitable" | "no_habilitable" | "prioridad_alta" | "zona_sensible";
 
 export type TerritorialFilterState = {
+  query: string;
   main: Exclude<MainTerritorialFilter, "todos">[];
   tax: TaxStatus[];
   registry: RegistryStatus[];
   enablement: EnablementStatus[];
   support: SupportType[];
+  // Allow-list opcional de IDs (String(properties.id)). La usa "Preguntale al
+  // mapa" para pintar el set exacto de una consulta que no se puede expresar con
+  // los filtros estructurados. null/undefined = sin restricción por ID.
+  ids?: string[] | null;
 };
 
-export const initialTerritorialFilters: TerritorialFilterState = { main: [], tax: [], registry: [], enablement: [], support: [] };
+export const initialTerritorialFilters: TerritorialFilterState = { query: "", main: [], tax: [], registry: [], enablement: [], support: [], ids: null };
 
 export type GeoPoint = {
   type: "Feature";
@@ -49,6 +54,19 @@ export type AnalyzedCartel = GeoPoint & {
     supportType: SupportType;
     controlPriority: ControlPriority;
     sensitiveZone: boolean;
+    administrative?: {
+      recordId: string;
+      empresa: string;
+      cuit: string;
+      tipoCartel: string;
+      dimensiones: string;
+      superficieM2: number | null;
+      domicilio: string;
+      numero: string;
+      padronCisi: string;
+      estado: string;
+      locationEdited: boolean;
+    };
     [key: string]: unknown;
   };
 };
@@ -113,6 +131,12 @@ function applyReviewBuffer(carteles: FeatureCollection<AnalyzedCartel>): Feature
 export function filterTerritorialCarteles(carteles: AnalyzedCartel[], filters: TerritorialFilterState) {
   return carteles.filter(cartel => {
     const p = cartel.properties;
+    const normalizedQuery = filters.query.trim().toLocaleLowerCase("es");
+    const searchableText = [p.id, p.name, p.description, p.nearestCorridor, p.nearestAllowedPlace]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase("es");
+    const queryMatches = normalizedQuery.length === 0 || searchableText.includes(normalizedQuery);
     const mainMatches = filters.main.length === 0 || filters.main.some(filter =>
       (filter === "fuera_corredor" && getAdministrativeVisualStatus(cartel) === "fuera_zona")
       || (filter === "dentro_corredor" && p.analysisStatus === "dentro_corredor")
@@ -125,7 +149,8 @@ export function filterTerritorialCarteles(carteles: AnalyzedCartel[], filters: T
       || (filter === "prioridad_alta" && (p.controlPriority === "alta" || p.controlPriority === "critica"))
       || (filter === "zona_sensible" && p.sensitiveZone)
     );
-    return mainMatches
+    const idMatches = filters.ids == null || filters.ids.includes(String(p.id));
+    return queryMatches && mainMatches && idMatches
       && (filters.tax.length === 0 || filters.tax.includes(p.taxStatus))
       && (filters.registry.length === 0 || filters.registry.includes(p.registryStatus))
       && (filters.enablement.length === 0 || filters.enablement.includes(p.enablementStatus))

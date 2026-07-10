@@ -25,7 +25,9 @@ export default function CarteleriaMap({ carteles, corridors, allowedPlaces, sele
   const isolatedPlaces = allowedPlaces.features.filter(place => distanceToCorridors(place.geometry.coordinates, corridors) > ALLOWED_PLACE_REVIEW_BUFFER_M);
   return <MapContainer center={[-26.8304, -65.2145]} zoom={13} className="h-full w-full" zoomControl={false} scrollWheelZoom>
     <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
-    <GeoJSON data={corridors as never} style={{ color: "#16a34a", weight: 5, opacity: .8 }}/>
+    {/* key fuerza el remount cuando los corredores pasan de vacío→cargados:
+        <GeoJSON> solo lee `data` al montarse e ignora cambios del prop. */}
+    <GeoJSON key={`corridors-${corridors.features.length}`} data={corridors as never} style={{ color: "#16a34a", weight: 5, opacity: .8 }}/>
     {isolatedPlaces.map((place, index) => {
       const [longitude, latitude] = place.geometry.coordinates;
       const label = String(place.properties.description || place.properties.name || "Lugar permitido aislado");

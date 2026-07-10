@@ -1,40 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { UrbanDocument } from "@/data/documents";
-import type { AnalyzedCartel, FeatureCollection, GeoLine, GeoPoint, TerritorialFilterState } from "@/data/territorial";
-import { filterTerritorialCarteles, initialTerritorialFilters, loadTerritorialLayers } from "@/data/territorial";
+import { documents } from "@/data/documents";
+import { useTerritorialMap } from "@/hooks/use-territorial-map";
 import { CartelLibrary } from "./cartel-library";
 import { CorridorsSection } from "./corridors-section";
 import { Header } from "./header";
 import { Hero } from "./hero";
+import { ExpedientesRegistro } from "./expedientes-registro";
 import { MapPreview } from "./map-preview";
+import { NormativaAsk } from "./normativa-ask";
 import { PdfLibrary } from "./pdf-library";
 import { PdfViewer } from "./pdf-viewer";
+import { ProductTour } from "./product-tour";
 import { StatsCards } from "./stats-cards";
 import { TryhardHeroMap } from "./TryhardHeroMap";
 
-const emptyLines: FeatureCollection<GeoLine> = { type: "FeatureCollection", features: [] };
-const emptyPoints: FeatureCollection<GeoPoint> = { type: "FeatureCollection", features: [] };
-
 export function Dashboard() {
-  const [selectedDocument, setSelectedDocument] = useState<UrbanDocument | null>(null);
-  const [analyzedCarteles, setAnalyzedCarteles] = useState<AnalyzedCartel[]>([]);
-  const [corridors, setCorridors] = useState<FeatureCollection<GeoLine>>(emptyLines);
-  const [allowedPlaces, setAllowedPlaces] = useState<FeatureCollection<GeoPoint>>(emptyPoints);
-  const [filters, setFilters] = useState<TerritorialFilterState>(initialTerritorialFilters);
-  const filteredAnalyzed = filterTerritorialCarteles(analyzedCarteles, filters);
+  const [viewer, setViewer] = useState<{ document: UrbanDocument; page: number | null } | null>(null);
+  const territorial = useTerritorialMap();
 
-  useEffect(() => {
-    let active = true;
-    loadTerritorialLayers().then(layers => {
-      if (!active) return;
-      setCorridors(layers.corridors);
-      setAllowedPlaces(layers.allowedPlaces);
-      setAnalyzedCarteles(layers.analyzed.features);
-    }).catch(error => console.error("Error al cargar GeoJSON", error));
-    return () => { active = false; };
-  }, []);
+  const openDocument = (document: UrbanDocument, page: number | null = null) => setViewer({ document, page });
+  const openDocumentById = (documentoId: string, page: number | null) => {
+    const document = documents.find((item) => item.id === documentoId);
+    if (document) openDocument(document, page);
+  };
 
   return <>
     <Header/>
@@ -43,15 +34,18 @@ export function Dashboard() {
         <TryhardHeroMap/>
         <div className="relative z-[1]">
           <Hero/>
-          <StatsCards cartelesCount={analyzedCarteles.length}/>
-          <MapPreview carteles={filteredAnalyzed} allCarteles={analyzedCarteles} corridors={corridors} allowedPlaces={allowedPlaces} filters={filters} onFilters={setFilters}/>
+          <StatsCards cartelesCount={territorial.carteles.length}/>
+          <MapPreview carteles={territorial.filteredCarteles} allCarteles={territorial.carteles} corridors={territorial.corridors} allowedPlaces={territorial.allowedPlaces} filters={territorial.filters} onFilters={territorial.setFilters} loading={territorial.loading} error={territorial.error} onRetry={territorial.retry} administrativeSource={territorial.administrativeSource} linkedCount={territorial.linkedCount}/>
         </div>
       </div>
-      <CartelLibrary carteles={filteredAnalyzed}/>
-      <PdfLibrary onOpen={setSelectedDocument}/>
+      <CartelLibrary carteles={territorial.filteredCarteles}/>
+      <div data-tour="normativa" className="section-block pb-0"><NormativaAsk onOpenDocument={openDocumentById}/></div>
+      <PdfLibrary onOpen={(document) => openDocument(document)}/>
+      <ExpedientesRegistro/>
       <CorridorsSection/>
     </main>
     <footer className="relative z-[1] mt-20 border-t border-slate-200 bg-white/90 backdrop-blur-sm"><div className="page-shell flex flex-col justify-between gap-4 py-8 sm:flex-row sm:items-center"><div className="text-xs text-slate-400"><b className="block text-ink">Cartelería Urbana SMT</b>Municipalidad de San Miguel de Tucumán</div><span className="text-xs text-slate-400">Capas territoriales estáticas · GeoJSON</span></div></footer>
-    <PdfViewer document={selectedDocument} onClose={() => setSelectedDocument(null)}/>
+    <PdfViewer document={viewer?.document ?? null} page={viewer?.page ?? null} onClose={() => setViewer(null)}/>
+    <ProductTour/>
   </>;
 }
