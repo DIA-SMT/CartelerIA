@@ -1,0 +1,135 @@
+{
+  "docId": "doc-03",
+  "titulo": "Instalaciones complementarias",
+  "archivo": "informe-instalaciones.pdf",
+  "sourceHash": "f4f09ff5866da99e0869d644805bf3d6e5ce270203ce2d39d4ba530ec7859e07",
+  "ocrAplicado": true,
+  "fecha": "2026-07-13T12:09:40.335Z",
+  "modelo": "tesseract.js spa",
+  "escala": 2,
+  "paginasTotal": 17,
+  "paginasOcr": 5,
+  "confianzaMedia": 58.6,
+  "dudosa": true,
+  "paginas": [
+    {
+      "pagina": 1,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 1055,
+      "texto": "1 San Miguel de Tucumán.3 de febrero de 2025 Secretaria General Mg. Camila Giuliano Su Despacho Tengo el agrado de dirigirme a Ud. A los fines de elevar el siguiente informe de funcionamiento del Departamento de Instalaciones Complementarias. Este Departamento, creado durante la gestión de la Intendenta Rossana Chahla se ocupa de todo lo relacionado con elementos urbanos clasificados en: - Antenas (Ord. 2977/00) - Ascensores (Ord. 2433/96) - Letreros de publicidad propia (Ord. 2114/94, Dcto. 471/94) - Letreros de publicidad para terceros (Ord. 4728/14, Dcto. 0609/18) - Medidores de gas (Dcto. 3378/SOP/16) - Cercas de Obra (Ord. 2073/93, Resolución DCyE N°131/008, Dcto. 447/12) En virtud del crecimiento desordenado de la ciudad en los últimos tiempos y la falta de control de gestiones anteriores sobre estos temas es que se hace necesario establecer pautas a futuro. Se desarrolló en forma conjunta con la Secretaria de Ingresos Municipales, la Dirección de Catastro y Edificación y la Dirección de Planeamiento Urbano, el Operativo: “Ciudad Sin"
+    },
+    {
+      "pagina": 2,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 1224,
+      "texto": "2 Contaminación Visual”. Este Operativo tiene objetivos económicos, fomentando la justa competencia entre empresas publicitarias para acceder al espacio público de igual manera, urbanos, de ordenamiento territorial y principalmente psicológicos al evitar la aparición de excesivos elementos urbanos en el paisaje de la ciudad que generan impactos emocionales negativos en el peatón. Con el objetivo de acompañar los cambios urbanísticos se modifica los alcances de la Ord. 4728/14 a través un proyecto de Ordenanza y su decreto reglamentario. Para propiciar un mejor ordenamiento se proponen tres tamaños de cartelerías autorizados y puntos determinados en la ciudad donde se pueden instalar y todos deben respetar esas normas. Para ampliar la Dirección de Catastro propuso los “Corredores Publicitarios” que fue elevado y aprobado por el Ejecutivo Municipal, permitiendo extender la publicidad para terceros y realizarla en forma que no afecte visualmente a la ciudad, mediante un Proyecto de Ordenanza y modificación del Decreto Reglamentario de Ord. 4728/14. Tamaños autorizados: 1. (5x5) m 2. (7x7) m 3. M2 máximos aceptables con otro formato de acuerdo del parámetro de Contaminación Visual adoptado por este Operativo."
+    },
+    {
+      "pagina": 3,
+      "fuente": "ocr",
+      "confianza": 63,
+      "chars": 339,
+      "texto": "o CIUDAD 3 V San Miguel | Catastro y de Tucumán | edificación [ ESCALA DE LOS NIVELES DE i CONTAMINACIÓN VISUAL | 100% - 75% | 75%-50% | 50% - 25% 25% - 1% Mapa de Propuesta de Nuevos Corredores Publicitarios 2 . E N doo 0 + san Miguel E ABEL, s de Tucumán El Arton 2 o Y. A saul, N ; Ea Y e] 4 : Teo L 23 Ek -] o” E 57 EC Os . L 5 ¡pm E E"
+    },
+    {
+      "pagina": 4,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 1632,
+      "texto": "4 Distinción de Corredores Publicitarios OESTE – ESTE 1) Desde Punto de Acceso Oeste 1–Av. Belgrano- Av. Sarmiento – Av. Gobernador del Campo hasta Av. Coronel Suarez 2) Desde Av. Mitre por calle Santiago hasta Salta – x acera norte de calle Santiago desde Salta a Av. Avellaneda 3) Desde Punto de Acceso Oeste 3- Av. Mate de Luna – 24 de Septiembre hasta Salta /Jujuy acera oeste y desde Av. Benjamin Araoz primera cuadra hasta Av. Coronel Suarez. 4) Desde Av. Alem por calle General Paz hasta Jujuy – x acera sur de calle General Paz desde Jujuy hasta Av. Saenz Peña 5) Desde Punto de Acceso 5- Av. Elmina Paz de Gallo – Av. Kirchner – Av. Roca – Av. Pedro Miguel Araoz hasta Diagonal Papa Francisco NORTE – SUR 6) Desde Av. Kirchner por Av. Colon- Av. Ejercito del Norte hasta Av. Belgrano 7) Desde Av. Kirchner/Av. Roca por Av. Alem – Av. Mitre hasta Av. Belgrano/Av. Sarmiento 8) Desde General Paz por Jujuy (acera oeste)- Salta (acera oeste) hasta Santiago 9) Desde Av. Roca/Av. Pedro Miguel Araoz hasta general Paz- Av. Saenz Peña (acera este) – Av. Avellaneda (acera este) hasta Santiago – y ambas aceras hasta Av. Sarmiento /Av. Gobernador del Campo 10) Desde Av. Pedro Miguel Araoz por Av. Brigido Terán – Av. Soldati hasta Av. Gobernador del Campo 11) Av. Papa Francisco desde Acceso Este 5 hasta Av. Benjamin Araoz 12) Av. Coronel Suarez desde Av. Benjamin Araoz hasta Av. Gobernador del Campo MICROCENTRO definido entre calles: • Santiago desde Salta hasta Av. Avellaneda (acera Sur) • General Paz desde Jujuy hasta Av. Saenz Peña (acera Norte) • Jujuy (acera Este) desde General Paz – Salta (acera Este) hasta Santiago"
+    },
+    {
+      "pagina": 5,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 1108,
+      "texto": "5 • Av. Saenz Peña (acera Oeste) desde General Paz – Av. Avellaneda (acera Oeste) hasta Santiago PUNTOS DE ACCESO OESTE 1 – Camino del Peru y Av. Belgrano OESTE 3 – Camino del Peru y Av. Mate de Luna OESTE 5 – Entre Ruta 35 y Av. Elmina Paz de Gallo ESTE 2 - Av. Gobernador del Campo y Av. Circunvalacion ESTE 4 – Av. Benjamin Araoz y Av. Circunvalacion ESTE 6 – Diagonal Papa Francisco y Av. Circunvalacion • Estos corredores podrán ponerse en funcionamiento luego de la aprobación de la modificación del Código de Planemiento Urbano. Desde el DIC (Departamento Instalaciones Complementarias) se realizó una campaña para el Reempadronamiento de las empresas publicitarias existentes en la ciudad que quieren desarrollar la actividad comercial publicitaria en cuestión, sumando 12 en la actualidad, con permisos para instalar soportes, pantallas y cercas de obra ingresando la documentación técnica correspondiente a la Dirección de Catastro y Edificación, siendo tomadas como Obra Nueva. Todo este procediemiento administrativo también es una nueva disposición de la gestión de la Intendenta Rossana Chahla."
+    },
+    {
+      "pagina": 6,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 1239,
+      "texto": "6 Listado de Empresas Empadronadas 2025: 1. FREDDY PUBLICIDAD SRL 2. SEYA SRL 3. MARIS MARCELA KARINA 4. GIGANTO COMUNICACIONES SRL 5. CENTRAL OUTDOOR SRL 6. FIJACIONES.COM 7. NORGEN SRL - FOCUS NETWORK 8. PUBLIGRAF SA - CARTELUZ 9. PROYECTA SRL 10. HUMSY PABLO 11. SHOWING 12. VIA 2 Trabajo en Conjunto con Empresas Publicitarias: Anteriormente la actividad publicitaria se llevó a cabo de forma desordenada, sin respetar la ord. 4728/14 y sin la correspondiente intervención del municipio, por lo que durante esta Gestión municipal se reunió a los propietarios de carteles y pantallas, dándoles la posibilidad de regularizar su situación, haciendo una declaración de todos sus elementos, obligándoles a abonar los Derechos de Construcción adeudados por cada soporte; y la Intendenta Rossana Chahla exime de las multas antiguas generadas por la instalación de los carteles sin cumplir con los requisitos a las empresas que se regularizaron. De lo declarado, los que se encontraban en sitios permitidos por la ordenanza pero no cumplen con las medidas reglamentarias, se les da la posibilidad de adaptar a las normas para luego presentar ante la Dirección de Catastro y Edificación los planos y requisitos pertinentes. Estas medidas no van"
+    },
+    {
+      "pagina": 7,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 1310,
+      "texto": "7 en contra de ninguna empresa, sino a favor de todos los ciudadanos, cumpliendo las mismas reglas, habiendo equilibrio y competencia justa entre todos los empresarios. Aquellas empresas que después de los mecanismos de control realizados, notificaciones a propietarios y labrado de actas correspondientes no respondieron a las mismas y continuaron en situación de infracción se procedió al secuestro de los soportes publicitarios fuera de Código. Durante el mes de enero se procedió a retirar, a través de la empresa Fénix Servicios SRL, 28 carteles que se encontraban dentro de la zona denominada “las cuatro avenidas” (Av. Sarmiento al norte, Av. Roca al sur, Av. Mitre/Alem al oeste y Av. Avellaneda/Saenz Peña al este); • Avenida Sarmiento esq Avenida Salta SO • San Juan esq Junin SE • Santiago esq 25 de Mayo NO • San Juan 1200 y vías acera norte • San Juan 1200 y vías acera sur • Muñecas esq Santiago SO • 24 de Septiembre pasando calle Buenos Aires (*) • 24 de Septiembre esq Buenos Aires SE (*) • 24 de Septiembre esq Chacabuco SE • 24 de Septiembre esq Alberdi SE • Bernabé Araoz esq Crisostomo Alvarez NE • 24 de Septiembre esq Monteagudo NE • 24 de Septiembre esq Entre Rios SE • 24 de Septiembre esq Ayacucho SE • 24 de Septiembre esq Bernabe Araoz SEO • 24 de Septiembre esq Marco Avellaneda NE"
+    },
+    {
+      "pagina": 8,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 484,
+      "texto": "8 • Avenida Avellaneda esq San Martin SO • San Martin esq Monteagudo SO • Santa Fe esq Maipu SE • La Rioja esq Crisostomo Alvarez NE • 9 de Julio esq Crisostomo Alvarez SE • Avenida Alem esq Bolivar NO • Avenida Alem esq Crisostomo Alvarez SE • Avenida Saenz Peña esq Lavalle NE • Mendoza esq Catamarca NE • Mendoza esq Catamarca NO • Avenida Sarmiento esq Suipacha NE • Marcos Paz esq Muñecas NO Fotos ilustrativas de Operativo del mes de enero 24 DE SEPTIEMBRE ESQ. MARCO AVELLANEDA"
+    },
+    {
+      "pagina": 9,
+      "fuente": "ocr",
+      "confianza": 50,
+      "chars": 243,
+      "texto": "o 9 V San Miguel | Estat de Tucumán | edificación ” 16 \" M E f 4 A . VEA 14 8,0 ú dl \"a _—“——_ <N : E | u E e = AS mi N 1 — PP Á — Ne r | L : — ES a e | a haz — a A a, CE L == =; L L- ! ñ Y Su L] | i Pe - 24 DE SEPTIEMBRE ESQ. MARCO AVELLANEDA"
+    },
+    {
+      "pagina": 10,
+      "fuente": "ocr",
+      "confianza": 45,
+      "chars": 352,
+      "texto": "10 V Santuguel | Esti de Tucumán | edificación y , , \" == . LE - — 3 —- a Le 5 14 e E (2) a: DEL pre... a A A l; == “ Ti q E ETA A > \"Up: - UN ANS 0 Y o —— j —— 25 DE MAYO ESQ. SANTIAGO a o y N. 4 <a Zn - o NN po 1 nN XA y E HL - E ML | | A == y N | - “> — rr - — a NE a - 12 cias \"> yr IE ¡ . [e | dE e — AAA 5 E. O ... 1 Na | Pz. MESE E = — == ! | ——"
+    },
+    {
+      "pagina": 11,
+      "fuente": "ocr",
+      "confianza": 49,
+      "chars": 325,
+      "texto": "o 11 CuDAD . Dirección de San Miguel | Catastro y de Tucumán | edificación Re , XT - A A. | F N N | > Ro y a ? N NN N E - | h ue - La 3 po <a u í pe : e 7 A = É , 1 ar Ún - >” - L- a sd h | ! y == — | — | E — E ——<L— =— f — —— - CRISOSTOMO ALVAREZ ESQ. AV. ALEM a » , ! - —- e [ : E > Jal Ens > — A“ TS. - SAN JUAN ESQ. JUNIN"
+    },
+    {
+      "pagina": 12,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 1261,
+      "texto": "12 Durante el mes de febrero está previsto el retiro de la cartelería de Avenida Mate de Luna, se retirarán los no declarados oportunamente y los que si están registrados, deben adecuar a normas: Se adjunta a continuación el Proyecto de Ordenanza con la inclusión de los Corredores Publicitarios en espera de aprobación en Fiscalía Municipal. • ! \"#ABC'E!)EGA!'A!+,BE!A-.!\"#ABC'E!\"LAM!NO!P! !\"#A%CDEFGA+II% ! • ! \"#ABC'E!45!'A!-ASGCAM78A!A-.!\"#ABC'E!)CG8A!V:!P! -.LE0N!OP4P4E • ! \"#ABC'E!X<L<B!A-.!\"#ABC'E!)EGA!'A!+,BE!NO!P! R%\"++SE7G8D9:9+C+ ! • ! \"#ABC'E!:=A8>CG<!'AL!V<8GA!:-.!\"#ABC'E!)EGA!'A!+,BE!VO!P! -;IY9#=EE • ! \"#ABC'E!)EGA!'A!+,BE!4?@@!A!G8A-!-<78A!#A8A'E!V<8GA! >E!\"#A%CDEFGA+II% ! • ! \"#ABC'E!)EGA!'A!+,BE!A-.!BCEM<BGA!VO!P! LFE0N!OP4P0PE • ! \"#ABC'E!)EGA!'A!+,BE!A-.!CA'8<!)A'8EB<!a!4!NO!b! ?9=C#AI ! • ! \"#ABC'E!)EGA!'A!+,BE!A-.!\"#ABC'E!\"MA8C>E!VO! >ELFE0N!OP4P0PE • ! \"#ABC'E!)EGA!'A!+,BE!A-.!\"#ABC'E!\"'<Lc<!'A!LE!BAdE!NO!P!! • ! \"#ABC'E!)EGA!'A!+,BE!A-.!\"#ABC'E!\"'<Lc<!'A!LE!BAdE!N:!P E-N@PE-4O !! • ! \"#ABC'E!)EGA!'A!+,BE!A-.!:-GA7EB!:>eA#A88CE!VO!P! -.LE0N!OP4P4 ! • ! \"#ABC'E!)EGA!'A!+,BE!A-.!OLAdE8C<!\"B'8E'A!VO!P! -.LE0N!OP4P4 ! • ! \"#ABC'E!)EGA!'A!+,BE!A-.!f<gE>h!NO!P!iCdEBG<!! • ! \"#ABC'E!)EGA!'A!+,BE!A-.!XEMCB<!'AL!CA8j!V:!P!iCdEBG<!!"
+    },
+    {
+      "pagina": 13,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 2076,
+      "texto": "13 Sr. Fiscal Municipal Dr. Conrado Mosqueira S / D. Por medio de la presente, me dirijo a Ud. a fin de solicitarle se emita dictamen de su competencia sobre el proyecto de ordenanza que adjunto se acompaña, por medio del cual se modifican los arts. 7º y 8º, de la Ordenanza Nº 4728/14, sobre actividad publicitaria hacia la vía pública cuando la actividad no es propia de la parcela. La Ordenanza Nº 4728/14, en su actual redacción, establece limitaciones en cuanto a los lugares o sitios permitidos para llevar adelante la localización de cartelería publicitaria hacia la vía pública, reduciendo las posibilidades de instalar nuevas publicidades, principalmente en calles y avenidas comerciales, restringiendo una actividad de alcance masivo para la oferta de productos y servicios y de alta demanda. El proyecto de ordenanza que nos ocupa obedece a la necesidad de ampliar las localizaciones permitidas para la instalación de soportes publicitarios hacia la vía pública en la Ciudad de San Miguel de Tucumán, teniendo en consideración que actualmente las mismas coinciden con las intersecciones de avenidas exclusivamente y corresponden, en la mayoría de los casos, a parcelas donde no se puede instalar nueva cartelería, ya sea porque están ocupadas por publicidad o cuentan con usos que no admiten su instalación (como es el caso de estaciones de servicios). De acuerdo a los estudios urbanos respecto del perfil de las vías y las actividades que se desarrollan en ellas, se pudo determinar que las avenidas de carácter comercial de la ciudad y las calles que corresponden al borde del microcentro comercial (como es el caso de calles Santiago del Estero y General Paz) tienen características que admitiría la instalación de cartelería para publicidad. En virtud de ello, resulta necesario ampliar las ubicaciones permitidas para la localización de carteles publicitarios hacia la vía pública en la Ciudad de San Miguel de Tucumán, implicando ello la modificación de los Artículos 7 y 8 de la ordenanza 4728/14, como se propone. Saludo a Ud. con el mayor de los respetos."
+    },
+    {
+      "pagina": 14,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 2596,
+      "texto": "14 PROYECTO DE ORDENANZA El Concejo Deliberante de la Municipalidad de la Ciudad de San Miguel de Tucumán, sanciona con fuerza de ORDENANZA: ARTICULO 1º.- Modifíquese el Artículo 7° de la Ordenanza 4728/14 el cual quedará redactado de la siguiente manera: “Art. 7º -A.) LOCALIZACIÓN DE SOPORTES PUBLICITARIOS EN EL MUNICIPIO. Su instalación queda permitida solo en los siguientes sitios: a) En las parcelas esquinas frentistas a las intersecciones de la Red Vial Primaria definida en Ordenanza Nº 1.681/91. b) En clubes deportivos públicos y privados. c) En grandes equipamientos urbanos (GE) públicos y privados según Ordenanza Nº 2.648/98 (Código de Planeamiento Urbano). d) CORREDORES : 2 (dos) soportes por cuadra (entre calles principales, no pasajes), 1 (uno) por acera, en los Distritos Comerciales C2, C3, C4a y C4b - General Paz desde Av. Alem hasta Av. Sáenz Peña y en calle Santiago del Estero, desde Av. Mitre hasta Av. Avellaneda (por calle Santiago del Estero acera sur desde calle Salta acera oeste hasta Av. Avellaneda acera este solo permitido instalación de pantallas led, según ….) - 24 de Setiembre desde calles San Luis - Suipacha hasta calles La Rioja - Catamarca. - Esquina Av. Sarmiento y Catamarca, según Ordenanza Nº 2.648/98 (Código de Planeamiento Urbano) e) Cada 100 m por acera, en los Distritos de Servicios S1, S2, S3a y S3b y en el Distrito Industrial I1 de la Ordenanza Nº 2.648/98 (Código de Planeamiento Urbano) f) En terrenos baldíos en todo el Municipio solo para la tipología de soporte publicitario de medidas: 4.5X4 , 7X7 ó formato especial según tamaño del lote. (SE INDICARA EN DECRETO REGLAMENTARIO) En todos los casos según las condiciones de la presente ordenanza y su decreto reglamentario. No se podrán instalar anuncios y soportes publicitarios cuando en los sitios permitidos se presente alguna de las situaciones que se enuncian a continuación: a) Que la parcela esté ubicada en el casco urbano original de la ciudad, declarado como Ciudad Histórica por Ley Nacional Nº 25.275, sector delimitado por las calles Santiago del Estero, Salta – Jujuy, General Paz, avenidas Sáenz Peña – Avellaneda. B) En monumentos, estatuas, puentes y viaductos, edificios y sitios de valor histórico o cultural, edificios públicos y/o privados que integran el inventario de sitios y bienes incluidos en la ordenanza Nº 1.773/91 y su decreto Nº 676/94 y Nº 582/00 y en las leyes provinciales Nº 7.500 y Nº 7.535. c) En Iglesias o edificios semejantes, destinados al culto religioso. d) En plazoletas, plazas, parques, paseos públicos, aceras o calzadas, canteros de"
+    },
+    {
+      "pagina": 15,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 1946,
+      "texto": "15 avenidas y en ningún espacio público excepto lo dispuesto por la Ordenanza 1922/92, específica sobre padrinazgo de espacios verdes. e) En cementerios, incluidos los muros circundantes.” B) LOCALIZACION DE PANTALLAS LED. Su instalación queda permitida solo en los siguientes sitios: a) En las parcelas esquinas frentistas a las intersecciones de la Red Vial Primaria definida en Ordenanza Nº 1.681/91. b) En clubes deportivos públicos y privados. c) En grandes equipamientos urbanos (GE) públicos y privados según Ordenanza Nº 2.648/98 (Código de Planeamiento Urbano d) MICROCENTRO definido entre calles: • Santiago desde Salta hasta Av. Avellaneda (acera Sur) • General Paz desde Jujuy hasta Av. Saenz Peña (acera Norte) • Jujuy (acera Este) desde General Paz – Salta (acera Este) hasta Santiago • Av. Saenz Peña (acera Oeste) desde General Paz – Av. Avellaneda (acera Oeste) hasta Santiago e) Parcelas frentistas a plaza Independencia, sobre medianeras de edificios f) Créase tres ZONAS BRILLANTES en la ciudad: Plaza Independencia y sus cuatro frentes, Plazoleta Mitre y sus frentes y Parque 9 de Julio sobre Avenida Benjamin Araoz ( medidas SE INDICARA EN DECRETO REGLAMENTARIO) ARTICULO 2º.- Modifíquese el Artículo 8° de la Ordenanza 4728/14 el cual quedara redactado de la siguiente manera: “Art. 8º.- MODOS DE EMPLAZAMIENTO DE SOPORTES PUBLICITARIOS. Los soportes publicitarios descriptos en el artículo 4º podrán ser emplazados de los siguientes modos: a) Aplicado a la fachada de la edificación: paralelo a la línea municipal o de ochava. b) En el interior de la parcela, en propiedades públicas y/o privadas, que publiciten hacia la vía pública: 1- sobre medianera. 2- sobre terrazas y/o techos de la edificación. 3- sobre terreno. c) En rutas o autopistas.” AGREGAR FORMATO ESPECIAL ARTICULO 3º.- Comuníquese al Departamento Ejecutivo, publíquese en el Boletín Municipal y archívese. – CORREDORES PUBLICITARIOS SAN MIGUEL DE TUCUMAN"
+    },
+    {
+      "pagina": 16,
+      "fuente": "pdf",
+      "confianza": null,
+      "chars": 1376,
+      "texto": "16 OESTE – ESTE 13) Desde Punto de Acceso Oeste 1–Av. Belgrano- Av. Sarmiento – Av. Gobernador del Campo hasta Av. Coronel Suarez 14) Desde Av. Mitre por calle Santiago hasta Salta – x acera norte de calle Santiago desde Salta a Av. Avellaneda 15) Desde Punto de Acceso Oeste 3- Av. Mate de Luna – 24 de Septiembre hasta Salta /Jujuy acera oeste y desde Av. Benjamin Araoz primera cuadra hasta Av. Coronel Suarez. 16) Desde Av. Alem por calle General Paz hasta Jujuy – x acera sur de calle General Paz desde Jujuy hasta Av. Saenz Peña 17) Desde Punto de Acceso 5- Av. Elmina Paz de Gallo – Av. Kirchner – Av. Roca – Av. Pedro Miguel Araoz hasta Diagonal Papa Francisco NORTE – SUR 18) Desde Av. Kirchner por Av. Colon- Av. Ejercito del Norte hasta Av. Belgrano 19) Desde Av. Kirchner/Av. Roca por Av. Alem – Av. Mitre hasta Av. Belgrano/Av. Sarmiento 20) Desde General Paz por Jujuy (acera oeste)- Salta (acera oeste) hasta Santiago 21) Desde Av. Roca/Av. Pedro Miguel Araoz hasta general Paz- Av. Saenz Peña (acera este) – Av. Avellaneda (acera este) hasta Santiago – y ambas aceras hasta Av. Sarmiento /Av. Gobernador del Campo 22) Desde Av. Pedro Miguel Araoz por Av. Brigido Terán – Av. Soldati hasta Av. Gobernador del Campo 23) Av. Papa Francisco desde Acceso Este 5 hasta Av. Benjamin Araoz 24) Av. Coronel Suarez desde Av. Benjamin Araoz hasta Av. Gobernador del Campo"
+    },
+    {
+      "pagina": 17,
+      "fuente": "ocr",
+      "confianza": 86,
+      "chars": 220,
+      "texto": ". 17 CIUDAD . Dirección de / San Miguel | Catastro y de Tucumán | edificación Sin otro particular, quedo a disposición ME Arg. CLAUDIAL. CARRASCO DIRECTORA de Catastro y Edificación Municipalidad de San Miguel de Tucumán"
+    }
+  ]
+}

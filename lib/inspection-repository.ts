@@ -173,6 +173,71 @@ export async function loadInspectionPhotos(inspectionId: string): Promise<Inspec
   }));
 }
 
+/** Campos editables de una inspección (el estado se cambia por transiciones). */
+export interface InspectionEditableFields {
+  tipoSoporte: string | null;
+  anchoM: number | null;
+  altoM: number | null;
+  empresa: string | null;
+  cuit: string | null;
+  observaciones: string | null;
+}
+
+/**
+ * Edita los datos de una inspección existente. No toca el estado (eso va por
+ * transiciones para preservar el historial). Requiere rol operativo (RLS).
+ */
+export async function updateInspection(
+  inspectionId: string,
+  fields: InspectionEditableFields,
+): Promise<boolean> {
+  if (!supabase) return false;
+  const { error } = await supabase
+    .from("inspecciones")
+    .update({
+      tipo_soporte: fields.tipoSoporte,
+      ancho_m: fields.anchoM,
+      alto_m: fields.altoM,
+      empresa: fields.empresa,
+      cuit: fields.cuit,
+      observaciones: fields.observaciones,
+    })
+    .eq("id", inspectionId);
+  return !error;
+}
+
+/**
+ * Elimina una inspección. Primero borra la fila verificando que la RLS lo haya
+ * permitido de verdad (sin policy de DELETE, Postgres "borra" 0 filas sin
+ * error), y recién entonces limpia los archivos del bucket. Las filas de fotos
+ * e historial caen por cascade. Requiere la policy de la migración 09.
+ */
+export async function deleteInspection(inspectionId: string): Promise<boolean> {
+  if (!supabase) return false;
+  // Listar los archivos ANTES de borrar (después no queda registro de los paths).
+  const { data: files } = await supabase.storage.from(PHOTO_BUCKET).list(inspectionId);
+
+  const { data, error } = await supabase
+    .from("inspecciones")
+    .delete()
+    .eq("id", inspectionId)
+    .select("id");
+  if (error || !data || data.length === 0) return false;
+
+  if (files && files.length > 0) {
+    await supabase.storage.from(PHOTO_BUCKET).remove(files.map((file) => `${inspectionId}/${file.name}`));
+  }
+  return true;
+}
+
+/** Elimina una foto puntual (archivo del bucket + fila). Requiere rol operativo. */
+export async function deleteInspectionPhoto(photo: InspectionPhoto): Promise<boolean> {
+  if (!supabase) return false;
+  await supabase.storage.from(PHOTO_BUCKET).remove([photo.storagePath]);
+  const { error } = await supabase.from("inspeccion_fotos").delete().eq("id", photo.id);
+  return !error;
+}
+
 /**
  * Cambia el estado de una inspección. El historial lo registra el trigger de
  * la base automáticamente. Requiere sesión con rol operativo (lo impone la RLS).
@@ -190,7 +255,11 @@ export async function updateInspectionState(
   return !error;
 }
 
-async function uploadPhotos(inspectionId: string, photos: File[]): Promise<number> {
+/**
+ * Sube fotos a una inspección (alta o edición). Devuelve cuántas fallaron.
+ * Requiere rol operativo (RLS de storage + tabla).
+ */
+export async function addInspectionPhotos(inspectionId: string, photos: File[]): Promise<number> {
   if (!supabase || photos.length === 0) return 0;
   let failed = 0;
   for (let index = 0; index < photos.length; index += 1) {
@@ -248,6 +317,6 @@ export async function createInspection(draft: InspectionDraft): Promise<CreateIn
     };
   }
 
-  const photosFailed = await uploadPhotos(data.id as string, draft.photos);
+  const photosFailed = await addInspectionPhotos(data.id as string, draft.photos);
   return { ok: true, inspectionId: data.id as string, photosFailed, error: null };
 }

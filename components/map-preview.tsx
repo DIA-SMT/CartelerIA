@@ -11,7 +11,7 @@ import { MapAsk } from "./map-ask";
 
 const CarteleriaMap = dynamic(() => import("./carteleria-map"), { ssr: false, loading: () => <div className="grid h-full place-items-center bg-slate-100 text-sm font-semibold text-slate-400">Cargando capas territoriales…</div> });
 
-type Props = { carteles: AnalyzedCartel[]; allCarteles: AnalyzedCartel[]; corridors: FeatureCollection<GeoLine>; allowedPlaces: FeatureCollection<GeoPoint>; filters: TerritorialFilterState; onFilters: (filters: TerritorialFilterState) => void; loading: boolean; error: string | null; onRetry: () => void; administrativeSource: "supabase" | "static"; linkedCount: number };
+type Props = { carteles: AnalyzedCartel[]; allCarteles: AnalyzedCartel[]; corridors: FeatureCollection<GeoLine>; allowedPlaces: FeatureCollection<GeoPoint>; filters: TerritorialFilterState; onFilters: (filters: TerritorialFilterState) => void; loading: boolean; error: string | null; onRetry: () => void; administrativeSource: "supabase" | "static"; linkedCount: number; selected: AnalyzedCartel | null; onSelect: (cartel: AnalyzedCartel | null) => void };
 const quickFilters: { value: Exclude<MainTerritorialFilter, "todos">; label: string }[] = [
   { value: "habilitado", label: "Habilitados" },
   { value: "deuda", label: "Con deuda" },
@@ -19,8 +19,7 @@ const quickFilters: { value: Exclude<MainTerritorialFilter, "todos">; label: str
   { value: "no_registrado", label: "No registrados" }
 ];
 
-export function MapPreview({ carteles, allCarteles, corridors, allowedPlaces, filters, onFilters, loading, error, onRetry, administrativeSource, linkedCount }: Props) {
-  const [selected, setSelected] = useState<AnalyzedCartel | null>(null);
+export function MapPreview({ carteles, allCarteles, corridors, allowedPlaces, filters, onFilters, loading, error, onRetry, administrativeSource, linkedCount, selected, onSelect }: Props) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [legendMinimized, setLegendMinimized] = useState(false);
   const inside = allCarteles.filter(item => item.properties.analysisStatus === "dentro_corredor").length;
@@ -28,7 +27,7 @@ export function MapPreview({ carteles, allCarteles, corridors, allowedPlaces, fi
   const review = allCarteles.filter(item => item.properties.analysisStatus === "cerca_lugar_permitido").length;
   const outsidePercent = allCarteles.length ? Math.round(outside / allCarteles.length * 100) : 0;
   const advancedCount = filters.tax.length + filters.registry.length + filters.enablement.length + filters.support.length;
-  useEffect(() => { if (selected && !carteles.some(item => item.properties.id === selected.properties.id)) setSelected(null); }, [carteles, selected]);
+  useEffect(() => { if (selected && !carteles.some(item => item.properties.id === selected.properties.id)) onSelect(null); }, [carteles, selected, onSelect]);
 
   return <section id="mapa" className="section-block isolate">
     <div className="section-heading"><div><span className="section-kicker">Vista territorial</span><h2>Mapa de corredores y carteles</h2><p>Filtros de diagnóstico para priorizar tareas de control.</p></div><div className="flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-2 rounded-xl bg-municipal-50 px-4 py-2 text-xs font-bold text-municipal-700"><Layers3 size={15}/>{carteles.length} carteles visibles</span>{administrativeSource === "supabase" && <span className="rounded-xl bg-blue-50 px-3 py-2 text-[9px] font-bold text-blue-700">{linkedCount} vinculados con Supabase</span>}</div></div>
@@ -36,13 +35,13 @@ export function MapPreview({ carteles, allCarteles, corridors, allowedPlaces, fi
     <div data-tour="diagnostico" className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between gap-3"><div className="flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-municipal-50 text-municipal-700"><MapPinned size={14}/></span><b className="text-xs text-ink">Diagnóstico territorial</b></div><span className="hidden text-[9px] font-semibold text-slate-400 sm:block">Seleccioná un indicador para filtrar</span></div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><Metric active={filters.main.length === 0} onClick={() => onFilters({ ...filters, main: [] })} icon={<MapPin size={17}/>} tone="blue" value={allCarteles.length} label="Total de carteles"/><Metric active={filters.main.includes("dentro_corredor")} onClick={() => onFilters({ ...filters, main: ["dentro_corredor"] })} icon={<CheckCircle2 size={17}/>} tone="green" value={inside} label="Dentro de corredores"/><Metric active={filters.main.includes("fuera_corredor")} onClick={() => onFilters({ ...filters, main: ["fuera_corredor"] })} icon={<AlertTriangle size={17}/>} tone="red" value={outside} label="Fuera de zona permitida"/><Metric active={filters.main.includes("fuera_corredor")} onClick={() => onFilters({ ...filters, main: ["fuera_corredor"] })} icon={<Route size={17}/>} tone="yellow" value={`${outsidePercent}%`} label="Porcentaje fuera de zona"/></div></div>
     <div data-tour="map-ask"><MapAsk carteles={allCarteles} onApply={onFilters}/></div>
     <div data-tour="map-canvas" className="relative h-[72svh] min-h-[520px] overflow-hidden rounded-[22px] border border-slate-200 bg-slate-100 shadow-card sm:h-[650px] sm:rounded-[26px]">
-      <CarteleriaMap carteles={carteles} corridors={corridors} allowedPlaces={allowedPlaces} selected={selected} onSelect={setSelected}/>
+      <CarteleriaMap carteles={carteles} corridors={corridors} allowedPlaces={allowedPlaces} selected={selected} onSelect={onSelect}/>
       <QuickFilters filters={filters} onFilters={onFilters} advancedOpen={advancedOpen} onAdvancedOpen={() => setAdvancedOpen(value => !value)} advancedCount={advancedCount}/>
       <AdministrativeLegend minimized={legendMinimized} onMinimize={() => setLegendMinimized(value => !value)}/>
       <div className="absolute right-5 top-5 z-[500] hidden rounded-xl bg-white/95 px-4 py-2 text-[10px] font-semibold text-slate-500 shadow-lg sm:block">{corridors.features.length} corredores · {review} a revisar</div>
       {loading && <div className="absolute inset-0 z-[700] grid place-items-center bg-white/65 backdrop-blur-sm"><div className="rounded-2xl bg-white px-5 py-4 text-center shadow-xl"><span className="mx-auto block size-6 animate-spin rounded-full border-2 border-municipal-100 border-t-municipal-700"/><b className="mt-3 block text-xs text-ink">Cargando territorio</b></div></div>}
       {error && <div className="absolute inset-0 z-[700] grid place-items-center bg-white/75 p-6 backdrop-blur-sm"><div className="max-w-sm rounded-2xl border border-red-100 bg-white p-5 text-center shadow-xl"><AlertTriangle className="mx-auto text-red-500"/><b className="mt-3 block text-sm text-ink">No pudimos mostrar el mapa</b><p className="mt-1 text-xs text-slate-500">{error}</p><button onClick={onRetry} className="primary-button compact mt-4">Reintentar</button></div></div>}
-      {selected && <CartelDetailPanel cartel={selected} onClose={() => setSelected(null)}/>}
+      {selected && <CartelDetailPanel cartel={selected} onClose={() => onSelect(null)}/>}
     </div>
   </section>;
 }

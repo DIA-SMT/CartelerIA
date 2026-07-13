@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { UrbanDocument } from "@/data/documents";
 import { documents } from "@/data/documents";
+import type { AnalyzedCartel } from "@/data/territorial";
 import { useTerritorialMap } from "@/hooks/use-territorial-map";
 import { CartelLibrary } from "./cartel-library";
 import { CorridorsSection } from "./corridors-section";
@@ -19,12 +20,20 @@ import { TryhardHeroMap } from "./TryhardHeroMap";
 
 export function Dashboard() {
   const [viewer, setViewer] = useState<{ document: UrbanDocument; page: number | null } | null>(null);
+  /** Cartel seleccionado en el mapa (compartido con las cards de "Carteles analizados"). */
+  const [selectedCartel, setSelectedCartel] = useState<AnalyzedCartel | null>(null);
   const territorial = useTerritorialMap();
 
   const openDocument = (document: UrbanDocument, page: number | null = null) => setViewer({ document, page });
   const openDocumentById = (documentoId: string, page: number | null) => {
     const document = documents.find((item) => item.id === documentoId);
     if (document) openDocument(document, page);
+  };
+
+  /** Localiza un cartel en el mapa de la página: lo selecciona (vuelo + ficha) y scrollea hasta él. */
+  const locateCartel = (cartel: AnalyzedCartel) => {
+    setSelectedCartel(cartel);
+    document.querySelector('[data-tour="map-canvas"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   return <>
@@ -35,10 +44,10 @@ export function Dashboard() {
         <div className="relative z-[1]">
           <Hero/>
           <StatsCards cartelesCount={territorial.carteles.length}/>
-          <MapPreview carteles={territorial.filteredCarteles} allCarteles={territorial.carteles} corridors={territorial.corridors} allowedPlaces={territorial.allowedPlaces} filters={territorial.filters} onFilters={territorial.setFilters} loading={territorial.loading} error={territorial.error} onRetry={territorial.retry} administrativeSource={territorial.administrativeSource} linkedCount={territorial.linkedCount}/>
+          <MapPreview carteles={territorial.filteredCarteles} allCarteles={territorial.carteles} corridors={territorial.corridors} allowedPlaces={territorial.allowedPlaces} filters={territorial.filters} onFilters={territorial.setFilters} loading={territorial.loading} error={territorial.error} onRetry={territorial.retry} administrativeSource={territorial.administrativeSource} linkedCount={territorial.linkedCount} selected={selectedCartel} onSelect={setSelectedCartel}/>
         </div>
       </div>
-      <CartelLibrary carteles={territorial.filteredCarteles}/>
+      <CartelLibrary carteles={territorial.filteredCarteles} onLocate={locateCartel}/>
       <div data-tour="normativa" className="section-block pb-0"><NormativaAsk onOpenDocument={openDocumentById}/></div>
       <PdfLibrary onOpen={(document) => openDocument(document)}/>
       <ExpedientesRegistro/>
