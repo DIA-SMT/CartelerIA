@@ -17,13 +17,23 @@ import {
 import {
   computeSurface,
   DEFAULT_INSPECTION_STATE,
+  getInspectionState,
   INSPECTION_FORM_STEPS,
   INSPECTION_STATE_ORDER,
   INSPECTION_STATES,
   type InspectionState,
 } from "@/data/inspections";
-import { createInspection } from "@/lib/inspection-repository";
+import {
+  addInspectionPhotos,
+  createInspection,
+  deleteInspectionPhoto,
+  loadInspectionPhotos,
+  updateInspection,
+  type InspectionPhoto,
+  type InspectionRecord,
+} from "@/lib/inspection-repository";
 import type { AuthState } from "@/hooks/use-auth";
+import { PhotoLightbox, type LightboxPhoto } from "./photo-lightbox";
 
 type Props = {
   cartelId: string;
@@ -32,6 +42,8 @@ type Props = {
   auth: AuthState;
   onClose: () => void;
   onSaved: () => void;
+  /** Si se pasa, el formulario edita esta inspección en lugar de crear una nueva. */
+  existing?: InspectionRecord | null;
 };
 
 const SUPPORT_OPTIONS: { value: string; label: string }[] = [
@@ -46,20 +58,32 @@ const MAX_PHOTOS = 6;
 
 type SaveState = "idle" | "saving" | "error";
 
-export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, onSaved }: Props) {
+export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, onSaved, existing }: Props) {
+  const isEdit = Boolean(existing);
   const [step, setStep] = useState(0);
-  const [empresa, setEmpresa] = useState(prefill?.empresa ?? "");
-  const [cuit, setCuit] = useState(prefill?.cuit ?? "");
-  const [tipoSoporte, setTipoSoporte] = useState("");
-  const [ancho, setAncho] = useState("");
-  const [alto, setAlto] = useState("");
-  const [estado, setEstado] = useState<InspectionState>(DEFAULT_INSPECTION_STATE);
-  const [observaciones, setObservaciones] = useState("");
+  const [empresa, setEmpresa] = useState(existing?.empresa ?? prefill?.empresa ?? "");
+  const [cuit, setCuit] = useState(existing?.cuit ?? prefill?.cuit ?? "");
+  const [tipoSoporte, setTipoSoporte] = useState(existing?.tipoSoporte ?? "");
+  const [ancho, setAncho] = useState(existing?.anchoM != null ? String(existing.anchoM) : "");
+  const [alto, setAlto] = useState(existing?.altoM != null ? String(existing.altoM) : "");
+  const [estado, setEstado] = useState<InspectionState>(existing?.estado ?? DEFAULT_INSPECTION_STATE);
+  const [observaciones, setObservaciones] = useState(existing?.observaciones ?? "");
   const [photos, setPhotos] = useState<File[]>([]);
+  /** Fotos ya guardadas (solo edición) y las marcadas para eliminar al guardar. */
+  const [existingPhotos, setExistingPhotos] = useState<InspectionPhoto[]>([]);
+  const [removedPhotoIds, setRemovedPhotoIds] = useState<Set<string>>(new Set());
+  const [lightbox, setLightbox] = useState<{ photos: LightboxPhoto[]; index: number } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [photosWarning, setPhotosWarning] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!existing) return;
+    let active = true;
+    loadInspectionPhotos(existing.id).then((data) => { if (active) setExistingPhotos(data); });
+    return () => { active = false; };
+  }, [existing]);
 
   const anchoNum = ancho === "" ? null : Number(ancho);
   const altoNum = alto === "" ? null : Number(alto);
@@ -81,20 +105,59 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
   const isLast = step === totalSteps - 1;
   const canWrite = auth.available && auth.canInspect;
 
+  /** Fotos guardadas que siguen vigentes (no marcadas para eliminar). */
+  const keptPhotos = existingPhotos.filter((photo) => !removedPhotoIds.has(photo.id));
+  const maxNewPhotos = Math.max(0, MAX_PHOTOS - keptPhotos.length);
+
   const handleAddPhotos = (files: FileList | null) => {
     if (!files) return;
     const incoming = Array.from(files).filter((file) => file.type.startsWith("image/"));
-    setPhotos((current) => [...current, ...incoming].slice(0, MAX_PHOTOS));
+    setPhotos((current) => [...current, ...incoming].slice(0, maxNewPhotos));
   };
 
   const removePhoto = (index: number) => {
     setPhotos((current) => current.filter((_, i) => i !== index));
   };
 
+  const toggleRemoveExisting = (photoId: string) => {
+    setRemovedPhotoIds((current) => {
+      const next = new Set(current);
+      if (next.has(photoId)) next.delete(photoId);
+      else next.add(photoId);
+      return next;
+    });
+  };
+
+  const openLightbox = (list: LightboxPhoto[], index: number) => setLightbox({ photos: list, index });
+
   const handleSubmit = async () => {
     if (!canWrite) return;
     setSaveState("saving");
     setErrorMessage(null);
+
+    if (isEdit && existing) {
+      const ok = await updateInspection(existing.id, {
+        tipoSoporte: tipoSoporte || null,
+        anchoM: anchoNum,
+        altoM: altoNum,
+        empresa: empresa.trim() || null,
+        cuit: cuit.trim() || null,
+        observaciones: observaciones.trim() || null,
+      });
+      if (!ok) {
+        setSaveState("error");
+        setErrorMessage("No se pudieron guardar los cambios. Verificá tu sesión y permisos.");
+        return;
+      }
+      for (const photo of existingPhotos) {
+        if (removedPhotoIds.has(photo.id)) await deleteInspectionPhoto(photo);
+      }
+      const failed = photos.length > 0 ? await addInspectionPhotos(existing.id, photos) : 0;
+      setPhotosWarning(failed);
+      onSaved();
+      return;
+    }
+
     const result = await createInspection({
       cartelId,
       estado,
@@ -130,7 +193,7 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
       >
         <header className="border-b border-slate-100 px-5 pb-3 pt-4">
           <div className="flex items-center justify-between">
-            <span className="section-kicker">Nueva inspección</span>
+            <span className="section-kicker">{isEdit ? "Editar inspección" : "Nueva inspección"}</span>
             <button onClick={onClose} className="icon-button grid" aria-label="Cerrar">
               <X size={18} />
             </button>
@@ -192,21 +255,71 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
 
           {currentStep.id === "administrativa" && (
             <Fieldset legend="Situación administrativa">
-              <SelectField
-                label="Estado de la inspección"
-                value={estado}
-                onChange={(value) => setEstado(value as InspectionState)}
-                options={INSPECTION_STATE_ORDER.map((config) => ({ value: config.key, label: config.label }))}
-              />
-              <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-                {INSPECTION_STATES[estado].description}
-              </p>
+              {isEdit ? (
+                <>
+                  <ReadOnlyField label="Estado de la inspección" value={getInspectionState(estado).label} />
+                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                    El estado se cambia desde &ldquo;Avanzar estado&rdquo; en la inspección (así queda registrado en el historial).
+                  </p>
+                </>
+              ) : (
+                <>
+                  <SelectField
+                    label="Estado de la inspección"
+                    value={estado}
+                    onChange={(value) => setEstado(value as InspectionState)}
+                    options={INSPECTION_STATE_ORDER.map((config) => ({ value: config.key, label: config.label }))}
+                  />
+                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                    {INSPECTION_STATES[estado].description}
+                  </p>
+                </>
+              )}
               <TextAreaField label="Observaciones" value={observaciones} onChange={setObservaciones} />
             </Fieldset>
           )}
 
           {currentStep.id === "evidencia" && (
             <Fieldset legend="Evidencia">
+              {isEdit && existingPhotos.length > 0 && (
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400">Fotografías guardadas ({keptPhotos.length})</span>
+                  <ul className="mt-1.5 grid grid-cols-3 gap-2">
+                    {existingPhotos.map((photo, index) => {
+                      const removed = removedPhotoIds.has(photo.id);
+                      const keptWithUrl = keptPhotos.filter((item) => item.url);
+                      return (
+                        <li key={photo.id} className="relative overflow-hidden rounded-lg border border-slate-200">
+                          {photo.url ? (
+                            <button
+                              type="button"
+                              onClick={() => !removed && openLightbox(keptWithUrl.map((item, i) => ({ url: item.url as string, alt: `Fotografía ${i + 1}` })), keptWithUrl.findIndex((item) => item.id === photo.id))}
+                              className="block w-full"
+                              aria-label={`Ampliar fotografía ${index + 1}`}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={photo.url} alt={`Fotografía ${index + 1}`} className={`aspect-square w-full object-cover ${removed ? "opacity-30 grayscale" : ""}`} />
+                            </button>
+                          ) : (
+                            <span className="grid aspect-square w-full place-items-center bg-slate-100 text-slate-300"><Camera size={16} /></span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => toggleRemoveExisting(photo.id)}
+                            className={`absolute right-1 top-1 grid size-6 place-items-center rounded-md text-white ${removed ? "bg-municipal-700" : "bg-ink/70"}`}
+                            aria-label={removed ? `Restaurar fotografía ${index + 1}` : `Eliminar fotografía ${index + 1} al guardar`}
+                            title={removed ? "Restaurar" : "Eliminar al guardar"}
+                          >
+                            {removed ? <Check size={12} /> : <Trash2 size={12} />}
+                          </button>
+                          {removed && <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-red-600/85 py-0.5 text-center text-[8px] font-extrabold uppercase text-white">Se eliminará</span>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+
               <input
                 ref={fileInputRef}
                 type="file"
@@ -218,22 +331,31 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={photos.length >= MAX_PHOTOS}
+                disabled={photos.length >= maxNewPhotos}
                 className="secondary-button w-full justify-center disabled:opacity-60"
               >
                 <Camera size={15} />
-                Agregar fotografías ({photos.length}/{MAX_PHOTOS})
+                Agregar fotografías ({keptPhotos.length + photos.length}/{MAX_PHOTOS})
               </button>
               {photos.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-6 text-center text-[11px] text-slate-400">
-                  Sin fotografías cargadas todavía.
-                </p>
+                !isEdit && (
+                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-6 text-center text-[11px] text-slate-400">
+                    Sin fotografías cargadas todavía.
+                  </p>
+                )
               ) : (
                 <ul className="grid grid-cols-3 gap-2">
                   {previews.map((url, index) => (
                     <li key={url} className="group relative overflow-hidden rounded-lg border border-slate-200">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={url} alt={`Evidencia ${index + 1}`} className="aspect-square w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => openLightbox(previews.map((item, i) => ({ url: item, alt: `Evidencia nueva ${i + 1}` })), index)}
+                        className="block w-full"
+                        aria-label={`Ampliar fotografía ${index + 1}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt={`Evidencia ${index + 1}`} className="aspect-square w-full object-cover" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => removePhoto(index)}
@@ -260,7 +382,7 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
                 <SummaryRow label="Superficie" value={surface !== null ? `${surface.toLocaleString("es-AR")} m²` : "—"} />
                 <SummaryRow label="Estado" value={INSPECTION_STATES[estado].label} />
                 <SummaryRow label="Observaciones" value={observaciones || "—"} />
-                <SummaryRow label="Fotografías" value={`${photos.length}`} />
+                <SummaryRow label="Fotografías" value={isEdit ? `${keptPhotos.length} guardadas${removedPhotoIds.size > 0 ? ` (${removedPhotoIds.size} a eliminar)` : ""} + ${photos.length} nuevas` : `${photos.length}`} />
               </div>
               {errorMessage && (
                 <p role="alert" className="text-[11px] font-semibold text-red-600">
@@ -290,7 +412,7 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
               className="primary-button compact justify-center disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saveState === "saving" ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              {saveState === "saving" ? "Guardando…" : "Guardar inspección"}
+              {saveState === "saving" ? "Guardando…" : isEdit ? "Guardar cambios" : "Guardar inspección"}
             </button>
           ) : (
             <button
@@ -309,6 +431,7 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
           </p>
         )}
       </div>
+      {lightbox && <PhotoLightbox photos={lightbox.photos} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
     </div>
   );
 }

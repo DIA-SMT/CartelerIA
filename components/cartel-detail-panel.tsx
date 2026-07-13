@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowRight,
+  BadgePlus,
   Building2,
   Camera,
   ChevronDown,
@@ -15,9 +16,11 @@ import {
   Lock,
   MapPinned,
   Navigation,
+  Pencil,
   Plus,
   Ruler,
   ShieldCheck,
+  Trash2,
   X,
 } from "lucide-react";
 import type { AnalyzedCartel } from "@/data/territorial";
@@ -28,8 +31,9 @@ import {
   getAdministrativeVisualStatus,
 } from "@/data/territorial";
 import { getInspectionState, type InspectionState } from "@/data/inspections";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, type AuthState } from "@/hooks/use-auth";
 import {
+  deleteInspection,
   loadInspectionHistory,
   loadInspectionPhotos,
   loadInspectionsByCartel,
@@ -41,6 +45,8 @@ import {
 import { AuthPanel } from "./auth-panel";
 import { InspectionForm } from "./inspection-form";
 import { ExpedientePanel } from "./expediente-panel";
+import { PhotoLightbox } from "./photo-lightbox";
+import { RegisterCartelForm } from "./register-cartel-form";
 
 type DetailTab = "resumen" | "territorio" | "actividad";
 
@@ -56,9 +62,12 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
   const [showAuth, setShowAuth] = useState(false);
   const [showExpediente, setShowExpediente] = useState(false);
   const [pendingForm, setPendingForm] = useState(false);
+  const [showRegister, setShowRegister] = useState(false);
+  /** Vínculo creado desde esta ficha (registro recién dado de alta), sin recargar. */
+  const [localRecordId, setLocalRecordId] = useState<string | null>(null);
   const [activityKey, setActivityKey] = useState(0);
   const auth = useAuth();
-  const recordId = cartel.properties.administrative?.recordId ?? null;
+  const recordId = cartel.properties.administrative?.recordId ?? localRecordId;
   const googleMapsEmbedKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY;
   const [longitude, latitude] = cartel.geometry.coordinates;
   const properties = cartel.properties;
@@ -85,6 +94,12 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
     }
   }, [pendingForm, auth.user]);
 
+  // El panel se reusa al seleccionar otro cartel: el vínculo local no debe arrastrarse.
+  useEffect(() => {
+    setLocalRecordId(null);
+    setShowRegister(false);
+  }, [cartel.properties.id]);
+
   // Usuario autenticado pero sin rol operativo: puede consultar, no inspeccionar.
   const loggedInNoRole = auth.available && Boolean(auth.user) && !auth.canInspect;
 
@@ -104,13 +119,24 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
     setActiveTab("actividad");
   };
 
+  // Solo se ofrece con sesión activa (el botón queda deshabilitado sin login).
+  const handleStartRegister = () => {
+    if (!auth.user) return;
+    setShowRegister(true);
+  };
+
+  const handleRegistered = (newRecordId: string) => {
+    setShowRegister(false);
+    setLocalRecordId(newRecordId);
+  };
+
   return <aside aria-label="Ficha operativa del cartel" className="absolute inset-x-2 bottom-2 z-[600] max-h-[82%] overflow-y-auto rounded-2xl border border-white bg-white/95 shadow-2xl backdrop-blur sm:inset-x-auto sm:bottom-auto sm:right-5 sm:top-5 sm:max-h-[calc(100%-2.5rem)] sm:w-[min(430px,calc(100%-40px))]">
     <header className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 px-4 pb-3 pt-4 backdrop-blur sm:px-5">
       <button onClick={onClose} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="Cerrar ficha"><X size={17}/></button>
       <div className="flex items-center gap-2 pr-10">
         <span className="inline-flex rounded-full px-2.5 py-1 text-[9px] font-extrabold uppercase text-white" style={{ background: administrativeColors[visualStatus] }}>{administrativeLabels[visualStatus]}</span>
         <span className="text-[9px] font-bold text-slate-400">ID {properties.id}</span>
-        {properties.administrative && <span className="rounded-full bg-blue-50 px-2 py-1 text-[8px] font-extrabold text-blue-700">Registro vinculado</span>}
+        {(properties.administrative || localRecordId) && <span className="rounded-full bg-blue-50 px-2 py-1 text-[8px] font-extrabold text-blue-700">Registro vinculado</span>}
       </div>
       <h3 className="mt-2 pr-8 font-display text-lg font-extrabold leading-tight text-ink">{properties.name || "Cartel relevado"}</h3>
       <p className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold text-slate-500"><MapPinned size={12}/>{latitude.toFixed(6)}, {longitude.toFixed(6)}</p>
@@ -124,7 +150,7 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
     <div className="p-4 sm:p-5">
       {activeTab === "resumen" && <SummaryTab cartel={cartel}/>}
       {activeTab === "territorio" && <TerritoryTab cartel={cartel}/>}
-      {activeTab === "actividad" && <ActivityTab cartelId={recordId} refreshKey={activityKey} authReady={auth.available && Boolean(auth.user)} canWrite={auth.available && auth.canInspect}/>}
+      {activeTab === "actividad" && <ActivityTab cartelId={recordId} cartelName={cartel.properties.name || "Cartel relevado"} refreshKey={activityKey} authReady={auth.available && Boolean(auth.user)} canWrite={auth.available && auth.canInspect} auth={auth}/>}
 
       {streetPreview && <StreetPreview title={properties.name || "cartel relevado"} embedUrl={streetEmbedUrl} onClose={() => setStreetPreview(false)}/>}
 
@@ -136,7 +162,19 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
 
       <div className="mt-4 border-t border-slate-100 pt-4">
         {!recordId ? (
-          <button type="button" disabled title="Disponible para carteles vinculados con el registro administrativo" className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-55"><ShieldCheck size={15}/>Iniciar inspección · Requiere registro vinculado</button>
+          auth.available && auth.user ? (
+            <>
+              <button type="button" onClick={handleStartRegister} className="primary-button w-full justify-center"><BadgePlus size={15}/>Registrar este cartel</button>
+              <p className="mt-1.5 text-center text-[9px] font-semibold text-slate-400">Crea el registro administrativo y habilita inspecciones y expediente.</p>
+            </>
+          ) : auth.available ? (
+            <>
+              <button type="button" disabled title="Ingresá con tu cuenta municipal para registrar este cartel" className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-55"><Lock size={15}/>Registrar este cartel · Requiere sesión</button>
+              <p className="mt-1.5 text-center text-[9px] font-semibold text-slate-400">Ingresá con tu cuenta municipal (botón &ldquo;Ingresar&rdquo; del encabezado) para registrarlo.</p>
+            </>
+          ) : (
+            <button type="button" disabled title="Disponible para carteles vinculados con el registro administrativo" className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-55"><ShieldCheck size={15}/>Iniciar inspección · Requiere registro vinculado</button>
+          )
         ) : loggedInNoRole ? (
           <>
             <button type="button" disabled title="Tu rol es de consulta: no permite registrar inspecciones" className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-55"><Lock size={15}/>Iniciar inspección · Requiere rol operativo</button>
@@ -157,6 +195,9 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
     </div>
 
     {showAuth && <AuthPanel auth={auth} onClose={() => { setShowAuth(false); setPendingForm(false); }}/>}
+    {showRegister && !recordId && Boolean(auth.user) && (
+      <RegisterCartelForm cartel={cartel} onClose={() => setShowRegister(false)} onRegistered={handleRegistered}/>
+    )}
     {showForm && recordId && (
       <InspectionForm
         cartelId={recordId}
@@ -212,10 +253,12 @@ function TerritoryTab({ cartel }: { cartel: AnalyzedCartel }) {
   </div>;
 }
 
-function ActivityTab({ cartelId, refreshKey, authReady, canWrite }: { cartelId: string | null; refreshKey: number; authReady: boolean; canWrite: boolean }) {
+function ActivityTab({ cartelId, cartelName, refreshKey, authReady, canWrite, auth }: { cartelId: string | null; cartelName: string; refreshKey: number; authReady: boolean; canWrite: boolean; auth: AuthState }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [inspections, setInspections] = useState<InspectionRecord[]>([]);
+  /** Refresco interno tras editar o eliminar una inspección. */
+  const [mutationKey, setMutationKey] = useState(0);
 
   useEffect(() => {
     if (!cartelId || !authReady) {
@@ -230,7 +273,7 @@ function ActivityTab({ cartelId, refreshKey, authReady, canWrite }: { cartelId: 
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [cartelId, refreshKey, authReady]);
+  }, [cartelId, refreshKey, authReady, mutationKey]);
 
   // Actualización optimista: al cambiar el estado, refrescamos solo esa fila para
   // evitar el parpadeo de recargar toda la lista (el ítem expandido re-carga su
@@ -249,17 +292,21 @@ function ActivityTab({ cartelId, refreshKey, authReady, canWrite }: { cartelId: 
     return <div className="grid min-h-48 place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center"><div><History size={24} className="mx-auto text-slate-300"/><b className="mt-3 block text-xs text-ink">Sin inspecciones registradas</b><p className="mt-1 text-[10px] leading-4 text-slate-500">{authReady ? "Iniciá una inspección para comenzar el historial de este cartel." : "Ingresá con tu cuenta municipal para ver el historial de inspecciones."}</p></div></div>;
   }
   return <ul className="space-y-2">{inspections.map((inspection) => (
-    <InspectionItem key={inspection.id} inspection={inspection} canWrite={canWrite} onStateChanged={handleStateChanged}/>
+    <InspectionItem key={inspection.id} inspection={inspection} cartelName={cartelName} canWrite={canWrite} auth={auth} onStateChanged={handleStateChanged} onMutated={() => setMutationKey((value) => value + 1)}/>
   ))}</ul>;
 }
 
-function InspectionItem({ inspection, canWrite, onStateChanged }: { inspection: InspectionRecord; canWrite: boolean; onStateChanged: (id: string, estado: InspectionState) => void }) {
+function InspectionItem({ inspection, cartelName, canWrite, auth, onStateChanged, onMutated }: { inspection: InspectionRecord; cartelName: string; canWrite: boolean; auth: AuthState; onStateChanged: (id: string, estado: InspectionState) => void; onMutated: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [history, setHistory] = useState<InspectionHistoryEntry[]>([]);
   const [photos, setPhotos] = useState<InspectionPhoto[]>([]);
   const [pendingState, setPendingState] = useState<InspectionState | null>(null);
   const [transitionError, setTransitionError] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(false);
   const config = getInspectionState(inspection.estado);
 
   useEffect(() => {
@@ -279,6 +326,15 @@ function InspectionItem({ inspection, canWrite, onStateChanged }: { inspection: 
     setPendingState(null);
     if (ok) onStateChanged(inspection.id, next);
     else setTransitionError(true);
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setDeleteError(false);
+    const ok = await deleteInspection(inspection.id);
+    setDeleting(false);
+    if (ok) onMutated();
+    else setDeleteError(true);
   };
 
   return <li className="overflow-hidden rounded-xl border border-slate-100 bg-white">
@@ -306,23 +362,67 @@ function InspectionItem({ inspection, canWrite, onStateChanged }: { inspection: 
           <InspectionPhotos photos={photos}/>
           <InspectionHistory history={history}/>
           <InspectionTransitions current={inspection.estado} canWrite={canWrite} pendingState={pendingState} error={transitionError} onTransition={handleTransition}/>
+          {canWrite && (
+            <div className="border-t border-slate-200/70 pt-2.5">
+              {confirmDelete ? (
+                <div className="rounded-lg bg-red-50 p-2.5">
+                  <p className="text-[10px] font-bold text-red-800">¿Eliminar esta inspección definitivamente? Se borran también sus fotos y su historial.</p>
+                  <div className="mt-2 flex gap-1.5">
+                    <button type="button" disabled={deleting} onClick={handleDelete} className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1.5 text-[9px] font-extrabold text-white transition hover:bg-red-700 disabled:opacity-60">
+                      {deleting ? <Loader2 size={10} className="animate-spin"/> : <Trash2 size={10}/>}Eliminar
+                    </button>
+                    <button type="button" disabled={deleting} onClick={() => setConfirmDelete(false)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-bold text-slate-600">Cancelar</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-bold text-slate-600 transition hover:border-municipal-300 hover:text-municipal-700"><Pencil size={10}/>Editar</button>
+                  <button type="button" onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1 rounded-lg border border-red-100 bg-white px-2.5 py-1.5 text-[9px] font-bold text-red-600 transition hover:border-red-300 hover:bg-red-50"><Trash2 size={10}/>Eliminar</button>
+                </div>
+              )}
+              {deleteError && <p role="alert" className="mt-1.5 text-[9px] font-semibold text-red-600">No se pudo eliminar. Verificá tu sesión y permisos.</p>}
+            </div>
+          )}
         </div>
       )}
     </div>}
+
+    {editing && (
+      <InspectionForm
+        cartelId={inspection.cartelId}
+        cartelName={cartelName}
+        auth={auth}
+        existing={inspection}
+        onClose={() => setEditing(false)}
+        onSaved={() => { setEditing(false); onMutated(); }}
+      />
+    )}
   </li>;
 }
 
 function InspectionPhotos({ photos }: { photos: InspectionPhoto[] }) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
   if (photos.length === 0) return null;
+  const viewable = photos.filter((photo) => photo.url);
   return <div>
     <span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">Evidencia</span>
     <ul className="mt-1.5 grid grid-cols-3 gap-1.5">{photos.map((photo, index) => (
       <li key={photo.id} className="aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
         {photo.url
-          ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={photo.url} alt={`Evidencia ${index + 1}`} className="size-full object-cover" loading="lazy"/>
+          ? <button type="button" onClick={() => setOpenIndex(viewable.findIndex((item) => item.id === photo.id))} className="block size-full cursor-zoom-in" aria-label={`Ampliar evidencia ${index + 1}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={photo.url} alt={`Evidencia ${index + 1}`} className="size-full object-cover transition hover:scale-105" loading="lazy"/>
+            </button>
           : <span className="grid size-full place-items-center text-slate-300" title="No se pudo cargar la imagen"><ImageOff size={16}/></span>}
       </li>
     ))}</ul>
+    {openIndex !== null && (
+      <PhotoLightbox
+        photos={viewable.map((photo, index) => ({ url: photo.url as string, alt: `Evidencia ${index + 1}` }))}
+        startIndex={openIndex}
+        onClose={() => setOpenIndex(null)}
+      />
+    )}
   </div>;
 }
 

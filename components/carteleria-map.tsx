@@ -23,7 +23,9 @@ export default function CarteleriaMap({ carteles, corridors, allowedPlaces, sele
   onSelect: (point: AnalyzedCartel) => void;
 }) {
   const isolatedPlaces = allowedPlaces.features.filter(place => distanceToCorridors(place.geometry.coordinates, corridors) > ALLOWED_PLACE_REVIEW_BUFFER_M);
-  return <MapContainer center={[-26.8304, -65.2145]} zoom={13} className="h-full w-full" zoomControl={false} scrollWheelZoom>
+  // Límites de zoom: minZoom 12 ≈ escala 3 km (no se pierde el foco de la ciudad),
+  // maxZoom 18 ≈ escala 50 m (nivel de calle). Ver barra de escala (ScaleControl).
+  return <MapContainer center={[-26.8304, -65.2145]} zoom={13} minZoom={12} maxZoom={18} className="h-full w-full" zoomControl={false} scrollWheelZoom>
     <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
     {/* key fuerza el remount cuando los corredores pasan de vacío→cargados:
         <GeoJSON> solo lee `data` al montarse e ignora cambios del prop. */}

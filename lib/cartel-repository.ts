@@ -34,6 +34,70 @@ export async function loadCarteles(): Promise<{ data: CartelRecord[]; source: "s
   return { data: (data as CartelRow[]).map(fromRow), source: "supabase" };
 }
 
+/** Datos del alta de un cartel desde la UI (todos los campos de texto son opcionales). */
+export interface RegisterCartelDraft {
+  territorialFeatureId: string;
+  latitud: number | null;
+  longitud: number | null;
+  empresa: string | null;
+  cuit: string | null;
+  domicilio: string | null;
+  numero: string | null;
+}
+
+export interface RegisterCartelResult {
+  ok: boolean;
+  recordId: string | null;
+  /** true si el cartel ya estaba registrado (se devuelve el vínculo existente). */
+  alreadyExisted: boolean;
+  error: string | null;
+}
+
+/**
+ * Registra un cartel del mapa en el registro administrativo, vinculado por
+ * territorial_feature_id. Requiere sesión con rol operativo (lo impone la RLS,
+ * migración 08). Si ya existía (índice único), devuelve el registro existente.
+ */
+export async function registerCartel(draft: RegisterCartelDraft): Promise<RegisterCartelResult> {
+  if (!supabase) return { ok: false, recordId: null, alreadyExisted: false, error: "Supabase no está configurado." };
+
+  const { data, error } = await supabase
+    .from("carteles")
+    .insert({
+      id: `reg-${draft.territorialFeatureId}`,
+      territorial_feature_id: draft.territorialFeatureId,
+      empresa: draft.empresa ?? "",
+      cuit: draft.cuit ?? "",
+      domicilio: draft.domicilio ?? "",
+      numero: draft.numero ?? "",
+      latitud: draft.latitud,
+      longitud: draft.longitud,
+      estado: "Relevado",
+      status: "relevado",
+    })
+    .select("id")
+    .single();
+
+  if (!error && data) return { ok: true, recordId: data.id as string, alreadyExisted: false, error: null };
+
+  // Duplicado (23505): otro usuario lo registró — recuperar el vínculo existente.
+  if (error?.code === "23505") {
+    const { data: existing } = await supabase
+      .from("carteles")
+      .select("id")
+      .eq("territorial_feature_id", draft.territorialFeatureId)
+      .maybeSingle();
+    if (existing) return { ok: true, recordId: existing.id as string, alreadyExisted: true, error: null };
+  }
+
+  return {
+    ok: false,
+    recordId: null,
+    alreadyExisted: false,
+    error: "No se pudo registrar el cartel. Verificá tu sesión y permisos.",
+  };
+}
+
 export async function saveCartelLocation(cartel: CartelRecord) {
   if (!supabase) return false;
   const { error } = await supabase.from("carteles").update({
