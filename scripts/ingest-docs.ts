@@ -13,6 +13,7 @@
 // ============================================================================
 
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -37,13 +38,12 @@ interface Chunk {
 // ----------------------------------------------------------------------------
 // Extracción de texto por página (pdfjs-dist, build legacy para Node)
 // ----------------------------------------------------------------------------
-async function extractPages(filePath: string): Promise<string[]> {
+async function extractPages(buffer: Buffer): Promise<string[]> {
   const require = createRequire(import.meta.url);
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).href;
 
-  const data = new Uint8Array(await readFile(filePath));
-  const doc = await pdfjs.getDocument({ data, useSystemFonts: true }).promise;
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise;
   const pages: string[] = [];
   for (let n = 1; n <= doc.numPages; n += 1) {
     const page = await doc.getPage(n);
@@ -52,6 +52,35 @@ async function extractPages(filePath: string): Promise<string[]> {
     pages.push(text);
   }
   return pages;
+}
+
+// ----------------------------------------------------------------------------
+// Texto OCR (data/ocr/<docId>.json, generado por scripts/ocr-docs.ts). Si existe
+// y su hash coincide con el PDF actual, se usan sus páginas (los documentos
+// escaneados dejan de saltearse). Si el PDF cambió, se ignora con aviso.
+// ----------------------------------------------------------------------------
+interface OcrFile {
+  sourceHash: string;
+  confianzaMedia: number | null;
+  dudosa: boolean;
+  paginas: { pagina: number; texto: string }[];
+}
+
+async function loadOcrPages(docId: string, pdfHash: string): Promise<{ pages: string[]; confianza: number | null; dudosa: boolean } | null> {
+  const ocrPath = path.join(process.cwd(), "data", "ocr", `${docId}.json`);
+  if (!existsSync(ocrPath)) return null;
+  try {
+    const parsed = JSON.parse(await readFile(ocrPath, "utf8")) as OcrFile;
+    if (parsed.sourceHash !== pdfHash) {
+      console.log(`  ⚠ ${docId}: el OCR quedó desactualizado (el PDF cambió) — re-corré scripts/ocr-docs.ts`);
+      return null;
+    }
+    const ordered = [...parsed.paginas].sort((a, b) => a.pagina - b.pagina);
+    return { pages: ordered.map((page) => page.texto ?? ""), confianza: parsed.confianzaMedia, dudosa: Boolean(parsed.dudosa) };
+  } catch {
+    console.log(`  ⚠ ${docId}: data/ocr/${docId}.json ilegible — se ignora`);
+    return null;
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -122,8 +151,17 @@ async function main() {
     const filePath = path.join(process.cwd(), "public", doc.pdfUrl.replace(/^\//, ""));
 
     let pages: string[];
+    let ocrInfo: { confianza: number | null; dudosa: boolean } | null = null;
     try {
-      pages = await extractPages(filePath);
+      const buffer = await readFile(filePath);
+      const pdfHash = createHash("sha256").update(buffer).digest("hex");
+      const ocr = await loadOcrPages(doc.id, pdfHash);
+      if (ocr) {
+        pages = ocr.pages;
+        ocrInfo = { confianza: ocr.confianza, dudosa: ocr.dudosa };
+      } else {
+        pages = await extractPages(buffer);
+      }
     } catch (error) {
       console.log(`✗ ${doc.id} ${doc.title} — error al leer: ${(error as Error).message}`);
       continue;
@@ -131,14 +169,15 @@ async function main() {
 
     const { chunks, totalChars } = buildChunks(pages);
     if (totalChars < MIN_TEXT_CHARS) {
-      console.log(`↷ ${doc.id} ${doc.title} — escaneado/sin texto (${totalChars} chars, ${pages.length} pág.) — SALTEADO`);
+      console.log(`↷ ${doc.id} ${doc.title} — escaneado/sin texto (${totalChars} chars, ${pages.length} pág.) — SALTEADO (corré scripts/ocr-docs.ts)`);
       skippedScan += 1;
       continue;
     }
 
     const hash = createHash("sha256").update(chunks.map((c) => c.contenido).join("\n")).digest("hex");
     const sampleSections = Array.from(new Set(chunks.map((c) => c.seccion).filter(Boolean))).slice(0, 4);
-    console.log(`✓ ${doc.id} ${doc.title} — ${pages.length} pág., ${chunks.length} chunks${sampleSections.length ? ` · secciones: ${sampleSections.join(", ")}` : ""}`);
+    const ocrTag = ocrInfo ? ` · OCR ${ocrInfo.confianza ?? "?"}%${ocrInfo.dudosa ? " ⚠ dudoso" : ""}` : "";
+    console.log(`✓ ${doc.id} ${doc.title} — ${pages.length} pág., ${chunks.length} chunks${ocrTag}${sampleSections.length ? ` · secciones: ${sampleSections.join(", ")}` : ""}`);
     totalChunks += chunks.length;
 
     if (DRY) {
