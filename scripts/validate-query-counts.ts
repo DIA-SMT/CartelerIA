@@ -9,7 +9,9 @@
 // Correr con:  npx tsx scripts/validate-query-counts.ts
 // ============================================================================
 
-import { filterTerritorialCarteles, loadTerritorialLayers, type AnalyzedCartel } from "@/data/territorial";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { applyReviewBuffer, filterTerritorialCarteles, type AnalyzedCartel, type FeatureCollection } from "@/data/territorial";
 import { parseQueryIntent, type QueryIntent } from "@/data/map-query";
 import { evaluateCartel, intentToFilterState, isStructured, runQuery } from "@/lib/map-query-engine";
 import { interpretQuestion } from "@/lib/map-query-interpreter";
@@ -17,7 +19,12 @@ import { runInspectionQuery } from "@/lib/inspection-query-engine";
 import type { InspectionRecord } from "@/lib/inspection-repository";
 
 async function main() {
-const { analyzed } = await loadTerritorialLayers();
+// Mismos datos que la app, pero leídos por fs: loadTerritorialLayers ahora
+// hace fetch de rutas relativas y solo funciona en el navegador.
+const rawAnalyzed = JSON.parse(
+  await readFile(path.join(process.cwd(), "public", "data", "carteles_analizados_buffer75.json"), "utf8"),
+) as FeatureCollection<AnalyzedCartel>;
+const analyzed = applyReviewBuffer(rawAnalyzed);
 const carteles = analyzed.features as AnalyzedCartel[];
 
 let failures = 0;
