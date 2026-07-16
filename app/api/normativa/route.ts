@@ -1,8 +1,9 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { documents } from "@/data/documents";
 import type { NormativaCitation } from "@/data/normativa";
 import { embedText } from "@/lib/embeddings";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,17 @@ const CHAT_MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-3.5-haiku";
 const MATCH_COUNT = 8;
 const MIN_SIMILARITY = 0.2;
 const REFUSAL_TEXT = "No encontré información suficiente sobre eso en los documentos disponibles.";
+const MAX_QUESTION_LENGTH = 500;
+const LLM_TIMEOUT_MS = 20_000;
+const RATE_LIMIT = { requests: 10, windowMs: 60_000 };
+
+// Cliente compartido entre requests (anon key, sin sesión): instanciarlo por
+// request solo sumaba trabajo por llamada.
+let cachedSupabase: SupabaseClient | null = null;
+function getSupabase(url: string, anonKey: string): SupabaseClient {
+  if (!cachedSupabase) cachedSupabase = createClient(url, anonKey, { auth: { persistSession: false } });
+  return cachedSupabase;
+}
 
 interface MatchRow {
   id: string;
@@ -40,6 +52,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "not_configured" }, { status: 501 });
   }
 
+  const limited = rateLimit(`normativa:${clientIp(request)}`, RATE_LIMIT.requests, RATE_LIMIT.windowMs);
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } },
+    );
+  }
+
   let question: unknown;
   try {
     ({ question } = await request.json());
@@ -49,6 +69,9 @@ export async function POST(request: Request) {
   if (typeof question !== "string" || question.trim().length === 0) {
     return NextResponse.json({ error: "empty_question" }, { status: 400 });
   }
+  if (question.length > MAX_QUESTION_LENGTH) {
+    return NextResponse.json({ error: "question_too_long" }, { status: 400 });
+  }
   const q = question.trim();
 
   try {
@@ -56,14 +79,16 @@ export async function POST(request: Request) {
     const queryEmbedding = await embedText(q);
 
     // 2. Retrieval por similitud (solo chunks sobre el umbral).
-    const supabase = createClient(supabaseUrl, supabaseAnon, { auth: { persistSession: false } });
+    const supabase = getSupabase(supabaseUrl, supabaseAnon);
     const { data, error } = await supabase.rpc("match_rag_chunks", {
       query_embedding: queryEmbedding,
       match_count: MATCH_COUNT,
       min_similarity: MIN_SIMILARITY,
     });
     if (error) {
-      return NextResponse.json({ error: "retrieval_error", detail: error.message }, { status: 502 });
+      // El detalle queda en el log del server; al cliente solo el código.
+      console.error("normativa retrieval:", error.message);
+      return NextResponse.json({ error: "retrieval_error" }, { status: 502 });
     }
     const matches = (data ?? []) as MatchRow[];
 
@@ -105,6 +130,7 @@ export async function POST(request: Request) {
     // 6. Respuesta redactada con citas (OpenRouter).
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${openrouterKey}`,
         "Content-Type": "application/json",
@@ -133,6 +159,7 @@ export async function POST(request: Request) {
       citations: refused ? [] : citations,
     });
   } catch (error) {
-    return NextResponse.json({ error: "server_error", detail: (error as Error).message }, { status: 502 });
+    console.error("normativa:", (error as Error).message);
+    return NextResponse.json({ error: "server_error" }, { status: 502 });
   }
 }

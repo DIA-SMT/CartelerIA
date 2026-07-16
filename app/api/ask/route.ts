@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseQueryIntent, QUERY_FIELDS } from "@/data/map-query";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,11 @@ export const dynamic = "force-dynamic";
 // default es un Claude barato. Verificá el slug exacto en openrouter.ai/models.
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-3.5-haiku";
+// Una pregunta real sobre el mapa entra holgada en 500 caracteres; el límite
+// corta el abuso de contexto (el input viaja tal cual al LLM).
+const MAX_QUESTION_LENGTH = 500;
+const LLM_TIMEOUT_MS = 20_000;
+const RATE_LIMIT = { requests: 10, windowMs: 60_000 };
 
 function fieldsDoc(): string {
   return Object.values(QUERY_FIELDS)
@@ -96,6 +102,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "not_configured" }, { status: 501 });
   }
 
+  const limited = rateLimit(`ask:${clientIp(request)}`, RATE_LIMIT.requests, RATE_LIMIT.windowMs);
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } },
+    );
+  }
+
   let question: unknown;
   try {
     ({ question } = await request.json());
@@ -105,10 +119,14 @@ export async function POST(request: Request) {
   if (typeof question !== "string" || question.trim().length === 0) {
     return NextResponse.json({ error: "empty_question" }, { status: 400 });
   }
+  if (question.length > MAX_QUESTION_LENGTH) {
+    return NextResponse.json({ error: "question_too_long" }, { status: 400 });
+  }
 
   try {
     const response = await fetch(OPENROUTER_URL, {
       method: "POST",
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
