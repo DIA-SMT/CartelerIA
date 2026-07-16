@@ -20,7 +20,7 @@ La aplicación usa Supabase cuando las tablas están disponibles y vuelve autom�
 3. Ejecutar `supabase/seed_part_1.sql`, `seed_part_2.sql` y `seed_part_3.sql`, en ese orden, para importar los 249 carteles. `seed.sql` contiene la misma carga completa en un único archivo.
 4. Reiniciar `npm run dev`.
 
-Las políticas de actualización anónima son temporales para el MVP sin login. Deben sustituirse por políticas autenticadas antes de producción.
+La escritura sobre `carteles` exige sesión con rol operativo (migración 10); el rol anónimo solo lee. Las cuentas nuevas nacen con rol `consulta`: los ascensos los hace un administrador en `public.perfiles`. Recordá deshabilitar el registro público en Supabase Dashboard → Authentication → Sign In / Up.
 
 ## Identidad visual obligatoria
 

@@ -108,7 +108,7 @@ export function getAdministrativeVisualStatus(cartel: AnalyzedCartel): Administr
 export const CORRIDOR_BUFFER_M = 75;
 export const ALLOWED_PLACE_REVIEW_BUFFER_M = 150;
 
-function applyReviewBuffer(carteles: FeatureCollection<AnalyzedCartel>): FeatureCollection<AnalyzedCartel> {
+export function applyReviewBuffer(carteles: FeatureCollection<AnalyzedCartel>): FeatureCollection<AnalyzedCartel> {
   const taxes: TaxStatus[] = ["paga", "no_paga", "deuda", "sin_datos"];
   const registries: RegistryStatus[] = ["registrado", "no_registrado", "incompleto", "sin_datos"];
   const enablements: EnablementStatus[] = ["habilitado", "habilitable", "no_habilitable", "requiere_revision"];
@@ -158,15 +158,23 @@ export function filterTerritorialCarteles(carteles: AnalyzedCartel[], filters: T
   });
 }
 
-export async function loadTerritorialLayers() {
-  return {
-    corridors: corridorsData as unknown as FeatureCollection<GeoLine>,
-    allowedPlaces: allowedPlacesData as unknown as FeatureCollection<GeoPoint>,
-    surveyed: surveyedData as unknown as FeatureCollection<GeoPoint>,
-    analyzed: applyReviewBuffer(analyzedData as unknown as FeatureCollection<AnalyzedCartel>)
-  };
+async function fetchLayer<T>(file: string): Promise<T> {
+  const response = await fetch(`/data/${file}`);
+  if (!response.ok) throw new Error(`No se pudo cargar /data/${file} (${response.status})`);
+  return response.json() as Promise<T>;
 }
-import corridorsData from "@/public/data/corredores.json";
-import allowedPlacesData from "@/public/data/lugares_permitidos.json";
-import surveyedData from "@/public/data/carteles_propaganda.json";
-import analyzedData from "@/public/data/carteles_analizados_buffer75.json";
+
+/**
+ * Carga las capas territoriales desde /public/data por HTTP (solo navegador).
+ * Antes se importaban estáticamente: ~300 KB de JSON entraban al bundle del
+ * cliente además de servirse como estáticos. Los scripts Node leen los mismos
+ * archivos por fs y aplican applyReviewBuffer (exportado arriba).
+ */
+export async function loadTerritorialLayers() {
+  const [corridors, allowedPlaces, analyzed] = await Promise.all([
+    fetchLayer<FeatureCollection<GeoLine>>("corredores.json"),
+    fetchLayer<FeatureCollection<GeoPoint>>("lugares_permitidos.json"),
+    fetchLayer<FeatureCollection<AnalyzedCartel>>("carteles_analizados_buffer75.json"),
+  ]);
+  return { corridors, allowedPlaces, analyzed: applyReviewBuffer(analyzed) };
+}

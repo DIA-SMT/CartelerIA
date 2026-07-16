@@ -173,29 +173,35 @@ export function ProductTour() {
 
   return (
     <div className="fixed inset-0 z-[2000]" role="dialog" aria-modal="true" aria-label="Recorrido guiado" onClick={finish}>
-      {/* Capa oscura: con "hueco" sobre el objetivo, o dim completo si es centrado. */}
-      {rect ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute rounded-2xl ring-2 ring-white/80 transition-all duration-300"
-          style={{
-            top: rect.top - 6,
-            left: rect.left - 6,
-            width: rect.width + 12,
-            height: rect.height + 12,
-            boxShadow: "0 0 0 9999px rgba(15, 23, 42, 0.55)",
-          }}
-        />
-      ) : (
-        <div aria-hidden="true" className="absolute inset-0 bg-ink/55" />
-      )}
+      {/* Capa oscura con "hueco" sobre el objetivo. Es una caja de 1×1px anclada
+          al origen y escalada con transform (translate + scale): el navegador la
+          pinta una vez en su propia capa y sólo mueve/escala esa textura en el
+          compositor, sin layout ni repaint del box-shadow gigante por frame.
+          Con rect=null se colapsa a 0 y el dim completo lo pone el div de abajo. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0 top-0 size-px origin-top-left transition-transform duration-slow ease-out will-change-transform"
+        style={{
+          transform: rect
+            ? `translate3d(${rect.left - 6}px, ${rect.top - 6}px, 0) scale(${rect.width + 12}, ${rect.height + 12})`
+            : "translate3d(-50%, -50%, 0) scale(0)",
+          boxShadow: "0 0 0 9999px rgba(15, 23, 42, 0.55)",
+          opacity: rect ? 1 : 0,
+        }}
+      />
+      {/* Dim completo para los pasos centrados (sin objetivo). */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-ink/55 transition-opacity duration-300 ease-out"
+        style={{ opacity: rect ? 0 : 1 }}
+      />
 
-      {/* Tarjeta */}
+      {/* Tarjeta: se mueve con translate3d (compositable) en vez de top/left. */}
       <div
         ref={cardRef}
         onClick={(event) => event.stopPropagation()}
-        className="absolute w-[min(360px,calc(100vw-1.5rem))] rounded-2xl border border-white bg-white p-5 shadow-2xl transition-[top,left] duration-200"
-        style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999, opacity: visible ? 1 : 0 }}
+        className="absolute left-0 top-0 w-[min(360px,calc(100vw-1.5rem))] rounded-2xl border border-white bg-white p-5 shadow-2xl transition-[transform,opacity] duration-slow ease-out will-change-transform"
+        style={{ transform: `translate3d(${pos?.left ?? 0}px, ${pos?.top ?? -9999}px, 0)`, opacity: visible ? 1 : 0 }}
       >
         <div className="flex items-start justify-between gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-municipal-50 text-municipal-700">

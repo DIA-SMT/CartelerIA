@@ -119,7 +119,7 @@ export function MapAsk({ carteles, onApply }: Props) {
     <form onSubmit={(event) => { event.preventDefault(); ask(question); }} className="mt-3 flex items-center gap-2">
       <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 focus-within:border-municipal-400 focus-within:ring-2 focus-within:ring-municipal-100">
         <ListFilter size={14} className="shrink-0 text-slate-400"/>
-        <input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ej: carteles fuera de zona con deuda" className="min-w-0 flex-1 bg-transparent text-[11px] font-semibold text-slate-700 outline-none placeholder:text-slate-400"/>
+        <input value={question} maxLength={500} onChange={(event) => setQuestion(event.target.value)} placeholder="Ej: carteles fuera de zona con deuda" className="min-w-0 flex-1 bg-transparent text-[11px] font-semibold text-slate-700 outline-none placeholder:text-slate-400"/>
         {question && <button type="button" onClick={() => { setQuestion(""); reset(); }} aria-label="Limpiar" className="text-slate-400 hover:text-municipal-700"><X size={13}/></button>}
       </div>
       <button type="submit" disabled={loading || !question.trim()} className="primary-button compact justify-center disabled:cursor-not-allowed disabled:opacity-60">{loading ? <Loader2 size={13} className="animate-spin"/> : <Send size={13}/>}{loading ? "Consultando…" : "Preguntar"}</button>

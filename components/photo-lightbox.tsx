@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { useDismissible } from "@/hooks/use-dismissible";
 
 export interface LightboxPhoto {
   url: string;
@@ -21,6 +22,7 @@ type Props = {
 export function PhotoLightbox({ photos, startIndex, onClose }: Props) {
   const [index, setIndex] = useState(() => Math.min(Math.max(startIndex, 0), photos.length - 1));
   const many = photos.length > 1;
+  const { open, close } = useDismissible(onClose);
 
   const prev = useCallback(() => setIndex((i) => (i - 1 + photos.length) % photos.length), [photos.length]);
   const next = useCallback(() => setIndex((i) => (i + 1) % photos.length), [photos.length]);
@@ -29,28 +31,29 @@ export function PhotoLightbox({ photos, startIndex, onClose }: Props) {
     // Fase capture + stopPropagation: si no, el Esc también dispara los handlers
     // de los modales/paneles de abajo (p. ej. cerraría la ficha del cartel).
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
       else if (event.key === "ArrowLeft" && many) { event.preventDefault(); event.stopPropagation(); prev(); }
       else if (event.key === "ArrowRight" && many) { event.preventDefault(); event.stopPropagation(); next(); }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose, prev, next, many]);
+  }, [close, prev, next, many]);
 
   const photo = photos[index];
   if (!photo) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[1300] flex items-center justify-center bg-ink/85 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[1300] flex items-center justify-center bg-ink/85 p-4 backdrop-blur-sm transition-opacity duration-200 ease-out"
+      style={{ opacity: open ? 1 : 0 }}
       role="dialog"
       aria-modal="true"
       aria-label={`Fotografía ampliada: ${photo.alt}`}
-      onClick={onClose}
+      onClick={close}
     >
       <button
         type="button"
-        onClick={onClose}
+        onClick={close}
         aria-label="Cerrar visor"
         className="absolute right-4 top-4 grid size-10 place-items-center rounded-xl bg-white/10 text-white transition hover:bg-white/25"
       >
@@ -73,7 +76,8 @@ export function PhotoLightbox({ photos, startIndex, onClose }: Props) {
         src={photo.url}
         alt={photo.alt}
         onClick={(event) => event.stopPropagation()}
-        className="max-h-[86vh] max-w-[92vw] rounded-xl object-contain shadow-2xl"
+        className="max-h-[86vh] max-w-[92vw] rounded-xl object-contain shadow-2xl transition-[transform,opacity] duration-200 ease-spring will-change-transform"
+        style={{ opacity: open ? 1 : 0, transform: open ? "scale(1)" : "scale(.94)" }}
       />
 
       {many && (

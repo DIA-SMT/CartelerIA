@@ -47,6 +47,7 @@ import { InspectionForm } from "./inspection-form";
 import { ExpedientePanel } from "./expediente-panel";
 import { PhotoLightbox } from "./photo-lightbox";
 import { RegisterCartelForm } from "./register-cartel-form";
+import { useDismissible } from "@/hooks/use-dismissible";
 
 type DetailTab = "resumen" | "territorio" | "actividad";
 
@@ -66,6 +67,7 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
   /** Vínculo creado desde esta ficha (registro recién dado de alta), sin recargar. */
   const [localRecordId, setLocalRecordId] = useState<string | null>(null);
   const [activityKey, setActivityKey] = useState(0);
+  const { open, close } = useDismissible(onClose, 300);
   const auth = useAuth();
   const recordId = cartel.properties.administrative?.recordId ?? localRecordId;
   const googleMapsEmbedKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY;
@@ -80,11 +82,11 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") close();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [close]);
 
   useEffect(() => {
     if (pendingForm && auth.user) {
@@ -130,9 +132,9 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
     setLocalRecordId(newRecordId);
   };
 
-  return <aside aria-label="Ficha operativa del cartel" className="absolute inset-x-2 bottom-2 z-[600] max-h-[82%] overflow-y-auto rounded-2xl border border-white bg-white/95 shadow-2xl backdrop-blur sm:inset-x-auto sm:bottom-auto sm:right-5 sm:top-5 sm:max-h-[calc(100%-2.5rem)] sm:w-[min(430px,calc(100%-40px))]">
+  return <aside role="dialog" aria-modal="false" aria-label="Ficha operativa del cartel" data-state={open ? "open" : "closed"} className="absolute inset-x-2 bottom-2 z-[600] max-h-[82%] overflow-y-auto rounded-2xl border border-white bg-white/95 shadow-2xl backdrop-blur transition-[transform,opacity] duration-300 ease-out will-change-transform data-[state=closed]:translate-y-6 data-[state=closed]:opacity-0 sm:inset-x-auto sm:bottom-auto sm:right-5 sm:top-5 sm:max-h-[calc(100%-2.5rem)] sm:w-[min(430px,calc(100%-40px))] sm:data-[state=closed]:translate-x-8 sm:data-[state=closed]:translate-y-0">
     <header className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 px-4 pb-3 pt-4 backdrop-blur sm:px-5">
-      <button onClick={onClose} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="Cerrar ficha"><X size={17}/></button>
+      <button onClick={close} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-municipal-500" aria-label="Cerrar ficha"><X size={17}/></button>
       <div className="flex items-center gap-2 pr-10">
         <span className="inline-flex rounded-full px-2.5 py-1 text-[9px] font-extrabold uppercase text-white" style={{ background: administrativeColors[visualStatus] }}>{administrativeLabels[visualStatus]}</span>
         <span className="text-[9px] font-bold text-slate-400">ID {properties.id}</span>
