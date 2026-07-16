@@ -9,7 +9,21 @@ import { administrativeColors, administrativeLabels, initialTerritorialFilters }
 import { CartelDetailPanel } from "./cartel-detail-panel";
 import { MapAsk } from "./map-ask";
 
-const CarteleriaMap = dynamic(() => import("./carteleria-map"), { ssr: false, loading: () => <div className="grid h-full place-items-center bg-slate-100 text-sm font-semibold text-slate-400">Cargando capas territoriales…</div> });
+const CarteleriaMap = dynamic(() => import("./carteleria-map"), { ssr: false, loading: () => <MapSkeleton/> });
+
+/** Marcador de posición del mapa: evita el salto de layout mientras Leaflet
+ *  (chunk dinámico) descarga y monta. Insinúa corredores y pines con shimmer. */
+function MapSkeleton({ label = "Cargando capas territoriales…" }: { label?: string }) {
+  return <div className="mini-map skeleton absolute inset-0 grid place-items-center">
+    <svg aria-hidden="true" className="absolute inset-0 size-full opacity-70" viewBox="0 0 400 300" preserveAspectRatio="none" fill="none">
+      <path d="M-20 90 C120 40 260 150 420 70" stroke="#cbd8e6" strokeWidth="10" strokeLinecap="round"/>
+      <path d="M-20 200 C140 150 250 250 420 190" stroke="#d5e0ec" strokeWidth="8" strokeLinecap="round"/>
+      <path d="M120 -20 C90 120 180 200 150 320" stroke="#d5e0ec" strokeWidth="7" strokeLinecap="round"/>
+    </svg>
+    {[[28,31],[52,24],[66,58],[40,72]].map(([left, top], index) => <span key={index} className="absolute size-3 rounded-full bg-slate-300 ring-4 ring-white/60" style={{ left: `${left}%`, top: `${top}%` }}/>)}
+    <span className="relative z-10 rounded-full bg-white/85 px-4 py-2 text-xs font-semibold text-slate-500 shadow-sm backdrop-blur-sm">{label}</span>
+  </div>;
+}
 
 type Props = { carteles: AnalyzedCartel[]; allCarteles: AnalyzedCartel[]; corridors: FeatureCollection<GeoLine>; allowedPlaces: FeatureCollection<GeoPoint>; filters: TerritorialFilterState; onFilters: (filters: TerritorialFilterState) => void; loading: boolean; error: string | null; onRetry: () => void; administrativeSource: "supabase" | "static"; linkedCount: number; selected: AnalyzedCartel | null; onSelect: (cartel: AnalyzedCartel | null) => void };
 const quickFilters: { value: Exclude<MainTerritorialFilter, "todos">; label: string }[] = [
@@ -39,7 +53,7 @@ export function MapPreview({ carteles, allCarteles, corridors, allowedPlaces, fi
       <QuickFilters filters={filters} onFilters={onFilters} advancedOpen={advancedOpen} onAdvancedOpen={() => setAdvancedOpen(value => !value)} advancedCount={advancedCount}/>
       <AdministrativeLegend minimized={legendMinimized} onMinimize={() => setLegendMinimized(value => !value)}/>
       <div className="absolute right-5 top-5 z-[500] hidden rounded-xl bg-white/95 px-4 py-2 text-[10px] font-semibold text-slate-500 shadow-lg sm:block">{corridors.features.length} corredores · {review} a revisar</div>
-      {loading && <div className="absolute inset-0 z-[700] grid place-items-center bg-white/65 backdrop-blur-sm"><div className="rounded-2xl bg-white px-5 py-4 text-center shadow-xl"><span className="mx-auto block size-6 animate-spin rounded-full border-2 border-municipal-100 border-t-municipal-700"/><b className="mt-3 block text-xs text-ink">Cargando territorio</b></div></div>}
+      {loading && <div className="absolute inset-0 z-[700]"><MapSkeleton label="Cargando territorio…"/></div>}
       {error && <div className="absolute inset-0 z-[700] grid place-items-center bg-white/75 p-6 backdrop-blur-sm"><div className="max-w-sm rounded-2xl border border-red-100 bg-white p-5 text-center shadow-xl"><AlertTriangle className="mx-auto text-red-500"/><b className="mt-3 block text-sm text-ink">No pudimos mostrar el mapa</b><p className="mt-1 text-xs text-slate-500">{error}</p><button onClick={onRetry} className="primary-button compact mt-4">Reintentar</button></div></div>}
       {selected && <CartelDetailPanel cartel={selected} onClose={() => onSelect(null)}/>}
     </div>
