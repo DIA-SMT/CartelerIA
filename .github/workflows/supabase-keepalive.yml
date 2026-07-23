@@ -1,0 +1,27 @@
+# Evita la pausa por inactividad del plan free de Supabase (~7 días sin
+# actividad) con una consulta mínima de solo lectura, una vez por día.
+#
+# Requiere dos secrets en GitHub (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL       → https://<ref>.supabase.co
+#   SUPABASE_ANON_KEY  → la anon key del proyecto
+#
+# Ojo: GitHub deshabilita los schedules si el repo pasa 60 días sin actividad
+# (avisa por mail; se rehabilita con un click o con cualquier commit).
+name: Supabase keepalive
+
+on:
+  schedule:
+    - cron: "17 8 * * *" # 08:17 UTC = 05:17 en Tucumán, todos los días
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consulta mínima (select 1 id de carteles)
+        run: |
+          curl --fail --silent --show-error --max-time 30 \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/carteles?select=id&limit=1" \
+            -o /dev/null -w "Supabase respondió HTTP %{http_code} en %{time_total}s\n"
