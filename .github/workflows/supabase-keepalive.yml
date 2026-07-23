@@ -21,14 +21,9 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
     steps:
-      # Temporal, para diagnosticar el 401: muestra largo y hash de los secrets
-      # (nunca el valor) y el cuerpo del error de Supabase. Comparar el hash con
-      # el de la key local; "No API key found" = secret vacío o mal nombrado.
-      - name: Diagnóstico de secrets (no expone valores)
-        run: |
-          echo "SUPABASE_URL definida: ${SUPABASE_URL:+si}${SUPABASE_URL:-NO} (largo ${#SUPABASE_URL})"
-          echo "SUPABASE_ANON_KEY definida: ${SUPABASE_ANON_KEY:+si}${SUPABASE_ANON_KEY:-NO} (largo ${#SUPABASE_ANON_KEY})"
-          echo "ANON_KEY sha256 (primeros 16): $(printf %s "$SUPABASE_ANON_KEY" | sha256sum | cut -c1-16)"
+      # Si falla, el log muestra el cuerpo del error de Supabase (sin secretos):
+      # "No API key found" = secret vacío o mal nombrado; "Invalid API key" =
+      # el valor no es la anon key legacy (eyJ..., 208 caracteres).
       - name: Consulta mínima (select 1 id de carteles)
         run: |
           body=$(curl --silent --show-error --max-time 30 \
