@@ -17,11 +17,24 @@ on:
 jobs:
   ping:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
     steps:
+      # Temporal, para diagnosticar el 401: muestra largo y hash de los secrets
+      # (nunca el valor) y el cuerpo del error de Supabase. Comparar el hash con
+      # el de la key local; "No API key found" = secret vacío o mal nombrado.
+      - name: Diagnóstico de secrets (no expone valores)
+        run: |
+          echo "SUPABASE_URL definida: ${SUPABASE_URL:+si}${SUPABASE_URL:-NO} (largo ${#SUPABASE_URL})"
+          echo "SUPABASE_ANON_KEY definida: ${SUPABASE_ANON_KEY:+si}${SUPABASE_ANON_KEY:-NO} (largo ${#SUPABASE_ANON_KEY})"
+          echo "ANON_KEY sha256 (primeros 16): $(printf %s "$SUPABASE_ANON_KEY" | sha256sum | cut -c1-16)"
       - name: Consulta mínima (select 1 id de carteles)
         run: |
-          curl --fail --silent --show-error --max-time 30 \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/carteles?select=id&limit=1" \
-            -o /dev/null -w "Supabase respondió HTTP %{http_code} en %{time_total}s\n"
+          body=$(curl --silent --show-error --max-time 30 \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -w "\nHTTP_CODE:%{http_code}" \
+            "$SUPABASE_URL/rest/v1/carteles?select=id&limit=1")
+          echo "$body"
+          case "$body" in *HTTP_CODE:200) echo "Supabase OK";; *) echo "Fallo el ping"; exit 22;; esac
