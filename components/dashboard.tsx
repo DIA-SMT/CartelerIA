@@ -60,7 +60,7 @@ export function Dashboard() {
       <ApprovalInbox/>
       <ExpedientesRegistro/>
       <CartelLibrary carteles={territorial.filteredCarteles} onLocate={locateCartel}/>
-      <div data-tour="normativa" className="section-block pb-0"><NormativaAsk onOpenDocument={openDocumentById}/></div>
+      <div id="normativa" data-tour="normativa" className="section-block pb-0"><NormativaAsk onOpenDocument={openDocumentById}/></div>
       <PdfLibrary onOpen={(document) => openDocument(document)}/>
       <CorridorsSection/>
     </main>
