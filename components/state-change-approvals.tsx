@@ -62,11 +62,11 @@ export function StateChangeApprovals({
 
   return (
     <div className="space-y-2">
-      <span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">
+      <span className="micro-label">
         Solicitudes de aprobación
       </span>
       {loadError && (
-        <p role="alert" className="flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[9px] font-semibold leading-4 text-red-700">
+        <p role="alert" className="flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-micro font-semibold leading-4 text-red-700">
           <AlertTriangle size={11} className="mt-0.5 shrink-0"/>
           <span>{loadError} Los cambios quedan bloqueados hasta volver a verificar las solicitudes.</span>
         </p>
@@ -81,7 +81,7 @@ export function StateChangeApprovals({
               <div className="min-w-0 text-[10px] leading-4 text-amber-900">
                 <b>{stateChangeLabel(request, "previous")} → {stateChangeLabel(request, "requested")}</b>
                 <p className="text-amber-800">{request.reason}</p>
-                <p className="mt-1 text-[9px] text-amber-700">
+                <p className="mt-1 text-micro text-amber-700">
                   Solicitó {request.requesterName || request.requestedBy}
                   {request.requesterRole ? ` · ${request.requesterRole}` : ""}
                   {" · "}{new Date(request.createdAt).toLocaleString("es-AR")}
@@ -97,17 +97,17 @@ export function StateChangeApprovals({
                   placeholder="Fundamento de la resolución (obligatorio)"
                   className="mt-2 w-full rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-[10px] text-slate-700 outline-none focus:border-municipal-500"
                 />
-                <div className="mt-2 flex gap-1.5">
-                  <button type="button" disabled={Boolean(loadError) || busy || note.trim().length < 5} onClick={() => resolve(request, true)} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1.5 text-[9px] font-extrabold text-white disabled:opacity-50">
-                    {busy ? <Loader2 size={10} className="animate-spin"/> : <CheckCircle2 size={10}/>}
+                <div className="mt-2.5 flex gap-2">
+                  <button type="button" disabled={Boolean(loadError) || busy || note.trim().length < 5} onClick={() => resolve(request, true)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-green-700 px-3.5 text-micro font-extrabold text-white transition duration-fast hover:bg-green-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                    {busy ? <Loader2 size={12} className="animate-spin"/> : <CheckCircle2 size={12}/>}
                     Aprobar
                   </button>
-                  <button type="button" disabled={Boolean(loadError) || busy || note.trim().length < 5} onClick={() => resolve(request, false)} className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1.5 text-[9px] font-extrabold text-white disabled:opacity-50">
-                    <XCircle size={10}/>
+                  <button type="button" disabled={Boolean(loadError) || busy || note.trim().length < 5} onClick={() => resolve(request, false)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3.5 text-micro font-extrabold text-red-700 transition duration-fast hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                    <XCircle size={12}/>
                     Rechazar
                   </button>
                 </div>
-                {failedId === request.id && <p role="alert" className="mt-1.5 text-[9px] font-semibold text-red-700">No se pudo resolver la solicitud.</p>}
+                {failedId === request.id && <p role="alert" className="mt-1.5 text-micro font-semibold text-red-700">No se pudo resolver la solicitud.</p>}
               </>
             )}
           </div>
@@ -116,7 +116,7 @@ export function StateChangeApprovals({
       {resolved.length > 0 && (
         <ul className="space-y-1">
           {resolved.map((request) => (
-            <li key={request.id} className="rounded-lg bg-slate-50 px-2.5 py-2 text-[9px] text-slate-500">
+            <li key={request.id} className="rounded-lg bg-slate-50 px-2.5 py-2 text-micro text-slate-500">
               <b className={approvalStatusClass(request.status)}>
                 {APPROVAL_STATUS_LABELS[request.status]}
               </b>

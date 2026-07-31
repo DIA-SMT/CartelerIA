@@ -42,6 +42,12 @@ button { cursor: pointer; }
   .empty-state h3 { @apply mt-4 font-display text-base font-bold text-ink; }
   .empty-state p { @apply mt-1 text-sm text-slate-400; }
   .detail-title { @apply text-xs font-extrabold uppercase tracking-wider text-slate-400; }
+  /* Label estándar de sub-sección dentro de paneles (reemplaza los text-[8px]/[9px] ad hoc). */
+  .micro-label { @apply text-micro font-extrabold uppercase tracking-wider text-slate-400; }
+  /* Badge de estado con contraste AA: fondo neutro + punto de color, en vez de
+     texto blanco sobre el color crudo (amarillo/celeste no llegan a 4.5:1). */
+  .badge-soft { @apply inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-micro font-extrabold uppercase text-slate-700; }
+  .badge-soft > i { @apply size-2 shrink-0 rounded-full; }
 }
 
 .hero-grid { background-image: linear-gradient(rgba(8,100,201,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(8,100,201,.045) 1px, transparent 1px); background-size: 48px 48px; mask-image: linear-gradient(to right, black, transparent 80%); }

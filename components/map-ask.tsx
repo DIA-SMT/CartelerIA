@@ -19,6 +19,7 @@ import {
   type InspectionQueryResult,
 } from "@/lib/inspection-query-engine";
 import { loadInspections, type InspectionRecord } from "@/lib/inspection-repository";
+import { AskCard } from "./ask-card";
 import { interpretQuestionSmart, type InterpretSource } from "@/lib/map-query-ai";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -156,12 +157,7 @@ export function MapAsk({ carteles, onApply }: Props) {
   const chips = intent ? predicateChips(intent.predicate) : null;
   const groups = isInsp ? inspResult?.groups ?? [] : result?.groups ?? [];
 
-  return <section aria-label="Preguntale al mapa" className="mb-4 rounded-2xl border border-municipal-200 bg-gradient-to-br from-municipal-50/70 to-white p-4 shadow-sm">
-    <div className="flex items-center gap-2">
-      <span className="grid size-7 place-items-center rounded-lg bg-municipal-600 text-white"><Sparkles size={14}/></span>
-      <div><b className="text-xs text-ink">Preguntale al mapa</b><p className="text-[9px] font-semibold text-slate-400">Consultá en lenguaje natural. El conteo sale de los datos reales, no de una estimación.</p></div>
-    </div>
-
+  return <AskCard icon={<Sparkles size={14}/>} title="Preguntale al mapa" subtitle="Consultá en lenguaje natural. El conteo sale de los datos reales, no de una estimación.">
     <form onSubmit={(event) => { event.preventDefault(); ask(question); }} className="mt-3 flex items-center gap-2">
       <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 focus-within:border-municipal-400 focus-within:ring-2 focus-within:ring-municipal-100">
         <ListFilter size={14} className="shrink-0 text-slate-400"/>
@@ -180,13 +176,13 @@ export function MapAsk({ carteles, onApply }: Props) {
       {/* Cómo lo interpretó */}
       <div className="rounded-xl border border-slate-200 bg-white p-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1.5 text-[8px] font-extrabold uppercase tracking-wider text-slate-400">
+          <span className="micro-label flex items-center gap-1.5">
             Así lo interpreté
             {source === "ai" && <span className="inline-flex items-center gap-0.5 rounded-md bg-municipal-600 px-1.5 py-0.5 text-white"><Sparkles size={8}/>IA</span>}
             {source === "rules" && <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-slate-500">Reglas</span>}
             {isInsp && <span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-blue-700">Inspecciones</span>}
           </span>
-          <span className="rounded-md bg-municipal-50 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-municipal-700">{OPERATION_LABEL[intent.operation]}</span>
+          <span className="rounded-md bg-municipal-50 px-1.5 py-0.5 text-micro font-extrabold uppercase text-municipal-700">{OPERATION_LABEL[intent.operation]}</span>
         </div>
         {chips === null ? (
           <p className="mt-1.5 text-[10px] text-slate-500">{intent.explanation}</p>
@@ -235,5 +231,5 @@ export function MapAsk({ carteles, onApply }: Props) {
         <button type="button" onClick={() => { setQuestion(""); reset(); }} className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 hover:text-municipal-700"><ArrowRight size={12}/>Nueva consulta</button>
       </div>
     </div>}
-  </section>;
+  </AskCard>;
 }

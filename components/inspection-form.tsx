@@ -30,6 +30,7 @@ import {
   type InspectionRecord,
 } from "@/lib/inspection-repository";
 import type { AuthState } from "@/hooks/use-auth";
+import { useDismissible } from "@/hooks/use-dismissible";
 import { PhotoLightbox, type LightboxPhoto } from "./photo-lightbox";
 
 type Props = {
@@ -56,6 +57,7 @@ const MAX_PHOTOS = 6;
 type SaveState = "idle" | "saving" | "error";
 
 export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, onSaved, existing }: Props) {
+  const { open, close } = useDismissible(onClose);
   const isEdit = Boolean(existing);
   const [step, setStep] = useState(0);
   const [empresa, setEmpresa] = useState(existing?.empresa ?? prefill?.empresa ?? "");
@@ -109,12 +111,17 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
   useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
 
   useEffect(() => {
+    // Capture + stopPropagation para no cerrar también la ficha del cartel
+    // (que escucha Esc en burbuja). Si el lightbox está abierto, se cede: su
+    // propio handler (capture, registrado después) cierra solo el lightbox.
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape" || lightbox) return;
+      event.stopPropagation();
+      close();
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [close, lightbox]);
 
   const totalSteps = INSPECTION_FORM_STEPS.length;
   const currentStep = INSPECTION_FORM_STEPS[step];
@@ -199,21 +206,23 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
 
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-[1000] flex items-end justify-center bg-ink/40 backdrop-blur-sm transition-opacity duration-200 ease-out sm:items-center sm:p-4"
+      style={{ opacity: open ? 1 : 0 }}
       role="presentation"
-      onClick={onClose}
+      onClick={close}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Inspección de ${cartelName}`}
-        className="flex max-h-[92vh] w-full flex-col rounded-t-2xl border border-white bg-white shadow-2xl sm:max-w-lg sm:rounded-2xl"
+        className="flex max-h-[92vh] w-full flex-col rounded-t-2xl border border-white bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-spring will-change-transform sm:max-w-lg sm:rounded-2xl"
+        style={{ opacity: open ? 1 : 0, transform: open ? "translate3d(0,0,0)" : "translate3d(0,18px,0)" }}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="border-b border-slate-100 px-5 pb-3 pt-4">
           <div className="flex items-center justify-between">
             <span className="section-kicker">{isEdit ? "Editar inspección" : "Nueva inspección"}</span>
-            <button onClick={onClose} className="icon-button grid" aria-label="Cerrar">
+            <button onClick={close} className="icon-button grid" aria-label="Cerrar">
               <X size={18} />
             </button>
           </div>
@@ -393,6 +402,11 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
           )}
         </div>
 
+        {photosWarning > 0 && (
+          <p className="border-t border-amber-100 bg-amber-50 px-5 py-2 text-[11px] font-semibold text-amber-700">
+            La inspección se guardó, pero {photosWarning} foto(s) no pudieron subirse.
+          </p>
+        )}
         <footer className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
           <button
             type="button"
@@ -425,11 +439,6 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
             </button>
           )}
         </footer>
-        {photosWarning > 0 && (
-          <p className="px-5 pb-3 text-[11px] font-semibold text-amber-700">
-            La inspección se guardó, pero {photosWarning} foto(s) no pudieron subirse.
-          </p>
-        )}
       </div>
       {lightbox && <PhotoLightbox photos={lightbox.photos} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
     </div>

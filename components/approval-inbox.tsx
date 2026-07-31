@@ -167,8 +167,9 @@ export function ApprovalInbox() {
       </div>
 
       {!ownsData || loadPhase === "idle" || loadPhase === "loading" ? (
-        <div className="grid min-h-28 place-items-center rounded-2xl border border-slate-200 bg-white">
-          <Loader2 size={22} className="animate-spin text-municipal-600"/>
+        <div className="grid gap-3 lg:grid-cols-2" aria-label="Cargando aprobaciones">
+          <div className="skeleton h-32 rounded-2xl"/>
+          <div className="skeleton h-32 rounded-2xl"/>
         </div>
       ) : (
         <>
@@ -285,10 +286,10 @@ function ApprovalCard({
         <div className="min-w-0">
           <b className="text-[11px] text-ink">{title}</b>
           <p className="mt-0.5 text-[10px] text-slate-600">{detail}</p>
-          <ul className="mt-1 space-y-0.5 text-[9px] font-semibold text-slate-500">
+          <ul className="mt-1 space-y-0.5 text-micro font-semibold text-slate-500">
             {context.map((line) => <li key={line}>{line}</li>)}
           </ul>
-          <p className="mt-1 text-[9px] text-slate-400">{meta}</p>
+          <p className="mt-1 text-micro text-slate-400">{meta}</p>
         </div>
       </div>
       <textarea
@@ -298,17 +299,17 @@ function ApprovalCard({
         placeholder="Fundamento de la resolución (obligatorio)"
         className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-[10px] text-slate-700 outline-none focus:border-municipal-500"
       />
-      <div className="mt-2 flex gap-1.5">
-        <button type="button" disabled={blocked || busy || note.trim().length < 5} onClick={onApprove} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1.5 text-[9px] font-extrabold text-white disabled:opacity-50">
-          {busy ? <Loader2 size={10} className="animate-spin"/> : <CheckCircle2 size={10}/>}
+      <div className="mt-2.5 flex gap-2">
+        <button type="button" disabled={blocked || busy || note.trim().length < 5} onClick={onApprove} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-green-700 px-3.5 text-micro font-extrabold text-white transition duration-fast hover:bg-green-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+          {busy ? <Loader2 size={12} className="animate-spin"/> : <CheckCircle2 size={12}/>}
           Aprobar
         </button>
-        <button type="button" disabled={blocked || busy || note.trim().length < 5} onClick={onReject} className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1.5 text-[9px] font-extrabold text-white disabled:opacity-50">
-          <XCircle size={10}/>
+        <button type="button" disabled={blocked || busy || note.trim().length < 5} onClick={onReject} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3.5 text-micro font-extrabold text-red-700 transition duration-fast hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+          <XCircle size={12}/>
           Rechazar
         </button>
       </div>
-      {failed && <p role="alert" className="mt-1.5 text-[9px] font-semibold text-red-700">No se pudo resolver la solicitud.</p>}
+      {failed && <p role="alert" className="mt-1.5 text-micro font-semibold text-red-700">No se pudo resolver la solicitud.</p>}
     </article>
   );
 }

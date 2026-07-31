@@ -81,7 +81,7 @@ function QuickFilters({ filters, onFilters }: { filters: TerritorialFilterState;
 function TerritorialLegend({ minimized, onMinimize }: { minimized: boolean; onMinimize: () => void }) {
   const statuses: AnalysisStatus[] = ["dentro_corredor", "cerca_lugar_permitido", "fuera_zona_permitida"];
   return <div className="absolute bottom-5 right-14 z-[500] rounded-xl border border-white/80 bg-white/90 p-2.5 shadow-lg backdrop-blur-md sm:right-16">
-    <button onClick={onMinimize} className="flex w-full items-center justify-between gap-3 text-[8px] font-extrabold uppercase tracking-wider text-slate-400" aria-expanded={!minimized}><span>Diagnóstico territorial</span>{minimized ? <ChevronDown size={12}/> : <Minus size={12}/>}</button>
+    <button onClick={onMinimize} className="flex w-full items-center justify-between gap-3 micro-label" aria-expanded={!minimized}><span>Diagnóstico territorial</span>{minimized ? <ChevronDown size={12}/> : <Minus size={12}/>}</button>
     {!minimized && <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1.5 sm:grid-cols-1">{statuses.map(status => <LegendDot key={status} color={analysisColors[status]} label={analysisLabels[status]}/>)}</div>}
   </div>;
 }
