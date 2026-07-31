@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { UrbanDocument } from "@/data/documents";
 import { documents } from "@/data/documents";
 import type { AnalyzedCartel } from "@/data/territorial";
@@ -17,12 +17,19 @@ import { PdfViewer } from "./pdf-viewer";
 import { ProductTour } from "./product-tour";
 import { StatsCards } from "./stats-cards";
 import { TryhardHeroMap } from "./TryhardHeroMap";
+import { ApprovalInbox } from "./approval-inbox";
 
 export function Dashboard() {
   const [viewer, setViewer] = useState<{ document: UrbanDocument; page: number | null } | null>(null);
-  /** Cartel seleccionado en el mapa (compartido con las cards de "Carteles analizados"). */
-  const [selectedCartel, setSelectedCartel] = useState<AnalyzedCartel | null>(null);
+  /** Solo persiste la identidad: los datos se derivan siempre de la colección vigente. */
+  const [selectedCartelId, setSelectedCartelId] = useState<string | null>(null);
   const territorial = useTerritorialMap();
+  const selectedCartel = selectedCartelId === null
+    ? null
+    : territorial.carteles.find((cartel) => String(cartel.properties.id) === selectedCartelId) ?? null;
+  const selectCartel = useCallback((cartel: AnalyzedCartel | null) => {
+    setSelectedCartelId(cartel === null ? null : String(cartel.properties.id));
+  }, []);
 
   const openDocument = (document: UrbanDocument, page: number | null = null) => setViewer({ document, page });
   const openDocumentById = (documentoId: string, page: number | null) => {
@@ -32,7 +39,7 @@ export function Dashboard() {
 
   /** Localiza un cartel en el mapa de la página: lo selecciona (vuelo + ficha) y scrollea hasta él. */
   const locateCartel = (cartel: AnalyzedCartel) => {
-    setSelectedCartel(cartel);
+    selectCartel(cartel);
     document.querySelector('[data-tour="map-canvas"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
@@ -44,9 +51,10 @@ export function Dashboard() {
         <div className="relative z-[1]">
           <Hero/>
           <StatsCards cartelesCount={territorial.carteles.length}/>
-          <MapPreview carteles={territorial.filteredCarteles} allCarteles={territorial.carteles} corridors={territorial.corridors} allowedPlaces={territorial.allowedPlaces} filters={territorial.filters} onFilters={territorial.setFilters} loading={territorial.loading} error={territorial.error} onRetry={territorial.retry} administrativeSource={territorial.administrativeSource} linkedCount={territorial.linkedCount} selected={selectedCartel} onSelect={setSelectedCartel}/>
+          <MapPreview carteles={territorial.filteredCarteles} allCarteles={territorial.carteles} corridors={territorial.corridors} allowedPlaces={territorial.allowedPlaces} filters={territorial.filters} onFilters={territorial.setFilters} loading={territorial.loading} error={territorial.error} onRetry={territorial.retry} administrativeSource={territorial.administrativeSource} linkedCount={territorial.linkedCount} selected={selectedCartel} onSelect={selectCartel}/>
         </div>
       </div>
+      <ApprovalInbox/>
       <CartelLibrary carteles={territorial.filteredCarteles} onLocate={locateCartel}/>
       <div data-tour="normativa" className="section-block pb-0"><NormativaAsk onOpenDocument={openDocumentById}/></div>
       <PdfLibrary onOpen={(document) => openDocument(document)}/>

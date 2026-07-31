@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FileSpreadsheet, FolderOpen, Loader2, Lock, RefreshCw } from "lucide-react";
 import { getExpedienteState } from "@/data/expedientes";
 import { useAuth } from "@/hooks/use-auth";
@@ -10,42 +10,83 @@ import { exportExpedientesXlsx } from "@/lib/expediente-report";
 
 export function ExpedientesRegistro() {
   const auth = useAuth();
-  const canRead = auth.available && Boolean(auth.user);
+  const canRead = auth.canRead;
 
   const [loading, setLoading] = useState(false);
   const [expedientes, setExpedientes] = useState<ExpedienteRecord[]>([]);
   const [conteos, setConteos] = useState<Map<string, number>>(new Map());
+  const [error, setError] = useState<string | null>(null);
+  const [dataOwnerId, setDataOwnerId] = useState<string | null>(null);
+  const refreshSequence = useRef(0);
 
   const refresh = useCallback(async () => {
-    if (!canRead) return;
+    const sequence = ++refreshSequence.current;
+    if (!canRead) {
+      setExpedientes([]);
+      setConteos(new Map());
+      setError(null);
+      setDataOwnerId(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const [exps, insps] = await Promise.all([loadExpedientes(), loadInspections()]);
-    const counts = new Map<string, number>();
-    for (const insp of insps) counts.set(insp.cartelId, (counts.get(insp.cartelId) ?? 0) + 1);
-    setExpedientes(exps);
-    setConteos(counts);
-    setLoading(false);
-  }, [canRead]);
+    setError(null);
+    setDataOwnerId(null);
+    try {
+      const [exps, insps] = await Promise.all([loadExpedientes(), loadInspections()]);
+      if (sequence !== refreshSequence.current) return;
+      const counts = new Map<string, number>();
+      for (const insp of insps) counts.set(insp.cartelId, (counts.get(insp.cartelId) ?? 0) + 1);
+      setExpedientes(exps);
+      setConteos(counts);
+      setDataOwnerId(auth.user?.id ?? null);
+    } catch {
+      if (sequence === refreshSequence.current) {
+        setExpedientes([]);
+        setConteos(new Map());
+        setError("No se pudo verificar el registro de expedientes.");
+        setDataOwnerId(auth.user?.id ?? null);
+      }
+    } finally {
+      if (sequence === refreshSequence.current) setLoading(false);
+    }
+  }, [canRead, auth.user?.id]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    return () => {
+      refreshSequence.current += 1;
+    };
+  }, [refresh]);
 
   const exportar = () => {
     void exportExpedientesXlsx(expedientes.map((e) => ({ expediente: e, inspecciones: conteos.get(e.cartelId) ?? 0 })));
   };
+  const ownsData = dataOwnerId === auth.user?.id;
 
   return <section id="expedientes" className="section-block">
     <div className="section-heading">
       <div><span className="section-kicker">Gestión</span><h2>Registro de expedientes</h2><p>Legajos administrativos abiertos por cartel. Exportable a Excel.</p></div>
-      {canRead && expedientes.length > 0 && <div className="flex items-center gap-2">
+      {canRead && <div className="flex items-center gap-2">
         <button onClick={refresh} className="secondary-button compact" aria-label="Actualizar"><RefreshCw size={14}/></button>
-        <button onClick={exportar} className="primary-button compact"><FileSpreadsheet size={15}/>Exportar a Excel</button>
+        {ownsData && expedientes.length > 0 && <button onClick={exportar} className="primary-button compact"><FileSpreadsheet size={15}/>Exportar a Excel</button>}
       </div>}
     </div>
 
     {!canRead ? (
-      <div className="empty-state"><span><Lock size={22}/></span><h3>Requiere sesión</h3><p>Ingresá con tu cuenta municipal para ver el registro de expedientes.</p></div>
-    ) : loading ? (
+      auth.user ? (
+        auth.roleError ? (
+          <div className="empty-state border-red-200 bg-red-50"><span><Lock size={22}/></span><h3>Permisos no verificados</h3><p>{auth.roleError}</p><button type="button" onClick={() => void auth.retryRole()} className="secondary-button compact">Reintentar permisos</button></div>
+        ) : (
+          <div className="grid min-h-40 place-items-center rounded-2xl border border-slate-200 bg-white"><Loader2 size={24} className="animate-spin text-municipal-600"/></div>
+        )
+      ) : (
+        <div className="empty-state"><span><Lock size={22}/></span><h3>Requiere sesión</h3><p>Ingresá con tu cuenta municipal para ver el registro de expedientes.</p></div>
+      )
+    ) : !ownsData || loading ? (
       <div className="grid min-h-40 place-items-center rounded-2xl border border-slate-200 bg-white"><Loader2 size={24} className="animate-spin text-municipal-600"/></div>
+    ) : error ? (
+      <div className="empty-state border-red-200 bg-red-50"><span><FolderOpen size={22}/></span><h3>No se pudo cargar el registro</h3><p>{error} Reintentá o revisá tu sesión.</p></div>
     ) : expedientes.length === 0 ? (
       <div className="empty-state"><span><FolderOpen size={22}/></span><h3>Sin expedientes</h3><p>Todavía no se abrió ningún expediente. Abrí uno desde la ficha de un cartel vinculado.</p></div>
     ) : (

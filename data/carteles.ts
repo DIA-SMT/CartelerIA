@@ -1,12 +1,13 @@
-import rawCarteles from "./carteles.json";
-
 export type CartelStatus = "Relevado" | "Normativa" | "Proyecto";
 export type SituationStatus = "relevado" | "habilitado" | "pendiente" | "observado" | "infraccion" | "sin_datos";
 export type ContaminationLevel = "bajo" | "medio" | "alto" | "critico";
+export type TerritorialLinkStatus = "sin_vinculo" | "pendiente" | "aprobado" | "rechazado";
 
 export interface CartelRecord {
   id: string;
   territorialFeatureId?: string | null;
+  proposedTerritorialFeatureId?: string | null;
+  territorialLinkStatus?: TerritorialLinkStatus;
   empresa: string;
   cuit: string;
   tipoCartel: string;
@@ -28,39 +29,6 @@ export interface CartelRecord {
   originalLongitud: number | null;
   locationEdited: boolean;
 }
-
-function inferZone(address: string) {
-  const value = address.toLocaleUpperCase("es-AR");
-  if (value.includes("MATE DE LUNA")) return "Av. Mate de Luna";
-  if (value.includes("BELGRANO")) return "Av. Belgrano";
-  if (value.includes("ALEM")) return "Av. Alem";
-  if (value.includes("ROCA")) return "Av. Roca";
-  if (["SAN MARTIN", "24 DE SEPTIEMBRE", "CONGRESO", "LAPRIDA", "MAIPU"].some(street => value.includes(street))) return "Microcentro";
-  return "Otros sectores";
-}
-
-function mockSituation(index: number, located: boolean): SituationStatus {
-  if (!located) return "sin_datos";
-  return (["relevado", "habilitado", "pendiente", "observado", "infraccion", "relevado"] as SituationStatus[])[index % 6];
-}
-
-function mockContamination(index: number): ContaminationLevel {
-  return (["bajo", "medio", "medio", "alto", "alto", "critico"] as ContaminationLevel[])[index % 6];
-}
-
-export const initialCarteles = (rawCarteles as unknown as CartelRecord[]).map((cartel, index) => {
-  const located = cartel.latitud != null && cartel.longitud != null;
-  return {
-    ...cartel,
-    status: mockSituation(index, located),
-    contaminationLevel: mockContamination(index),
-    zone: inferZone(cartel.domicilio),
-    streetViewImageUrl: null,
-    originalLatitud: cartel.latitud,
-    originalLongitud: cartel.longitud,
-    locationEdited: false
-  };
-});
 
 export const situationLabels: Record<SituationStatus, string> = {
   relevado: "Relevado / ubicado",

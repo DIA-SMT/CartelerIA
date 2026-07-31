@@ -34,13 +34,13 @@ export const TOUR_STEPS: TourStep[] = [
     id: "diagnostico",
     selector: '[data-tour="diagnostico"]',
     title: "Diagnóstico territorial",
-    body: "Tocá un indicador para filtrar al instante: total de carteles, dentro de corredores, fuera de zona permitida y su porcentaje.",
+    body: "Tocá un indicador para filtrar al instante: total de carteles, dentro de corredores, fuera de las áreas analizadas y su porcentaje.",
   },
   {
     id: "map-ask",
     selector: '[data-tour="map-ask"]',
     title: "Preguntale al mapa",
-    body: "Escribí una pregunta en lenguaje natural (“¿cuántos están fuera de zona?”). La respuesta se calcula sobre los datos reales y puede aplicar el filtro en el mapa.",
+    body: "Escribí una pregunta en lenguaje natural (“¿cuántos están fuera de las áreas analizadas?”). La respuesta se calcula sobre los datos reales y puede aplicar el filtro en el mapa.",
   },
   {
     id: "normativa",

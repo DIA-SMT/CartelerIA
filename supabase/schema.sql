@@ -33,7 +33,9 @@ create index if not exists carteles_territorial_feature_idx on public.carteles(t
 alter table public.carteles enable row level security;
 
 drop policy if exists "carteles_public_read" on public.carteles;
-create policy "carteles_public_read" on public.carteles for select to anon, authenticated using (true);
+drop policy if exists carteles_authenticated_read on public.carteles;
+create policy carteles_authenticated_read on public.carteles
+  for select to authenticated using (true);
 
 -- Sin escritura anónima: la corrección de ubicación exige sesión con rol
 -- operativo (la policy con tiene_rol se define en la migración 10; en un setup
@@ -41,7 +43,6 @@ create policy "carteles_public_read" on public.carteles for select to anon, auth
 drop policy if exists "carteles_public_location_update" on public.carteles;
 
 revoke all on public.carteles from anon;
-grant select on public.carteles to anon;
 grant select, update on public.carteles to authenticated;
 
 create table if not exists public.documentos (
@@ -59,5 +60,4 @@ drop policy if exists "documentos_public_read" on public.documentos;
 create policy "documentos_public_read" on public.documentos for select to anon, authenticated using (true);
 grant select on public.documentos to anon, authenticated;
 
--- Políticas públicas temporales para el MVP sin login.
--- Antes de producción, reemplazar la actualización anónima por políticas basadas en auth.uid().
+-- El registro administrativo no tiene lectura ni escritura anónima.

@@ -5,7 +5,10 @@
 // (scripts/ingest-docs.ts) y en la consulta (app/api/normativa/route.ts).
 // ============================================================================
 
-import { pipeline, type FeatureExtractionPipeline } from "@xenova/transformers";
+import {
+  pipeline,
+  type FeatureExtractionPipeline,
+} from "@huggingface/transformers";
 
 export const EMBEDDING_DIM = 384;
 const MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";

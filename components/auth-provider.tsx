@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -8,6 +8,7 @@ export type AppRole = "administrador" | "coordinador" | "inspector" | "consulta"
 
 /** Roles con permiso de escritura sobre inspecciones (coincide con la RLS). */
 const OPERATIVE_ROLES: AppRole[] = ["administrador", "coordinador", "inspector"];
+const APP_ROLES: AppRole[] = [...OPERATIVE_ROLES, "consulta"];
 
 export interface AuthState {
   /** Si Supabase no está configurado, la autenticación no está disponible. */
@@ -15,22 +16,30 @@ export interface AuthState {
   loading: boolean;
   user: User | null;
   role: AppRole | null;
+  roleError: string | null;
+  /** true solo cuando la sesión tiene un perfil municipal con rol reconocido. */
+  canRead: boolean;
   /** true si el rol permite crear/editar inspecciones. */
   canInspect: boolean;
   error: string | null;
+  retryRole: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
 }
 
-async function fetchRole(userId: string): Promise<AppRole | null> {
-  if (!supabase) return null;
+async function fetchRole(userId: string): Promise<{ role: AppRole | null; error: string | null }> {
+  if (!supabase) return { role: null, error: "Supabase no está configurado." };
   const { data, error } = await supabase
     .from("perfiles")
     .select("rol")
     .eq("user_id", userId)
     .maybeSingle();
-  if (error || !data) return null;
-  return (data.rol as AppRole) ?? null;
+  if (error) return { role: null, error: "No se pudieron verificar los permisos de la cuenta." };
+  if (!data) return { role: null, error: "La cuenta no tiene un perfil municipal habilitado." };
+  if (!APP_ROLES.includes(data.rol as AppRole)) {
+    return { role: null, error: "El perfil municipal contiene un rol no reconocido." };
+  }
+  return { role: data.rol as AppRole, error: null };
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -45,12 +54,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(available);
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const sessionSequence = useRef(0);
 
   const applySession = useCallback(async (session: Session | null) => {
+    const sequence = ++sessionSequence.current;
     const nextUser = session?.user ?? null;
     setUser(nextUser);
-    setRole(nextUser ? await fetchRole(nextUser.id) : null);
+    setRole(null);
+    setRoleError(null);
+    if (!nextUser) return;
+
+    const roleResult = await fetchRole(nextUser.id);
+    if (sequence !== sessionSequence.current) return;
+    setRole(roleResult.role);
+    setRoleError(roleResult.error);
   }, []);
 
   useEffect(() => {
@@ -95,11 +114,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return true;
   }, [applySession]);
 
+  const retryRole = useCallback(async () => {
+    if (!user) return;
+    const sequence = ++sessionSequence.current;
+    setRole(null);
+    setRoleError(null);
+    const roleResult = await fetchRole(user.id);
+    if (sequence !== sessionSequence.current) return;
+    setRole(roleResult.role);
+    setRoleError(roleResult.error);
+  }, [user]);
+
   const signOut = useCallback(async () => {
     if (!supabase) return;
-    await supabase.auth.signOut();
+    // Purga permisos de inmediato; no depende de que termine la llamada de red.
+    sessionSequence.current += 1;
     setUser(null);
     setRole(null);
+    setRoleError(null);
+    setError(null);
+    await supabase.auth.signOut();
   }, []);
 
   const value: AuthState = {
@@ -107,8 +141,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     user,
     role,
-    canInspect: role !== null && OPERATIVE_ROLES.includes(role),
+    roleError,
+    canRead: Boolean(user) && role !== null && roleError === null,
+    canInspect: Boolean(user) && role !== null && OPERATIVE_ROLES.includes(role),
     error,
+    retryRole,
     signIn,
     signOut,
   };

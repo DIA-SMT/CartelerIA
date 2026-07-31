@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { BadgePlus, Loader2, X } from "lucide-react";
+import type { TerritorialLinkStatus } from "@/data/carteles";
 import type { AnalyzedCartel } from "@/data/territorial";
 import { registerCartel } from "@/lib/cartel-repository";
 
@@ -9,7 +10,11 @@ type Props = {
   cartel: AnalyzedCartel;
   onClose: () => void;
   /** Se llama con el id del registro creado (o existente, si ya estaba vinculado). */
-  onRegistered: (recordId: string, alreadyExisted: boolean) => void;
+  onRegistered: (
+    recordId: string,
+    alreadyExisted: boolean,
+    linkStatus: TerritorialLinkStatus,
+  ) => void;
 };
 
 /**
@@ -23,6 +28,7 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
   const [cuit, setCuit] = useState("");
   const [domicilio, setDomicilio] = useState("");
   const [numero, setNumero] = useState("");
+  const [linkReason, setLinkReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,12 +42,13 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (saving) return;
+    if (saving || linkReason.trim().length < 5) return;
     setSaving(true);
     setError(null);
     const [longitude, latitude] = cartel.geometry.coordinates;
     const result = await registerCartel({
       territorialFeatureId: String(cartel.properties.id),
+      linkReason: linkReason.trim(),
       latitud: latitude ?? null,
       longitud: longitude ?? null,
       empresa: empresa.trim() || null,
@@ -54,7 +61,11 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
       setError(result.error ?? "No se pudo registrar el cartel.");
       return;
     }
-    onRegistered(result.recordId, result.alreadyExisted);
+    onRegistered(
+      result.recordId,
+      result.alreadyExisted,
+      result.linkStatus ?? "sin_vinculo",
+    );
   };
 
   return (
@@ -83,8 +94,8 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
           Registrar este cartel
         </h2>
         <p className="mt-1 text-xs text-slate-500">
-          Crea el registro administrativo de <b className="text-ink">{cartel.properties.name || "este cartel"}</b> y
-          lo vincula al mapa. Todos los campos son opcionales: podés completarlos después.
+          Crea el registro administrativo de <b className="text-ink">{cartel.properties.name || "este cartel"}</b>.
+          El vínculo con el mapa quedará pendiente de resolución administrativa.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-3">
@@ -94,6 +105,21 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
             <Field label="Domicilio" value={domicilio} onChange={setDomicilio} placeholder="Calle" />
             <Field label="N°" value={numero} onChange={setNumero} placeholder="123" inputMode="numeric" />
           </div>
+          <label className="block">
+            <span className="detail-title">Fundamento del vínculo</span>
+            <textarea
+              value={linkReason}
+              onChange={(event) => setLinkReason(event.target.value)}
+              rows={2}
+              required
+              minLength={5}
+              placeholder="Indicá por qué este registro corresponde al punto territorial"
+              className="mt-1.5 w-full rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-ink outline-none ring-1 ring-inset ring-slate-100 focus:ring-municipal-500"
+            />
+            <span className="mt-1 block text-[9px] text-slate-400">
+              También se usa para volver a solicitar un vínculo previamente rechazado.
+            </span>
+          </label>
 
           {error && (
             <p role="alert" className="text-[11px] font-semibold text-red-600">
@@ -103,7 +129,7 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
 
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || linkReason.trim().length < 5}
             className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? <Loader2 size={15} className="animate-spin" /> : <BadgePlus size={15} />}

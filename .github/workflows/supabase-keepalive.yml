@@ -24,12 +24,17 @@ jobs:
       # Si falla, el log muestra el cuerpo del error de Supabase (sin secretos):
       # "No API key found" = secret vacío o mal nombrado; "Invalid API key" =
       # el valor no es la anon key legacy (eyJ..., 208 caracteres).
-      - name: Consulta mínima (select 1 id de carteles)
+      # El registro y el corpus son privados. La RPC devuelve solo `true` y no
+      # consulta ninguna tabla.
+      - name: Ping mínimo sin lectura de datos
         run: |
           body=$(curl --silent --show-error --max-time 30 \
+            --request POST \
             -H "apikey: $SUPABASE_ANON_KEY" \
             -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            --data '{}' \
             -w "\nHTTP_CODE:%{http_code}" \
-            "$SUPABASE_URL/rest/v1/carteles?select=id&limit=1")
+            "$SUPABASE_URL/rest/v1/rpc/keepalive_ping")
           echo "$body"
           case "$body" in *HTTP_CODE:200) echo "Supabase OK";; *) echo "Fallo el ping"; exit 22;; esac

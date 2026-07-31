@@ -48,7 +48,7 @@ export function PdfViewer({ document: doc, page, onClose }: { document: UrbanDoc
             <div className="text-center">
               <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-white text-slate-400 shadow-sm"><FileQuestion/></span>
               <h3 className="mt-4 font-display font-bold text-ink">Documento no disponible para previsualización.</h3>
-              <p className="mt-1 text-sm text-slate-400">El archivo debe incorporarse dentro de public/docs.</p>
+              <p className="mt-1 text-sm text-slate-400">El archivo público no está disponible en este despliegue.</p>
             </div>
           </div>
         )}

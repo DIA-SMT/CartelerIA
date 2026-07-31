@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   ClipboardList,
@@ -18,15 +18,20 @@ import {
   getExpedienteState,
   type ExpedienteState,
 } from "@/data/expedientes";
+import type { StateChangeRequest } from "@/data/approvals";
 import { getInspectionState } from "@/data/inspections";
 import type { AuthState } from "@/hooks/use-auth";
+import {
+  loadStateChangeRequests,
+  requestExpedienteStateChange,
+  resolveStateChangeRequest,
+} from "@/lib/approval-repository";
 import {
   createExpediente,
   loadExpedienteByCartel,
   loadExpedienteDocumentos,
   loadExpedienteHistorial,
   updateExpediente,
-  updateExpedienteEstado,
   uploadExpedienteDocumento,
   type ExpedienteDocumento,
   type ExpedienteHistoryEntry,
@@ -34,26 +39,33 @@ import {
 } from "@/lib/expediente-repository";
 import { loadInspectionsByCartel, type InspectionRecord } from "@/lib/inspection-repository";
 import { printExpedienteDossier } from "@/lib/expediente-report";
+import { StateChangeApprovals } from "./state-change-approvals";
 
 type Props = {
   cartelId: string;
   cartelName: string;
   prefill?: { empresa?: string | null; direccion?: string | null };
   auth: AuthState;
+  canMutate: boolean;
   onClose: () => void;
 };
 
-export function ExpedientePanel({ cartelId, cartelName, prefill, auth, onClose }: Props) {
-  const canRead = auth.available && Boolean(auth.user);
-  const canManage = auth.available && (auth.role === "administrador" || auth.role === "coordinador");
+export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate, onClose }: Props) {
+  const canRead = auth.canRead;
+  const canManage = canMutate
+    && auth.canRead
+    && (auth.role === "administrador" || auth.role === "coordinador");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [expediente, setExpediente] = useState<ExpedienteRecord | null>(null);
   const [inspecciones, setInspecciones] = useState<InspectionRecord[]>([]);
   const [historial, setHistorial] = useState<ExpedienteHistoryEntry[]>([]);
+  const [requests, setRequests] = useState<StateChangeRequest[]>([]);
+  const [requestsLoadError, setRequestsLoadError] = useState<string | null>(null);
   const [documentos, setDocumentos] = useState<ExpedienteDocumento[]>([]);
   const [busy, setBusy] = useState(false);
+  const refreshSequence = useRef(0);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -62,35 +74,67 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, onClose }
   }, [onClose]);
 
   const refresh = useCallback(async () => {
-    if (!canRead) { setLoading(false); return; }
+    const sequence = ++refreshSequence.current;
+    if (!canRead) {
+      setExpediente(null);
+      setInspecciones([]);
+      setHistorial([]);
+      setRequests([]);
+      setRequestsLoadError(null);
+      setDocumentos([]);
+      setError(false);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(false);
+    setRequestsLoadError(null);
     try {
       const [exp, insp] = await Promise.all([
         loadExpedienteByCartel(cartelId),
         loadInspectionsByCartel(cartelId),
       ]);
+      if (sequence !== refreshSequence.current) return;
       setExpediente(exp);
       setInspecciones(insp);
       if (exp) {
-        const [hist, docs] = await Promise.all([
+        const [hist, docs, requestData] = await Promise.all([
           loadExpedienteHistorial(exp.id),
           loadExpedienteDocumentos(exp.id),
+          loadStateChangeRequests("expediente", exp.id),
         ]);
+        if (sequence !== refreshSequence.current) return;
         setHistorial(hist);
         setDocumentos(docs);
+        setRequests(requestData.data);
+        setRequestsLoadError(requestData.ok ? null : requestData.error);
       } else {
         setHistorial([]);
         setDocumentos([]);
+        setRequests([]);
+        setRequestsLoadError(null);
       }
     } catch {
-      setError(true);
+      if (sequence === refreshSequence.current) {
+        setExpediente(null);
+        setInspecciones([]);
+        setHistorial([]);
+        setRequests([]);
+        setDocumentos([]);
+        setError(true);
+        setRequestsLoadError("No se pudo verificar el flujo de aprobaciones.");
+      }
     } finally {
-      setLoading(false);
+      if (sequence === refreshSequence.current) setLoading(false);
     }
   }, [cartelId, canRead]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    return () => {
+      refreshSequence.current += 1;
+    };
+  }, [refresh]);
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-4" role="presentation" onClick={onClose}>
@@ -107,7 +151,11 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, onClose }
           {loading ? (
             <div className="grid min-h-40 place-items-center"><Loader2 size={22} className="animate-spin text-municipal-600"/></div>
           ) : !canRead ? (
-            <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"><Lock size={13} className="mt-0.5 shrink-0"/>Ingresá con tu cuenta municipal para ver el expediente.</p>
+            auth.user && auth.roleError ? (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-700"><p>{auth.roleError}</p><button type="button" onClick={() => void auth.retryRole()} className="secondary-button compact mt-2">Reintentar permisos</button></div>
+            ) : (
+              <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"><Lock size={13} className="mt-0.5 shrink-0"/>{auth.user ? "Verificando permisos municipales…" : "Ingresá con tu cuenta municipal para ver el expediente."}</p>
+            )
           ) : error ? (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-700">No se pudo cargar el expediente. Reintentá más tarde.</p>
           ) : expediente ? (
@@ -116,8 +164,11 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, onClose }
               cartelName={cartelName}
               inspecciones={inspecciones}
               historial={historial}
+              requests={requests}
+              requestsLoadError={requestsLoadError}
               documentos={documentos}
               canManage={canManage}
+              isAdmin={canMutate && auth.role === "administrador"}
               busy={busy}
               setBusy={setBusy}
               onChanged={refresh}
@@ -184,14 +235,16 @@ function NewExpediente({ cartelName, cartelId, prefill, canManage, busy, setBusy
 // ----------------------------------------------------------------------------
 // Vista del expediente
 // ----------------------------------------------------------------------------
-function ExpedienteView({ expediente, cartelName, inspecciones, historial, documentos, canManage, busy, setBusy, onChanged }: {
+function ExpedienteView({ expediente, cartelName, inspecciones, historial, requests, requestsLoadError, documentos, canManage, isAdmin, busy, setBusy, onChanged }: {
   expediente: ExpedienteRecord; cartelName: string; inspecciones: InspectionRecord[];
-  historial: ExpedienteHistoryEntry[]; documentos: ExpedienteDocumento[];
-  canManage: boolean; busy: boolean; setBusy: (v: boolean) => void; onChanged: () => void;
+  historial: ExpedienteHistoryEntry[]; requests: StateChangeRequest[]; documentos: ExpedienteDocumento[];
+  requestsLoadError: string | null;
+  canManage: boolean; isAdmin: boolean; busy: boolean; setBusy: (v: boolean) => void; onChanged: () => Promise<void>;
 }) {
   const config = getExpedienteState(expediente.estado);
   const [obs, setObs] = useState(expediente.observaciones ?? "");
   const [savedObs, setSavedObs] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const saveObs = async () => {
     setBusy(true);
@@ -200,19 +253,37 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, docum
     if (ok) { setSavedObs(true); onChanged(); }
   };
 
-  const transition = async (next: ExpedienteState) => {
+  const transition = async (next: ExpedienteState, reason: string) => {
+    if (requestsLoadError) return false;
     setBusy(true);
-    const ok = await updateExpedienteEstado(expediente.id, next);
+    const result = await requestExpedienteStateChange(expediente.id, next, reason);
+    if (result.ok) await onChanged();
     setBusy(false);
-    if (ok) onChanged();
+    return result.ok;
+  };
+
+  const resolveRequest = async (requestId: string, approve: boolean, note: string) => {
+    if (requestsLoadError) return false;
+    setBusy(true);
+    const ok = await resolveStateChangeRequest(requestId, approve, note);
+    if (ok) await onChanged();
+    setBusy(false);
+    return ok;
   };
 
   const onUpload = async (file: File | undefined) => {
     if (!file) return;
+    setUploadError(null);
     setBusy(true);
-    await uploadExpedienteDocumento(expediente.id, file, file.name);
-    setBusy(false);
-    onChanged();
+    try {
+      const ok = await uploadExpedienteDocumento(expediente.id, file, file.name);
+      if (ok) await onChanged();
+      else setUploadError("El archivo no fue incorporado al expediente. No lo uses como evidencia hasta reintentar y verificarlo.");
+    } catch {
+      setUploadError("No se pudo verificar la carga del archivo.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return <div className="space-y-4">
@@ -232,10 +303,11 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, docum
     </div>
 
     {/* Exportar PDF (dossier imprimible) */}
-    <button type="button" onClick={() => printExpedienteDossier({ expediente, cartelName, inspecciones, historial })} className="secondary-button compact w-full justify-center"><Printer size={12}/>Exportar PDF (dossier)</button>
+    <button type="button" onClick={() => printExpedienteDossier({ expediente, cartelName, inspecciones, historial, requests, documentos })} className="secondary-button compact w-full justify-center"><Printer size={12}/>Exportar PDF (dossier)</button>
 
     {/* Transiciones */}
-    <Transitions estado={expediente.estado} canManage={canManage} busy={busy} onTransition={transition}/>
+    <StateChangeApprovals requests={requests} isAdmin={isAdmin} loadError={requestsLoadError} onResolve={resolveRequest}/>
+    <Transitions estado={expediente.estado} canManage={canManage} isAdmin={isAdmin} hasPendingRequest={requests.some((request) => request.status === "pendiente")} approvalLoadError={requestsLoadError} busy={busy} onTransition={transition}/>
 
     {/* Inspecciones (rollup) */}
     <Section icon={<ClipboardList size={13}/>} title={`Inspecciones (${inspecciones.length})`}>
@@ -256,16 +328,17 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, docum
     <Section icon={<Paperclip size={13}/>} title={`Documentos (${documentos.length})`}>
       {documentos.length > 0 && <ul className="mb-2 space-y-1">{documentos.map((doc) => (
         <li key={doc.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 text-[10px]">
-          <span className="flex min-w-0 items-center gap-1.5"><FileText size={11} className="shrink-0 text-slate-400"/><span className="truncate">{doc.descripcion || doc.storagePath.split("/").pop()}</span></span>
+          <span className="flex min-w-0 items-center gap-1.5"><FileText size={11} className="shrink-0 text-slate-400"/><span className="min-w-0"><span className="block truncate">{doc.descripcion || doc.storagePath.split("/").pop()}</span><span className={`block text-[8px] font-bold ${doc.sha256 && doc.byteSize && doc.mimeType && doc.uploadedBy ? "text-green-700" : "text-amber-700"}`}>{doc.sha256 && doc.byteSize && doc.mimeType && doc.uploadedBy ? "Integridad verificada" : "Histórico no verificado"}</span></span></span>
           {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" className="shrink-0 text-[9px] font-bold text-municipal-700 hover:text-municipal-900">Ver</a>}
         </li>
       ))}</ul>}
       {canManage ? (
         <label className="secondary-button compact inline-flex w-full cursor-pointer justify-center">
           <Paperclip size={12}/>Adjuntar documento
-          <input type="file" accept="application/pdf,image/*" className="hidden" disabled={busy} onChange={(e) => onUpload(e.target.files?.[0])}/>
+          <input type="file" accept="application/pdf,image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif" className="hidden" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; void onUpload(file); }}/>
         </label>
       ) : documentos.length === 0 && <p className="text-[10px] text-slate-400">Sin documentos.</p>}
+      {uploadError && <p role="alert" className="mt-2 rounded-lg bg-red-50 px-2.5 py-2 text-[9px] font-semibold text-red-700">{uploadError}</p>}
     </Section>
 
     {/* Observaciones (editable por rol) */}
@@ -288,7 +361,7 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, docum
           const from = entry.estadoAnterior ? getExpedienteState(entry.estadoAnterior) : null;
           return <li key={entry.id} className="flex items-center gap-1.5 text-[10px] text-slate-600">
             <span className="size-1.5 shrink-0 rounded-full" style={{ background: to.color }}/>
-            <span className="flex flex-wrap items-center gap-1">{from && <><b className="font-semibold text-slate-400">{from.label}</b><ArrowRight size={9} className="text-slate-300"/></>}<b className="font-bold text-slate-700">{to.label}</b></span>
+            <span className="flex flex-wrap items-center gap-1">{from && <><b className="font-semibold text-slate-400">{from.label}</b><ArrowRight size={9} className="text-slate-300"/></>}<b className="font-bold text-slate-700">{to.label}</b>{entry.changedByName && <span className="text-[9px] text-slate-400">· {entry.changedByName}{entry.changedByRole ? ` (${entry.changedByRole})` : ""}</span>}</span>
             <time className="ml-auto shrink-0 text-[9px] text-slate-400">{new Date(entry.createdAt).toLocaleDateString("es-AR")}</time>
           </li>;
         })}</ol>
@@ -297,19 +370,27 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, docum
   </div>;
 }
 
-function Transitions({ estado, canManage, busy, onTransition }: { estado: ExpedienteState; canManage: boolean; busy: boolean; onTransition: (next: ExpedienteState) => void }) {
+function Transitions({ estado, canManage, isAdmin, hasPendingRequest, approvalLoadError, busy, onTransition }: { estado: ExpedienteState; canManage: boolean; isAdmin: boolean; hasPendingRequest: boolean; approvalLoadError: string | null; busy: boolean; onTransition: (next: ExpedienteState, reason: string) => Promise<boolean> }) {
+  const [reason, setReason] = useState("");
   const config = getExpedienteState(estado);
   if (!canManage) {
     return <p className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-[9px] font-semibold text-slate-500"><Lock size={11}/>Cambiar el estado requiere rol coordinador o administrador.</p>;
   }
+  if (approvalLoadError) {
+    return <p className="rounded-lg bg-red-50 px-2.5 py-1.5 text-[9px] font-semibold text-red-700">No se habilitan transiciones porque no se pudo verificar si existen solicitudes pendientes.</p>;
+  }
   if (config.allowedNext.length === 0) {
     return <p className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[9px] font-semibold text-slate-500">Estado final: sin transiciones disponibles.</p>;
   }
+  if (hasPendingRequest) {
+    return <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[9px] font-semibold text-amber-800">Hay una solicitud pendiente de resolución administrativa.</p>;
+  }
   return <div>
-    <span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">Avanzar estado</span>
+    <span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">{isAdmin ? "Aplicar estado con aprobación" : "Solicitar cambio de estado"}</span>
+    <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} placeholder="Fundamento obligatorio" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] text-slate-700 outline-none focus:border-municipal-500"/>
     <div className="mt-1.5 flex flex-wrap gap-1.5">{config.allowedNext.filter((next) => canTransition(estado, next)).map((next) => {
       const target = getExpedienteState(next);
-      return <button key={next} type="button" disabled={busy} onClick={() => onTransition(next)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[9px] font-bold text-slate-600 transition hover:border-municipal-300 hover:text-municipal-700 disabled:opacity-50">
+      return <button key={next} type="button" disabled={busy || reason.trim().length < 5} onClick={async () => { if (await onTransition(next, reason.trim())) setReason(""); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[9px] font-bold text-slate-600 transition hover:border-municipal-300 hover:text-municipal-700 disabled:opacity-50">
         <span className="size-2 rounded-full" style={{ background: target.color }}/>{target.label}
       </button>;
     })}</div>

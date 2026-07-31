@@ -6,7 +6,7 @@
 //    runQuery(intent).count === filterTerritorialCarteles(intentToFilterState).length
 // usando los MISMOS módulos que la app (sin reimplementar lógica).
 //
-// Correr con:  npx tsx scripts/validate-query-counts.ts
+// Sus invariantes críticas también se ejecutan con: npm run test:workflow
 // ============================================================================
 
 import { readFile } from "node:fs/promises";
@@ -37,13 +37,11 @@ console.log(`\nCarteles cargados: ${carteles.length}\n`);
 
 // ---- Intents de prueba (estructurados y de fallback por IDs) ----------------
 const cases: { name: string; intent: QueryIntent }[] = [
-  { name: "visualStatus=fuera_zona (estructurado→main)", intent: { operation: "count", predicate: { field: "visualStatus", op: "eq", value: "fuera_zona" }, applyToMap: false, unsupported: [], explanation: "" } },
-  { name: "enablement=no_habilitable (estructurado)", intent: { operation: "list", predicate: { field: "enablementStatus", op: "eq", value: "no_habilitable" }, applyToMap: true, unsupported: [], explanation: "" } },
-  { name: "support=led (estructurado)", intent: { operation: "count", predicate: { field: "supportType", op: "eq", value: "led" }, applyToMap: false, unsupported: [], explanation: "" } },
-  { name: "AND visualStatus=deuda + support=gigantografia (estructurado)", intent: { operation: "list", predicate: { op: "and", clauses: [{ field: "visualStatus", op: "eq", value: "deuda" }, { field: "supportType", op: "eq", value: "gigantografia" }] }, applyToMap: true, unsupported: [], explanation: "" } },
-  { name: "AND prioridad alta/crítica + zona sensible (fallback→ids)", intent: { operation: "list", predicate: { op: "and", clauses: [{ field: "controlPriority", op: "in", value: ["alta", "critica"] }, { field: "sensitiveZone", op: "is", value: true }] }, applyToMap: true, unsupported: [], explanation: "" } },
-  { name: "analysisStatus=fuera_zona_permitida (fallback→ids)", intent: { operation: "count", predicate: { field: "analysisStatus", op: "eq", value: "fuera_zona_permitida" }, applyToMap: false, unsupported: [], explanation: "" } },
+  { name: "analysisStatus=fuera_zona_permitida (estructurado→main)", intent: { operation: "count", predicate: { field: "analysisStatus", op: "eq", value: "fuera_zona_permitida" }, applyToMap: false, unsupported: [], explanation: "" } },
+  { name: "analysisStatus=dentro_corredor (estructurado→main)", intent: { operation: "list", predicate: { field: "analysisStatus", op: "eq", value: "dentro_corredor" }, applyToMap: true, unsupported: [], explanation: "" } },
+  { name: "analysisStatus=cerca_lugar_permitido (estructurado→main)", intent: { operation: "list", predicate: { field: "analysisStatus", op: "eq", value: "cerca_lugar_permitido" }, applyToMap: true, unsupported: [], explanation: "" } },
   { name: "distancia al corredor > 100 (fallback→ids)", intent: { operation: "count", predicate: { field: "distanceToCorridorM", op: "gt", value: 100 }, applyToMap: false, unsupported: [], explanation: "" } },
+  { name: "distancia a lugar permitido <= 150 (fallback→ids)", intent: { operation: "count", predicate: { field: "distanceToAllowedPlaceM", op: "lte", value: 150 }, applyToMap: false, unsupported: [], explanation: "" } },
   { name: "sin predicado (todos)", intent: { operation: "count", applyToMap: false, unsupported: [], explanation: "" } },
 ];
 
@@ -66,13 +64,13 @@ for (const { name, intent } of cases) {
   line(same, `${name}: |ids|=${exec.ids.length}`);
 }
 
-// ---- Los 4 ejemplos objetivo del prompt -------------------------------------
+// ---- Ejemplos territoriales del intérprete por reglas -----------------------
 console.log("\n== Ejemplos objetivo (intérprete por reglas) ==");
 const examples = [
-  "Mostrame carteles alquilados sin habilitación",
   "¿Cuántos están fuera de zona?",
-  "¿Qué empresa tiene más observaciones?",
-  "Mostrame carteles riesgosos cerca de zonas sensibles",
+  "Mostrame los que están dentro del corredor",
+  "Carteles que requieren revisión territorial",
+  "Mostrame carteles con deuda fuera de zona",
 ];
 for (const question of examples) {
   const intent = interpretQuestion(question);
@@ -110,8 +108,12 @@ const countResult = runInspectionQuery(countIntent, inspecciones);
 line(countIntent.dataset === "inspecciones" && countResult.count === 4, `conteo con observaciones = 4 [obtenido: ${countResult.count}]`);
 
 // parseQueryIntent debe RECHAZAR un predicado que mezcla datasets
-const crossDataset = parseQueryIntent({ operation: "count", dataset: "inspecciones", predicate: { field: "visualStatus", op: "eq", value: "fuera_zona" }, applyToMap: false, unsupported: [], explanation: "" });
+const crossDataset = parseQueryIntent({ operation: "count", dataset: "inspecciones", predicate: { field: "analysisStatus", op: "eq", value: "fuera_zona_permitida" }, applyToMap: false, unsupported: [], explanation: "" });
 line(crossDataset === null, "rechaza predicado con campo de otro dataset");
+
+// También rechaza campos que existen en el contrato pero no tienen fuente oficial.
+const unavailableField = parseQueryIntent({ operation: "count", predicate: { field: "taxStatus", op: "eq", value: "deuda" }, applyToMap: false, unsupported: [], explanation: "" });
+line(unavailableField === null, "rechaza campo administrativo sin fuente oficial");
 
 // Sanity extra: el evaluador nunca debe seleccionar más que el total
 const all = runQuery({ operation: "count", applyToMap: false, unsupported: [], explanation: "" }, carteles);
