@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { BookOpenText, FileText, Info, Loader2, Lock, Scale, Search, X } from "lucide-react";
 import type { NormativaResponse } from "@/data/normativa";
 import { useAuth } from "@/hooks/use-auth";
+import { AskCard } from "./ask-card";
 import { supabase } from "@/lib/supabase";
 
 type Props = {
@@ -97,15 +98,7 @@ export function NormativaAsk({ onOpenDocument }: Props) {
     }
   };
 
-  return <section aria-label="Consultar normativa" className="mb-6 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50/70 to-white p-4 shadow-sm">
-    <div className="flex items-center gap-2">
-      <span className="grid size-7 place-items-center rounded-lg bg-blue-600 text-white"><Scale size={14}/></span>
-      <div>
-        <b className="text-xs text-ink">Consultar normativa</b>
-        <p className="text-[9px] font-semibold text-slate-400">Busca coincidencias en el corpus municipal y muestra su procedencia. No emite una conclusión jurídica automática.</p>
-      </div>
-    </div>
-
+  return <AskCard icon={<Scale size={14}/>} title="Consultar normativa" subtitle="Busca coincidencias en el corpus municipal y muestra su procedencia. No emite una conclusión jurídica automática.">
     {!auth.canRead ? (
       <div className="mt-3 rounded-xl bg-slate-100 p-3 text-[10px] font-semibold text-slate-600">
         <p className="flex items-start gap-1.5"><Lock size={12} className="mt-0.5 shrink-0"/>{auth.user ? auth.roleError || "Verificando permisos municipales…" : "Ingresá con tu cuenta municipal para consultar el corpus interno."}</p>
@@ -113,16 +106,16 @@ export function NormativaAsk({ onOpenDocument }: Props) {
       </div>
     ) : <>
     <form onSubmit={(event) => { event.preventDefault(); ask(question); }} className="mt-3 flex items-center gap-2">
-      <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+      <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 focus-within:border-municipal-400 focus-within:ring-2 focus-within:ring-municipal-100">
         <Search size={14} className="shrink-0 text-slate-400"/>
         <input value={question} maxLength={500} onChange={(event) => setQuestion(event.target.value)} placeholder="Ej: ¿qué dice la normativa sobre la contaminación visual?" className="min-w-0 flex-1 bg-transparent text-[11px] font-semibold text-slate-700 outline-none placeholder:text-slate-400"/>
-        {question && <button type="button" onClick={() => { setQuestion(""); setResult(null); setError(null); }} aria-label="Limpiar" className="text-slate-400 hover:text-blue-700"><X size={13}/></button>}
+        {question && <button type="button" onClick={() => { setQuestion(""); setResult(null); setError(null); }} aria-label="Limpiar" className="text-slate-400 hover:text-municipal-700"><X size={13}/></button>}
       </div>
       <button type="submit" disabled={loading || !question.trim()} className="primary-button compact justify-center disabled:cursor-not-allowed disabled:opacity-60">{loading ? <Loader2 size={13} className="animate-spin"/> : <BookOpenText size={13}/>}{loading ? "Buscando…" : "Consultar"}</button>
     </form>
 
     {!result && !loading && !error && <div className="mt-2 flex flex-wrap gap-1.5">{EXAMPLES.map((example) => (
-      <button key={example} type="button" onClick={() => { setQuestion(example); ask(example); }} className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[9px] font-bold text-slate-500 transition hover:border-blue-300 hover:text-blue-700">{example}</button>
+      <button key={example} type="button" onClick={() => { setQuestion(example); ask(example); }} className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[9px] font-bold text-slate-500 transition hover:border-municipal-300 hover:text-municipal-700">{example}</button>
     ))}</div>}
 
     {loading && <p className="mt-3 flex items-center gap-1.5 text-[10px] font-semibold text-slate-400"><Info size={11}/>Buscando coincidencias dentro del corpus municipal privado.</p>}
@@ -144,7 +137,7 @@ export function NormativaAsk({ onOpenDocument }: Props) {
               <li key={c.n} className="rounded-xl border border-slate-100 bg-white p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-1.5 text-[10px] font-bold text-slate-700">
-                    <span className="grid size-4 shrink-0 place-items-center rounded bg-blue-50 text-[8px] text-blue-700">{c.n}</span>
+                    <span className="grid size-4 shrink-0 place-items-center rounded bg-municipal-50 text-[8px] text-municipal-700">{c.n}</span>
                     <FileText size={11} className="shrink-0 text-slate-400"/>
                     <span className="truncate">{c.titulo}</span>
                   </span>
@@ -152,15 +145,15 @@ export function NormativaAsk({ onOpenDocument }: Props) {
                 </div>
                 <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-500">“{c.fragmento}…”</p>
                 <p className={`mt-1 text-[8px] font-bold ${c.legalUseReady ? "text-green-700" : "text-amber-700"}`}>{c.legalUseReady ? "Fuente revisada y con huellas de PDF/texto" : "Borrador documental: requiere revisión humana"}{c.sourcePdfHash ? ` · PDF ${c.sourcePdfHash.slice(0, 12)}…` : ""}{c.contenidoHash ? ` · texto ${c.contenidoHash.slice(0, 12)}…` : ""}</p>
-                {c.pdfUrl && <button type="button" onClick={() => onOpenDocument(c.documentoId, c.pagina)} className="mt-1.5 inline-flex items-center gap-1 text-[9px] font-bold text-blue-700 hover:text-blue-900"><BookOpenText size={11}/>Ver en el documento{c.pagina ? ` (pág. ${c.pagina})` : ""}</button>}
+                {c.pdfUrl && <button type="button" onClick={() => onOpenDocument(c.documentoId, c.pagina)} className="mt-1.5 inline-flex items-center gap-1 text-[9px] font-bold text-municipal-700 hover:text-municipal-900"><BookOpenText size={11}/>Ver en el documento{c.pagina ? ` (pág. ${c.pagina})` : ""}</button>}
               </li>
             ))}</ul>
           </div>}
         </>
       )}
 
-      <button type="button" onClick={() => { setResult(null); setQuestion(""); setError(null); }} className="text-[10px] font-bold text-slate-400 hover:text-blue-700">Nueva consulta</button>
+      <button type="button" onClick={() => { setResult(null); setQuestion(""); setError(null); }} className="text-[10px] font-bold text-slate-400 hover:text-municipal-700">Nueva consulta</button>
     </div>}
     </>}
-  </section>;
+  </AskCard>;
 }

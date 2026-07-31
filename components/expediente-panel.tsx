@@ -21,6 +21,10 @@ import {
 import type { StateChangeRequest } from "@/data/approvals";
 import { getInspectionState } from "@/data/inspections";
 import type { AuthState } from "@/hooks/use-auth";
+import { useDismissible } from "@/hooks/use-dismissible";
+import { useModalShell } from "@/hooks/use-modal-shell";
+import { confirmDialogIsOpen } from "./confirm-dialog";
+import { toast } from "./toaster";
 import {
   loadStateChangeRequests,
   requestExpedienteStateChange,
@@ -51,6 +55,9 @@ type Props = {
 };
 
 export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate, onClose }: Props) {
+  const { open, close } = useDismissible(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalShell(panelRef);
   const canRead = auth.canRead;
   const canManage = canMutate
     && auth.canRead
@@ -68,10 +75,17 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate
   const refreshSequence = useRef(0);
 
   useEffect(() => {
-    const handler = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+    // Capture + stopPropagation: abre sobre la ficha del cartel (que escucha
+    // Esc en burbuja); sin esto un solo Esc cierra los dos paneles. Si hay un
+    // diálogo de confirmación encima, el Esc es de él.
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || confirmDialogIsOpen()) return;
+      event.stopPropagation();
+      close();
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [close]);
 
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
@@ -137,19 +151,24 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate
   }, [refresh]);
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-4" role="presentation" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={`Expediente de ${cartelName}`} className="flex max-h-[92vh] w-full flex-col rounded-t-2xl border border-white bg-white shadow-2xl sm:max-w-lg sm:rounded-2xl" onClick={(event) => event.stopPropagation()}>
+    <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-ink/40 backdrop-blur-sm transition-opacity duration-200 ease-out sm:items-center sm:p-4" style={{ opacity: open ? 1 : 0 }} role="presentation" onClick={close}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={`Expediente de ${cartelName}`} className="flex max-h-[92vh] w-full flex-col rounded-t-2xl border border-white bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-spring will-change-transform sm:max-w-lg sm:rounded-2xl" style={{ opacity: open ? 1 : 0, transform: open ? "translate3d(0,0,0)" : "translate3d(0,18px,0)" }} onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 pb-3 pt-4">
           <div className="min-w-0">
             <span className="section-kicker">Expediente</span>
             <h2 className="truncate font-display text-base font-extrabold text-ink">{expediente?.numero || cartelName}</h2>
           </div>
-          <button onClick={onClose} className="icon-button grid" aria-label="Cerrar"><X size={18}/></button>
+          <button onClick={close} className="icon-button grid" aria-label="Cerrar"><X size={18}/></button>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {loading ? (
-            <div className="grid min-h-40 place-items-center"><Loader2 size={22} className="animate-spin text-municipal-600"/></div>
+            <div className="space-y-3" aria-label="Cargando expediente">
+              <div className="skeleton h-7 w-44 rounded-lg"/>
+              <div className="skeleton h-24 rounded-2xl"/>
+              <div className="skeleton h-16 rounded-2xl"/>
+              <div className="skeleton h-16 rounded-2xl"/>
+            </div>
           ) : !canRead ? (
             auth.user && auth.roleError ? (
               <div className="rounded-lg bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-700"><p>{auth.roleError}</p><button type="button" onClick={() => void auth.retryRole()} className="secondary-button compact mt-2">Reintentar permisos</button></div>
@@ -218,8 +237,10 @@ function NewExpediente({ cartelName, cartelId, prefill, canManage, busy, setBusy
       observaciones: observaciones.trim() || null,
     });
     setBusy(false);
-    if (created) onCreated();
-    else setFailed(true);
+    if (created) {
+      toast("Expediente abierto.");
+      onCreated();
+    } else setFailed(true);
   };
 
   return <div className="space-y-3">
@@ -243,14 +264,18 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, reque
 }) {
   const config = getExpedienteState(expediente.estado);
   const [obs, setObs] = useState(expediente.observaciones ?? "");
-  const [savedObs, setSavedObs] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const saveObs = async () => {
     setBusy(true);
     const ok = await updateExpediente(expediente.id, { observaciones: obs.trim() || null });
     setBusy(false);
-    if (ok) { setSavedObs(true); onChanged(); }
+    if (ok) {
+      toast("Observaciones del expediente guardadas.");
+      onChanged();
+    } else {
+      toast("No se pudieron guardar las observaciones.", "error");
+    }
   };
 
   const transition = async (next: ExpedienteState, reason: string) => {
@@ -277,8 +302,10 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, reque
     setBusy(true);
     try {
       const ok = await uploadExpedienteDocumento(expediente.id, file, file.name);
-      if (ok) await onChanged();
-      else setUploadError("El archivo no fue incorporado al expediente. No lo uses como evidencia hasta reintentar y verificarlo.");
+      if (ok) {
+        toast("Documento incorporado al expediente.");
+        await onChanged();
+      } else setUploadError("El archivo no fue incorporado al expediente. No lo uses como evidencia hasta reintentar y verificarlo.");
     } catch {
       setUploadError("No se pudo verificar la carga del archivo.");
     } finally {
@@ -290,8 +317,8 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, reque
     {/* Encabezado */}
     <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex rounded-full px-2.5 py-1 text-[9px] font-extrabold uppercase text-white" style={{ background: config.color }}>{config.label}</span>
-        <span className="text-[9px] font-bold text-slate-400">{expediente.numero}</span>
+        <span className="badge-soft"><i style={{ background: config.color }}/>{config.label}</span>
+        <span className="text-micro font-bold text-slate-400">{expediente.numero}</span>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-slate-600">
         <span><b className="text-slate-400">Cartel:</b> {cartelName}</span>
@@ -345,8 +372,8 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, reque
     <Section icon={<FileText size={13}/>} title="Observaciones">
       {canManage ? (
         <div className="space-y-1.5">
-          <textarea value={obs} onChange={(e) => { setObs(e.target.value); setSavedObs(false); }} rows={3} className="w-full rounded-xl bg-slate-50 px-3 py-2 text-xs text-ink outline-none ring-1 ring-inset ring-slate-100 focus:ring-municipal-500"/>
-          <button type="button" onClick={saveObs} disabled={busy} className="secondary-button compact justify-center disabled:opacity-60"><Save size={12}/>{savedObs ? "Guardado" : "Guardar"}</button>
+          <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={3} className="w-full rounded-xl bg-slate-50 px-3 py-2 text-xs text-ink outline-none ring-1 ring-inset ring-slate-100 focus:ring-municipal-500"/>
+          <button type="button" onClick={saveObs} disabled={busy} className="secondary-button compact justify-center disabled:opacity-60"><Save size={12}/>Guardar</button>
         </div>
       ) : (
         <p className="text-[10px] leading-4 text-slate-500">{expediente.observaciones || "Sin observaciones."}</p>
@@ -386,7 +413,7 @@ function Transitions({ estado, canManage, isAdmin, hasPendingRequest, approvalLo
     return <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[9px] font-semibold text-amber-800">Hay una solicitud pendiente de resolución administrativa.</p>;
   }
   return <div>
-    <span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">{isAdmin ? "Aplicar estado con aprobación" : "Solicitar cambio de estado"}</span>
+    <span className="micro-label">{isAdmin ? "Aplicar estado con aprobación" : "Solicitar cambio de estado"}</span>
     <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} placeholder="Fundamento obligatorio" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] text-slate-700 outline-none focus:border-municipal-500"/>
     <div className="mt-1.5 flex flex-wrap gap-1.5">{config.allowedNext.filter((next) => canTransition(estado, next)).map((next) => {
       const target = getExpedienteState(next);
@@ -403,7 +430,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return <div>
-    <div className="mb-1.5 flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">{icon}{title}</div>
+    <div className="micro-label mb-1.5 flex items-center gap-1.5">{icon}{title}</div>
     {children}
   </div>;
 }

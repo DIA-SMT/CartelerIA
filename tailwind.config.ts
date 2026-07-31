@@ -6,11 +6,19 @@ const config: Config = {
     extend: {
       colors: {
         ink: "#12221d",
-        municipal: { 50: "#eef7ff", 100: "#d8eeff", 500: "#2DB0FF", 600: "#148fdc", 700: "#0166FF", 900: "#123d77" },
+        // Escala completa: varios componentes ya referenciaban 200/300/400
+        // (antes eran clases silenciosamente vacías por no existir el tono).
+        municipal: { 50: "#eef7ff", 100: "#d8eeff", 200: "#b6e0ff", 300: "#8bd0ff", 400: "#59c0ff", 500: "#2DB0FF", 600: "#148fdc", 700: "#0166FF", 900: "#123d77" },
         brandYellow: "#F4DC00",
         sand: "#f5f4ef"
       },
       boxShadow: { card: "0 1px 2px rgba(18,34,29,.04), 0 14px 40px rgba(18,34,29,.06)" },
+      fontSize: {
+        // Piso tipográfico: nada por debajo de 10px. `micro` para metadatos y
+        // labels chicos, `tiny` para texto secundario denso.
+        micro: ["10px", { lineHeight: "14px" }],
+        tiny: ["11px", { lineHeight: "16px" }]
+      },
       transitionDuration: { fast: "150ms", DEFAULT: "250ms", slow: "400ms" },
       transitionTimingFunction: {
         // Curvas compartidas: `out` para entradas (arranca rápido, frena suave),

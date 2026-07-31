@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { BadgePlus, Loader2, X } from "lucide-react";
 import type { TerritorialLinkStatus } from "@/data/carteles";
 import type { AnalyzedCartel } from "@/data/territorial";
+import { useDismissible } from "@/hooks/use-dismissible";
+import { useModalShell } from "@/hooks/use-modal-shell";
 import { registerCartel } from "@/lib/cartel-repository";
+import { ConfirmDialog, confirmDialogIsOpen } from "./confirm-dialog";
+import { toast } from "./toaster";
 
 type Props = {
   cartel: AnalyzedCartel;
@@ -24,6 +28,7 @@ type Props = {
  */
 export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
   const titleId = useId();
+  const { open, close } = useDismissible(onClose);
   const [empresa, setEmpresa] = useState("");
   const [cuit, setCuit] = useState("");
   const [domicilio, setDomicilio] = useState("");
@@ -31,14 +36,28 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
   const [linkReason, setLinkReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalShell(panelRef);
+
+  const isDirty = Boolean(empresa.trim() || cuit.trim() || domicilio.trim() || numero.trim() || linkReason.trim());
+  const requestClose = () => {
+    if (isDirty) setConfirmDiscard(true);
+    else close();
+  };
 
   useEffect(() => {
+    // Capture + stopPropagation: este modal abre sobre la ficha del cartel,
+    // que también cierra con Esc en fase burbuja. Sin esto, un Esc cierra
+    // ambos. Con el diálogo de descarte abierto, el Esc es de él.
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape" || confirmDialogIsOpen()) return;
+      event.stopPropagation();
+      requestClose();
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  });
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -61,6 +80,7 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
       setError(result.error ?? "No se pudo registrar el cartel.");
       return;
     }
+    toast(result.alreadyExisted ? "El cartel ya estaba registrado: se recuperó el vínculo existente." : "Cartel registrado. El vínculo queda pendiente de aprobación.");
     onRegistered(
       result.recordId,
       result.alreadyExisted,
@@ -70,22 +90,25 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[1000] grid place-items-center bg-ink/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[1000] grid place-items-center bg-ink/40 p-4 backdrop-blur-sm transition-opacity duration-200 ease-out"
+      style={{ opacity: open ? 1 : 0 }}
       role="presentation"
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-sm rounded-2xl border border-white bg-white p-6 shadow-2xl"
+        className="w-full max-w-sm rounded-2xl border border-white bg-white p-6 shadow-2xl transition-[transform,opacity] duration-200 ease-spring will-change-transform"
+        style={{ opacity: open ? 1 : 0, transform: open ? "translate3d(0,0,0) scale(1)" : "translate3d(0,8px,0) scale(.96)" }}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between">
           <span className="grid size-11 place-items-center rounded-xl bg-municipal-50 text-municipal-700">
             <BadgePlus size={20} />
           </span>
-          <button onClick={onClose} className="icon-button grid" aria-label="Cerrar">
+          <button onClick={requestClose} className="icon-button grid" aria-label="Cerrar">
             <X size={18} />
           </button>
         </div>
@@ -116,7 +139,7 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
               placeholder="Indicá por qué este registro corresponde al punto territorial"
               className="mt-1.5 w-full rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-ink outline-none ring-1 ring-inset ring-slate-100 focus:ring-municipal-500"
             />
-            <span className="mt-1 block text-[9px] text-slate-400">
+            <span className="mt-1 block text-micro text-slate-400">
               También se usa para volver a solicitar un vínculo previamente rechazado.
             </span>
           </label>
@@ -137,6 +160,17 @@ export function RegisterCartelForm({ cartel, onClose, onRegistered }: Props) {
           </button>
         </form>
       </div>
+      {confirmDiscard && (
+        <ConfirmDialog
+          title="¿Descartar el registro?"
+          description="Hay datos cargados sin guardar. Si cerrás ahora, se pierden."
+          tone="discard"
+          confirmLabel="Descartar"
+          cancelLabel="Seguir editando"
+          onConfirm={() => { setConfirmDiscard(false); close(); }}
+          onCancel={() => setConfirmDiscard(false)}
+        />
+      )}
     </div>
   );
 }

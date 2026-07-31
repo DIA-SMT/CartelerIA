@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { LogIn, ShieldCheck, X } from "lucide-react";
 import type { AuthState } from "@/hooks/use-auth";
 import { useDismissible } from "@/hooks/use-dismissible";
+import { useModalShell } from "@/hooks/use-modal-shell";
 
 type Props = {
   auth: AuthState;
@@ -21,6 +22,8 @@ export function AuthPanel({ auth, onClose }: Props) {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const { open, close } = useDismissible(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalShell(panelRef);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -46,6 +49,7 @@ export function AuthPanel({ auth, onClose }: Props) {
       onClick={close}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={`${emailId}-title`}
@@ -85,6 +89,7 @@ export function AuthPanel({ auth, onClose }: Props) {
                 id={emailId}
                 type="email"
                 autoComplete="email"
+                autoFocus
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}

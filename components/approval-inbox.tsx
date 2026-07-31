@@ -11,6 +11,7 @@ import {
   XCircle,
 } from "lucide-react";
 import {
+  APPROVALS_COUNT_EVENT,
   stateChangeLabel,
   type StateChangeRequest,
 } from "@/data/approvals";
@@ -24,8 +25,14 @@ import {
   resolveCartelTerritorialLink,
   type PendingCartelLink,
 } from "@/lib/cartel-repository";
+import { ConfirmDialog } from "./confirm-dialog";
+import { toast } from "./toaster";
 
 type LoadPhase = "idle" | "loading" | "ready" | "error";
+
+type PendingResolution =
+  | { kind: "state"; request: StateChangeRequest; approve: boolean; note: string }
+  | { kind: "link"; request: PendingCartelLink; approve: boolean; note: string };
 
 export function ApprovalInbox() {
   const auth = useAuth();
@@ -38,8 +45,14 @@ export function ApprovalInbox() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   const [dataOwnerId, setDataOwnerId] = useState<string | null>(null);
+  const [pendingResolution, setPendingResolution] = useState<PendingResolution | null>(null);
   const refreshSequence = useRef(0);
   const resolvingIds = useRef(new Set<string>());
+
+  /** Publica el total pendiente para el contador de la nav (header). */
+  const announceCount = (count: number) => {
+    window.dispatchEvent(new CustomEvent<number>(APPROVALS_COUNT_EVENT, { detail: count }));
+  };
 
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
@@ -50,6 +63,7 @@ export function ApprovalInbox() {
       setLoadError(null);
       setLoadPhase("idle");
       setDataOwnerId(null);
+      announceCount(0);
       return;
     }
 
@@ -70,6 +84,7 @@ export function ApprovalInbox() {
     setDataOwnerId(auth.user?.id ?? null);
     setStateRequests(statesResult.data);
     setLinkRequests(linksResult.data);
+    announceCount(statesResult.data.length + linksResult.data.length);
     const errors = [
       statesResult.ok ? null : statesResult.error,
       linksResult.ok ? null : linksResult.error,
@@ -88,57 +103,41 @@ export function ApprovalInbox() {
   if (!isAdmin) return null;
   const ownsData = dataOwnerId === auth.user?.id;
 
-  const resolveState = async (request: StateChangeRequest, approve: boolean) => {
+  // Paso 1: el click solo valida y abre el diálogo de confirmación propio
+  // (reemplaza window.confirm) mostrando el fundamento que se va a asentar.
+  const resolveState = (request: StateChangeRequest, approve: boolean) => {
     const id = `state-${request.id}`;
     const note = notes[id]?.trim() ?? "";
-    if (
-      note.length < 5
-      || loadPhase !== "ready"
-      || resolvingIds.current.has(id)
-      || !window.confirm(
-        `${approve ? "Aprobar" : "Rechazar"} el cambio de ${stateChangeLabel(request, "previous")} a ${stateChangeLabel(request, "requested")}?\n\nLa resolución quedará registrada con el fundamento ingresado.`,
-      )
-    ) return;
-
-    resolvingIds.current.add(id);
-    setBusyId(id);
-    setFailedId(null);
-    try {
-      const ok = await resolveStateChangeRequest(request.id, approve, note);
-      if (ok) {
-        window.dispatchEvent(new Event("carteleria:administrative-refresh"));
-        await refresh();
-      } else {
-        setFailedId(id);
-      }
-    } finally {
-      resolvingIds.current.delete(id);
-      setBusyId(null);
-    }
+    if (note.length < 5 || loadPhase !== "ready" || resolvingIds.current.has(id)) return;
+    setPendingResolution({ kind: "state", request, approve, note });
   };
 
-  const resolveLink = async (request: PendingCartelLink, approve: boolean) => {
+  const resolveLink = (request: PendingCartelLink, approve: boolean) => {
     const id = `link-${request.cartelId}`;
     const note = notes[id]?.trim() ?? "";
-    if (
-      note.length < 5
-      || loadPhase !== "ready"
-      || resolvingIds.current.has(id)
-      || !window.confirm(
-        `${approve ? "Aprobar" : "Rechazar"} el vínculo del registro ${request.cartelId} con el punto ${request.territorialFeatureId}?\n\nLa resolución quedará registrada con el fundamento ingresado.`,
-      )
-    ) return;
+    if (note.length < 5 || loadPhase !== "ready" || resolvingIds.current.has(id)) return;
+    setPendingResolution({ kind: "link", request, approve, note });
+  };
 
+  // Paso 2: confirmado en el diálogo, se ejecuta la resolución.
+  const executeResolution = async (resolution: PendingResolution) => {
+    setPendingResolution(null);
+    const id = resolution.kind === "state" ? `state-${resolution.request.id}` : `link-${resolution.request.cartelId}`;
+    if (resolvingIds.current.has(id)) return;
     resolvingIds.current.add(id);
     setBusyId(id);
     setFailedId(null);
     try {
-      const ok = await resolveCartelTerritorialLink(request.cartelId, approve, note);
+      const ok = resolution.kind === "state"
+        ? await resolveStateChangeRequest(resolution.request.id, resolution.approve, resolution.note)
+        : await resolveCartelTerritorialLink(resolution.request.cartelId, resolution.approve, resolution.note);
       if (ok) {
+        toast(resolution.approve ? "Solicitud aprobada y asentada en la bitácora." : "Solicitud rechazada y asentada en la bitácora.");
         window.dispatchEvent(new Event("carteleria:administrative-refresh"));
         await refresh();
       } else {
         setFailedId(id);
+        toast("No se pudo resolver la solicitud.", "error");
       }
     } finally {
       resolvingIds.current.delete(id);
@@ -167,8 +166,9 @@ export function ApprovalInbox() {
       </div>
 
       {!ownsData || loadPhase === "idle" || loadPhase === "loading" ? (
-        <div className="grid min-h-28 place-items-center rounded-2xl border border-slate-200 bg-white">
-          <Loader2 size={22} className="animate-spin text-municipal-600"/>
+        <div className="grid gap-3 lg:grid-cols-2" aria-label="Cargando aprobaciones">
+          <div className="skeleton h-32 rounded-2xl"/>
+          <div className="skeleton h-32 rounded-2xl"/>
         </div>
       ) : (
         <>
@@ -247,6 +247,20 @@ export function ApprovalInbox() {
           ) : null}
         </>
       )}
+
+      {pendingResolution && (
+        <ConfirmDialog
+          title={`${pendingResolution.approve ? "Aprobar" : "Rechazar"} solicitud`}
+          description={pendingResolution.kind === "state"
+            ? `Cambio de ${stateChangeLabel(pendingResolution.request, "previous")} a ${stateChangeLabel(pendingResolution.request, "requested")}. La resolución quedará registrada con este fundamento:`
+            : `Vínculo del registro ${pendingResolution.request.cartelId} con el punto territorial ${pendingResolution.request.territorialFeatureId}. La resolución quedará registrada con este fundamento:`}
+          quote={pendingResolution.note}
+          tone={pendingResolution.approve ? "approve" : "reject"}
+          confirmLabel={pendingResolution.approve ? "Aprobar" : "Rechazar"}
+          onConfirm={() => void executeResolution(pendingResolution)}
+          onCancel={() => setPendingResolution(null)}
+        />
+      )}
     </section>
   );
 }
@@ -285,10 +299,10 @@ function ApprovalCard({
         <div className="min-w-0">
           <b className="text-[11px] text-ink">{title}</b>
           <p className="mt-0.5 text-[10px] text-slate-600">{detail}</p>
-          <ul className="mt-1 space-y-0.5 text-[9px] font-semibold text-slate-500">
+          <ul className="mt-1 space-y-0.5 text-micro font-semibold text-slate-500">
             {context.map((line) => <li key={line}>{line}</li>)}
           </ul>
-          <p className="mt-1 text-[9px] text-slate-400">{meta}</p>
+          <p className="mt-1 text-micro text-slate-400">{meta}</p>
         </div>
       </div>
       <textarea
@@ -298,17 +312,17 @@ function ApprovalCard({
         placeholder="Fundamento de la resolución (obligatorio)"
         className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-[10px] text-slate-700 outline-none focus:border-municipal-500"
       />
-      <div className="mt-2 flex gap-1.5">
-        <button type="button" disabled={blocked || busy || note.trim().length < 5} onClick={onApprove} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1.5 text-[9px] font-extrabold text-white disabled:opacity-50">
-          {busy ? <Loader2 size={10} className="animate-spin"/> : <CheckCircle2 size={10}/>}
+      <div className="mt-2.5 flex gap-2">
+        <button type="button" disabled={blocked || busy || note.trim().length < 5} onClick={onApprove} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-green-700 px-3.5 text-micro font-extrabold text-white transition duration-fast hover:bg-green-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+          {busy ? <Loader2 size={12} className="animate-spin"/> : <CheckCircle2 size={12}/>}
           Aprobar
         </button>
-        <button type="button" disabled={blocked || busy || note.trim().length < 5} onClick={onReject} className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1.5 text-[9px] font-extrabold text-white disabled:opacity-50">
-          <XCircle size={10}/>
+        <button type="button" disabled={blocked || busy || note.trim().length < 5} onClick={onReject} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3.5 text-micro font-extrabold text-red-700 transition duration-fast hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+          <XCircle size={12}/>
           Rechazar
         </button>
       </div>
-      {failed && <p role="alert" className="mt-1.5 text-[9px] font-semibold text-red-700">No se pudo resolver la solicitud.</p>}
+      {failed && <p role="alert" className="mt-1.5 text-micro font-semibold text-red-700">No se pudo resolver la solicitud.</p>}
     </article>
   );
 }

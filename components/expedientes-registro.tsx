@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileSpreadsheet, FolderOpen, Loader2, Lock, RefreshCw } from "lucide-react";
+import { FileSpreadsheet, FolderOpen, Lock, RefreshCw } from "lucide-react";
 import { getExpedienteState } from "@/data/expedientes";
 import { useAuth } from "@/hooks/use-auth";
 import { loadExpedientes, type ExpedienteRecord } from "@/lib/expediente-repository";
@@ -64,6 +64,10 @@ export function ExpedientesRegistro() {
   };
   const ownsData = dataOwnerId === auth.user?.id;
 
+  // Sección de gestión: sin sesión no aparece (la nav tampoco la ofrece).
+  // Un visitante público no necesita ver un candado pidiendo login.
+  if (!auth.user) return null;
+
   return <section id="expedientes" className="section-block">
     <div className="section-heading">
       <div><span className="section-kicker">Gestión</span><h2>Registro de expedientes</h2><p>Legajos administrativos abiertos por cartel. Exportable a Excel.</p></div>
@@ -74,17 +78,13 @@ export function ExpedientesRegistro() {
     </div>
 
     {!canRead ? (
-      auth.user ? (
-        auth.roleError ? (
-          <div className="empty-state border-red-200 bg-red-50"><span><Lock size={22}/></span><h3>Permisos no verificados</h3><p>{auth.roleError}</p><button type="button" onClick={() => void auth.retryRole()} className="secondary-button compact">Reintentar permisos</button></div>
-        ) : (
-          <div className="grid min-h-40 place-items-center rounded-2xl border border-slate-200 bg-white"><Loader2 size={24} className="animate-spin text-municipal-600"/></div>
-        )
+      auth.roleError ? (
+        <div className="empty-state border-red-200 bg-red-50"><span><Lock size={22}/></span><h3>Permisos no verificados</h3><p>{auth.roleError}</p><button type="button" onClick={() => void auth.retryRole()} className="secondary-button compact">Reintentar permisos</button></div>
       ) : (
-        <div className="empty-state"><span><Lock size={22}/></span><h3>Requiere sesión</h3><p>Ingresá con tu cuenta municipal para ver el registro de expedientes.</p></div>
+        <TableSkeleton/>
       )
     ) : !ownsData || loading ? (
-      <div className="grid min-h-40 place-items-center rounded-2xl border border-slate-200 bg-white"><Loader2 size={24} className="animate-spin text-municipal-600"/></div>
+      <TableSkeleton/>
     ) : error ? (
       <div className="empty-state border-red-200 bg-red-50"><span><FolderOpen size={22}/></span><h3>No se pudo cargar el registro</h3><p>{error} Reintentá o revisá tu sesión.</p></div>
     ) : expedientes.length === 0 ? (
@@ -108,7 +108,7 @@ export function ExpedientesRegistro() {
               <td className="px-3 py-2 font-bold text-ink">{e.numero}</td>
               <td className="px-3 py-2 text-slate-600">{e.empresa || "—"}</td>
               <td className="max-w-[220px] truncate px-3 py-2 text-slate-500">{e.direccion || "—"}</td>
-              <td className="px-3 py-2"><span className="inline-flex rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase text-white" style={{ background: s.color }}>{s.label}</span></td>
+              <td className="px-3 py-2"><span className="badge-soft"><i style={{ background: s.color }}/>{s.label}</span></td>
               <td className="px-3 py-2 text-slate-500">{new Date(e.createdAt).toLocaleDateString("es-AR")}</td>
               <td className="px-3 py-2 text-center font-bold text-slate-600">{conteos.get(e.cartelId) ?? 0}</td>
             </tr>;
@@ -117,4 +117,13 @@ export function ExpedientesRegistro() {
       </div>
     )}
   </section>;
+}
+
+function TableSkeleton() {
+  return <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3" aria-label="Cargando expedientes">
+    <div className="skeleton h-8 rounded-lg"/>
+    <div className="skeleton h-9 rounded-lg"/>
+    <div className="skeleton h-9 rounded-lg"/>
+    <div className="skeleton h-9 rounded-lg"/>
+  </div>;
 }

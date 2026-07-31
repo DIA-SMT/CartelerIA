@@ -30,7 +30,11 @@ import {
   type InspectionRecord,
 } from "@/lib/inspection-repository";
 import type { AuthState } from "@/hooks/use-auth";
+import { useDismissible } from "@/hooks/use-dismissible";
+import { useModalShell } from "@/hooks/use-modal-shell";
+import { ConfirmDialog, confirmDialogIsOpen } from "./confirm-dialog";
 import { PhotoLightbox, type LightboxPhoto } from "./photo-lightbox";
+import { toast } from "./toaster";
 
 type Props = {
   cartelId: string;
@@ -56,6 +60,7 @@ const MAX_PHOTOS = 6;
 type SaveState = "idle" | "saving" | "error";
 
 export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, onSaved, existing }: Props) {
+  const { open, close } = useDismissible(onClose);
   const isEdit = Boolean(existing);
   const [step, setStep] = useState(0);
   const [empresa, setEmpresa] = useState(existing?.empresa ?? prefill?.empresa ?? "");
@@ -75,7 +80,26 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [photosWarning, setPhotosWarning] = useState<number>(0);
   const [savedWithEvidenceWarning, setSavedWithEvidenceWarning] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalShell(panelRef);
+
+  /** Valores al abrir: si algo difiere, cerrar pide confirmación de descarte. */
+  const initialValues = useRef({ empresa, cuit, tipoSoporte, ancho, alto, observaciones }).current;
+  const isDirty = photos.length > 0
+    || empresa !== initialValues.empresa
+    || cuit !== initialValues.cuit
+    || tipoSoporte !== initialValues.tipoSoporte
+    || ancho !== initialValues.ancho
+    || alto !== initialValues.alto
+    || observaciones !== initialValues.observaciones;
+
+  /** Cierra directo si no hay nada que perder; si no, confirma el descarte. */
+  const requestClose = () => {
+    if (isDirty && !savedWithEvidenceWarning) setConfirmDiscard(true);
+    else close();
+  };
 
   useEffect(() => {
     if (!existing) {
@@ -109,12 +133,18 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
   useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
 
   useEffect(() => {
+    // Capture + stopPropagation para no cerrar también la ficha del cartel
+    // (que escucha Esc en burbuja). Si el lightbox o el diálogo de descarte
+    // están abiertos, se cede: sus handlers (capture, registrados después)
+    // cierran solo esa capa.
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape" || lightbox || confirmDialogIsOpen()) return;
+      event.stopPropagation();
+      requestClose();
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  });
 
   const totalSteps = INSPECTION_FORM_STEPS.length;
   const currentStep = INSPECTION_FORM_STEPS[step];
@@ -168,6 +198,7 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
         setErrorMessage("Los datos se guardaron, pero parte de la evidencia no fue incorporada. Cerrá y revisá la inspección antes de decidir con ella.");
         return;
       }
+      toast("Cambios de la inspección guardados.");
       onSaved();
       return;
     }
@@ -194,26 +225,30 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
       setErrorMessage("La inspección se guardó, pero parte de la evidencia no fue incorporada. Cerrá y revisá la inspección antes de decidir con ella.");
       return;
     }
+    toast("Inspección guardada.");
     onSaved();
   };
 
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-[1000] flex items-end justify-center bg-ink/40 backdrop-blur-sm transition-opacity duration-200 ease-out sm:items-center sm:p-4"
+      style={{ opacity: open ? 1 : 0 }}
       role="presentation"
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={`Inspección de ${cartelName}`}
-        className="flex max-h-[92vh] w-full flex-col rounded-t-2xl border border-white bg-white shadow-2xl sm:max-w-lg sm:rounded-2xl"
+        className="flex max-h-[92vh] w-full flex-col rounded-t-2xl border border-white bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-spring will-change-transform sm:max-w-lg sm:rounded-2xl"
+        style={{ opacity: open ? 1 : 0, transform: open ? "translate3d(0,0,0)" : "translate3d(0,18px,0)" }}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="border-b border-slate-100 px-5 pb-3 pt-4">
           <div className="flex items-center justify-between">
             <span className="section-kicker">{isEdit ? "Editar inspección" : "Nueva inspección"}</span>
-            <button onClick={onClose} className="icon-button grid" aria-label="Cerrar">
+            <button onClick={requestClose} className="icon-button grid" aria-label="Cerrar">
               <X size={18} />
             </button>
           </div>
@@ -393,6 +428,11 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
           )}
         </div>
 
+        {photosWarning > 0 && (
+          <p className="border-t border-amber-100 bg-amber-50 px-5 py-2 text-[11px] font-semibold text-amber-700">
+            La inspección se guardó, pero {photosWarning} foto(s) no pudieron subirse.
+          </p>
+        )}
         <footer className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
           <button
             type="button"
@@ -425,13 +465,19 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
             </button>
           )}
         </footer>
-        {photosWarning > 0 && (
-          <p className="px-5 pb-3 text-[11px] font-semibold text-amber-700">
-            La inspección se guardó, pero {photosWarning} foto(s) no pudieron subirse.
-          </p>
-        )}
       </div>
       {lightbox && <PhotoLightbox photos={lightbox.photos} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
+      {confirmDiscard && (
+        <ConfirmDialog
+          title="¿Descartar la inspección?"
+          description={`Hay datos sin guardar${photos.length > 0 ? ` y ${photos.length} foto(s) sin subir` : ""}. Si cerrás ahora, se pierden.`}
+          tone="discard"
+          confirmLabel="Descartar"
+          cancelLabel="Seguir editando"
+          onConfirm={() => { setConfirmDiscard(false); close(); }}
+          onCancel={() => setConfirmDiscard(false)}
+        />
+      )}
     </div>
   );
 }

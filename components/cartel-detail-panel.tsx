@@ -172,9 +172,9 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
     <header className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 px-4 pb-3 pt-4 backdrop-blur sm:px-5">
       <button onClick={close} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-municipal-500" aria-label="Cerrar ficha"><X size={17}/></button>
       <div className="flex items-center gap-2 pr-10">
-        <span className="inline-flex rounded-full px-2.5 py-1 text-[9px] font-extrabold uppercase text-white" style={{ background: analysisColors[visualStatus] }}>{analysisLabels[visualStatus]}</span>
-        <span className="text-[9px] font-bold text-slate-400">ID {properties.id}</span>
-        {recordId && <span className={`rounded-full px-2 py-1 text-[8px] font-extrabold ${linkStatus === "aprobado" ? "bg-blue-50 text-blue-700" : linkStatus === "pendiente" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{linkStatus === "aprobado" ? "Vínculo aprobado" : linkStatus === "pendiente" ? "Vínculo pendiente" : "Sin vínculo aprobado"}</span>}
+        <span className="badge-soft"><i style={{ background: analysisColors[visualStatus] }}/>{analysisLabels[visualStatus]}</span>
+        <span className="text-micro font-bold text-slate-400">ID {properties.id}</span>
+        {recordId && <span className={`rounded-full px-2 py-1 text-micro font-extrabold ${linkStatus === "aprobado" ? "bg-blue-50 text-blue-700" : linkStatus === "pendiente" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}`}>{linkStatus === "aprobado" ? "Vínculo aprobado" : linkStatus === "pendiente" ? "Vínculo pendiente" : "Sin vínculo aprobado"}</span>}
       </div>
       <h3 className="mt-2 pr-8 font-display text-lg font-extrabold leading-tight text-ink">{properties.name || "Cartel relevado"}</h3>
       <p className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold text-slate-500"><MapPinned size={12}/>{latitude.toFixed(6)}, {longitude.toFixed(6)}</p>
@@ -371,7 +371,7 @@ function SummaryTab({ cartel }: { cartel: AnalyzedCartel }) {
       Deuda, habilitación, registro, tipo de soporte y prioridad no se muestran
       hasta contar con una fuente administrativa oficial.
     </p>
-    {properties.description && <div className="rounded-xl bg-slate-50 p-3"><span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">Observaciones</span><p className="mt-1 text-[11px] leading-5 text-slate-600">{properties.description}</p></div>}
+    {properties.description && <div className="rounded-xl bg-slate-50 p-3"><span className="micro-label">Observaciones</span><p className="mt-1 text-[11px] leading-5 text-slate-600">{properties.description}</p></div>}
   </div>;
 }
 
@@ -422,7 +422,11 @@ function ActivityTab({ cartelId, cartelName, refreshKey, authReady, canWrite, au
   };
 
   if (loading) {
-    return <div className="grid min-h-48 place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center"><div><Loader2 size={22} className="mx-auto animate-spin text-municipal-600"/><p className="mt-3 text-[10px] text-slate-500">Cargando actividad...</p></div></div>;
+    return <div className="space-y-2" aria-label="Cargando actividad">
+      <div className="skeleton h-10 rounded-xl"/>
+      <div className="skeleton h-20 rounded-2xl"/>
+      <div className="skeleton h-20 rounded-2xl"/>
+    </div>;
   }
   if (error) {
     return <div className="grid min-h-48 place-items-center rounded-2xl border border-dashed border-red-200 bg-red-50 p-6 text-center"><div><History size={22} className="mx-auto text-red-300"/><b className="mt-3 block text-xs text-ink">No se pudo cargar la actividad</b><p className="mt-1 text-[10px] leading-4 text-slate-500">Reintentá más tarde o verificá tu sesión.</p></div></div>;
@@ -530,7 +534,7 @@ function InspectionItem({ inspection, cartelName, canWrite, auth, onStateChanged
 
   return <li className="overflow-hidden rounded-xl border border-slate-100 bg-white">
     <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="flex w-full items-center justify-between gap-2 p-3 text-left">
-      <span className="inline-flex rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase text-white" style={{ background: config.color }}>{config.label}</span>
+      <span className="badge-soft"><i style={{ background: config.color }}/>{config.label}</span>
       <span className="flex items-center gap-2">
         <time className="text-[9px] font-semibold text-slate-400">{new Date(inspection.createdAt).toLocaleDateString("es-AR")}</time>
         <ChevronDown size={14} className={`text-slate-400 transition ${expanded ? "rotate-180" : ""}`}/>
@@ -547,7 +551,10 @@ function InspectionItem({ inspection, cartelName, canWrite, auth, onStateChanged
 
     {expanded && <div className="border-t border-slate-100 bg-slate-50/60 p-3">
       {detailLoading ? (
-        <div className="grid place-items-center py-4"><Loader2 size={18} className="animate-spin text-municipal-600"/></div>
+        <div className="space-y-2 py-1" aria-label="Cargando detalle">
+          <div className="skeleton h-14 rounded-xl"/>
+          <div className="skeleton h-8 rounded-lg"/>
+        </div>
       ) : detailLoadError ? (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-[10px] font-semibold text-red-700">{detailLoadError} Reintentá cerrando y abriendo este detalle.</p>
       ) : (
@@ -587,7 +594,7 @@ function InspectionPhotos({ photos }: { photos: InspectionPhoto[] }) {
     (photo) => !photo.sha256 || !photo.byteSize || !photo.mimeType || !photo.uploadedBy,
   ).length;
   return <div>
-    <span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">Evidencia</span>
+    <span className="micro-label">Evidencia</span>
     {historicalCount > 0 && (
       <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1.5 text-[9px] font-semibold text-amber-800">
         {historicalCount} {historicalCount === 1 ? "archivo histórico no verificado" : "archivos históricos no verificados"}:
@@ -616,7 +623,7 @@ function InspectionPhotos({ photos }: { photos: InspectionPhoto[] }) {
 
 function InspectionHistory({ history }: { history: InspectionHistoryEntry[] }) {
   return <div>
-    <span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">Historial de estados</span>
+    <span className="micro-label">Historial de estados</span>
     {history.length === 0 ? (
       <p className="mt-1 text-[10px] text-slate-400">Sin cambios registrados.</p>
     ) : (
@@ -655,7 +662,7 @@ function InspectionTransitions({ current, canWrite, isAdmin, hasPendingRequest, 
     return <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-[9px] font-semibold text-amber-800">Hay una solicitud pendiente. Debe resolverse antes de pedir otro cambio.</p>;
   }
   return <div>
-    <span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">{isAdmin ? "Aplicar estado con aprobación" : "Solicitar cambio de estado"}</span>
+    <span className="micro-label">{isAdmin ? "Aplicar estado con aprobación" : "Solicitar cambio de estado"}</span>
     <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} placeholder="Fundamento obligatorio" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] text-slate-700 outline-none focus:border-municipal-500"/>
     <div className="mt-1.5 flex flex-wrap gap-1.5">{allowedNext.map((next) => {
       const target = getInspectionState(next);
@@ -682,7 +689,7 @@ function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
 }
 
 function DataCard({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl bg-slate-50 p-3"><span className="text-[8px] font-extrabold uppercase tracking-wider text-slate-400">{label}</span><b className="mt-1 block text-[11px] capitalize leading-4 text-slate-700">{value}</b></div>;
+  return <div className="rounded-xl bg-slate-50 p-3"><span className="micro-label">{label}</span><b className="mt-1 block text-[11px] capitalize leading-4 text-slate-700">{value}</b></div>;
 }
 
 function DataRow({ label, value }: { label: string; value: string }) {

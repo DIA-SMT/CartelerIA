@@ -63,6 +63,12 @@ export type StateChangeResult =
   | { ok: true; outcome: "applied" | "pending"; requestId: string }
   | { ok: false; outcome: "error"; requestId: null };
 
+/**
+ * Evento con el total de aprobaciones pendientes (detail: number). Lo emite
+ * la bandeja al refrescar; lo consume el header para el contador de la nav.
+ */
+export const APPROVALS_COUNT_EVENT = "carteleria:approvals-count";
+
 export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   pendiente: "Pendiente",
   aprobada: "Aprobada",
