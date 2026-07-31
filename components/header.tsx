@@ -3,10 +3,14 @@
 import Image from "next/image";
 import { HelpCircle, Menu, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { APPROVALS_COUNT_EVENT } from "@/data/approvals";
 import { TOUR_EVENT } from "@/data/tour";
+import { useAuth } from "@/hooks/use-auth";
 import { HeaderSession } from "./header-session";
 
-const navigation = [
+type NavItem = { href: string; label: string; badge?: number };
+
+const baseNavigation: NavItem[] = [
   { href: "#inicio", label: "Inicio" },
   { href: "#mapa", label: "Mapa" },
   { href: "#carteles", label: "Carteles" },
@@ -15,9 +19,27 @@ const navigation = [
 ];
 
 export function Header() {
+  const auth = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
+
+  // Contador de aprobaciones pendientes: lo publica la bandeja al refrescar.
+  useEffect(() => {
+    const onCount = (event: Event) => setPendingApprovals((event as CustomEvent<number>).detail);
+    window.addEventListener(APPROVALS_COUNT_EVENT, onCount);
+    return () => window.removeEventListener(APPROVALS_COUNT_EVENT, onCount);
+  }, []);
+
+  // Las secciones de gestión entran a la nav según el rol de la sesión.
+  const navigation: NavItem[] = [
+    ...baseNavigation,
+    ...(auth.canRead ? [{ href: "#expedientes", label: "Expedientes" }] : []),
+    ...(auth.canRead && auth.role === "administrador"
+      ? [{ href: "#aprobaciones", label: "Aprobaciones", badge: pendingApprovals }]
+      : []),
+  ];
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -62,8 +84,8 @@ export function Header() {
           <span className="min-w-0"><strong className="block truncate font-display text-[15px] tracking-tight text-ink">Cartelería Urbana SMT</strong><small className="hidden text-[10px] font-semibold uppercase tracking-[.16em] text-slate-400 sm:block">Visualizador documental</small></span>
         </a>
 
-        <nav aria-label="Navegación principal" className="hidden items-center gap-8 text-sm font-semibold text-slate-500 lg:flex">
-          {navigation.map((item, index) => <a key={item.href} className={index === 0 ? "text-municipal-700" : "transition hover:text-municipal-700"} href={item.href}>{item.label}</a>)}
+        <nav aria-label="Navegación principal" className="hidden items-center gap-7 text-sm font-semibold text-slate-500 lg:flex">
+          {navigation.map((item, index) => <a key={item.href} className={`inline-flex items-center ${index === 0 ? "text-municipal-700" : "transition hover:text-municipal-700"}`} href={item.href}>{item.label}<NavBadge count={item.badge}/></a>)}
         </nav>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
@@ -77,10 +99,20 @@ export function Header() {
         <button className="absolute inset-0 cursor-default bg-slate-950/20 backdrop-blur-[2px]" onClick={closeMenu} aria-label="Cerrar menú al tocar fuera"/>
         <div ref={menuRef} id="mobile-navigation" role="dialog" aria-modal="true" aria-label="Menú de navegación" className="absolute inset-x-3 top-3 overflow-hidden rounded-2xl border border-white/80 bg-white/95 p-3 shadow-2xl backdrop-blur-xl sm:left-auto sm:right-5 sm:w-80">
           <nav className="grid gap-1" aria-label="Navegación mobile">
-            {navigation.map((item, index) => <a key={item.href} href={item.href} onClick={closeMenu} className={`rounded-xl px-4 py-3 text-sm font-bold transition ${index === 0 ? "bg-municipal-50 text-municipal-700" : "text-slate-600 hover:bg-slate-50 hover:text-municipal-700"}`}>{item.label}</a>)}
+            {navigation.map((item, index) => <a key={item.href} href={item.href} onClick={closeMenu} className={`flex items-center rounded-xl px-4 py-3 text-sm font-bold transition ${index === 0 ? "bg-municipal-50 text-municipal-700" : "text-slate-600 hover:bg-slate-50 hover:text-municipal-700"}`}>{item.label}<NavBadge count={item.badge}/></a>)}
           </nav>
         </div>
       </div>}
     </header>
+  );
+}
+
+/** Contador de pendientes junto al item de nav (oculto en cero). */
+function NavBadge({ count }: { count?: number }) {
+  if (!count) return null;
+  return (
+    <span aria-label={`${count} pendientes`} className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 py-0.5 text-micro font-extrabold leading-none text-amber-800">
+      {count > 99 ? "99+" : count}
+    </span>
   );
 }

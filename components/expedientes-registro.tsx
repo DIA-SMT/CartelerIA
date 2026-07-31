@@ -64,6 +64,10 @@ export function ExpedientesRegistro() {
   };
   const ownsData = dataOwnerId === auth.user?.id;
 
+  // Sección de gestión: sin sesión no aparece (la nav tampoco la ofrece).
+  // Un visitante público no necesita ver un candado pidiendo login.
+  if (!auth.user) return null;
+
   return <section id="expedientes" className="section-block">
     <div className="section-heading">
       <div><span className="section-kicker">Gestión</span><h2>Registro de expedientes</h2><p>Legajos administrativos abiertos por cartel. Exportable a Excel.</p></div>
@@ -74,14 +78,10 @@ export function ExpedientesRegistro() {
     </div>
 
     {!canRead ? (
-      auth.user ? (
-        auth.roleError ? (
-          <div className="empty-state border-red-200 bg-red-50"><span><Lock size={22}/></span><h3>Permisos no verificados</h3><p>{auth.roleError}</p><button type="button" onClick={() => void auth.retryRole()} className="secondary-button compact">Reintentar permisos</button></div>
-        ) : (
-          <TableSkeleton/>
-        )
+      auth.roleError ? (
+        <div className="empty-state border-red-200 bg-red-50"><span><Lock size={22}/></span><h3>Permisos no verificados</h3><p>{auth.roleError}</p><button type="button" onClick={() => void auth.retryRole()} className="secondary-button compact">Reintentar permisos</button></div>
       ) : (
-        <div className="empty-state"><span><Lock size={22}/></span><h3>Requiere sesión</h3><p>Ingresá con tu cuenta municipal para ver el registro de expedientes.</p></div>
+        <TableSkeleton/>
       )
     ) : !ownsData || loading ? (
       <TableSkeleton/>

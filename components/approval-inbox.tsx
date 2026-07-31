@@ -11,6 +11,7 @@ import {
   XCircle,
 } from "lucide-react";
 import {
+  APPROVALS_COUNT_EVENT,
   stateChangeLabel,
   type StateChangeRequest,
 } from "@/data/approvals";
@@ -48,6 +49,11 @@ export function ApprovalInbox() {
   const refreshSequence = useRef(0);
   const resolvingIds = useRef(new Set<string>());
 
+  /** Publica el total pendiente para el contador de la nav (header). */
+  const announceCount = (count: number) => {
+    window.dispatchEvent(new CustomEvent<number>(APPROVALS_COUNT_EVENT, { detail: count }));
+  };
+
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
     if (!isAdmin) {
@@ -57,6 +63,7 @@ export function ApprovalInbox() {
       setLoadError(null);
       setLoadPhase("idle");
       setDataOwnerId(null);
+      announceCount(0);
       return;
     }
 
@@ -77,6 +84,7 @@ export function ApprovalInbox() {
     setDataOwnerId(auth.user?.id ?? null);
     setStateRequests(statesResult.data);
     setLinkRequests(linksResult.data);
+    announceCount(statesResult.data.length + linksResult.data.length);
     const errors = [
       statesResult.ok ? null : statesResult.error,
       linksResult.ok ? null : linksResult.error,
