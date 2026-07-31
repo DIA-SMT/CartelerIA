@@ -47,12 +47,18 @@ export function TryhardHeroMap() {
       const mapBase = container?.querySelector<HTMLElement>(".tryhard-map-base");
       const mobile = self?.matches.mobile ?? false;
       const reducedMotion = self?.matches.reducedMotion ?? false;
-      let pieceAnimations: ReturnType<typeof animate>[] = [];
+      /** Animaciones vivas por pieza: al curar o reactivar se pausan primero. */
+      const pieceAnimations = new Map<number, ReturnType<typeof animate>[]>();
+      /** Cada pieza activada agenda su propia vuelta a casa. */
+      const healTimers = new Map<number, number>();
       const activatedPieces = new Set<number>();
       const ambientAnimations: ReturnType<typeof animate>[] = [];
+      let baseAnimation: ReturnType<typeof animate> | null = null;
       let isVisible = true;
       let pointerFrame: number | null = null;
       let latestPointer: PointerEvent | null = null;
+      /** BCR de la grilla, cacheado: 1 lectura tras scroll/resize, no 35 por frame. */
+      let gridRect: DOMRect | null = null;
 
       if (!container || !map) return;
 
@@ -139,32 +145,63 @@ export function TryhardHeroMap() {
         ease: "out(3)",
       });
 
-      const clearPieceAnimations = () => {
-        pieceAnimations.forEach(animation => animation.revert());
-        pieceAnimations = [];
+      /** Pausa las animaciones vivas de una pieza (previo a curarla o reactivarla). */
+      const stopPiece = (index: number) => {
+        pieceAnimations.get(index)?.forEach(animation => animation.pause());
+        pieceAnimations.set(index, []);
+      };
+
+      const trackPiece = (index: number, animation: ReturnType<typeof animate>) => {
+        pieceAnimations.get(index)?.push(animation);
+      };
+
+      const fadeBase = (opacity: number, duration: number) => {
+        if (!mapBase) return;
+        baseAnimation?.pause();
+        baseAnimation = animate(mapBase, { opacity, duration, ease: "out(3)" });
+      };
+
+      /** Devuelve una pieza a su lugar. Con la última, reaparece el mapa base. */
+      const healPiece = (piece: HTMLElement, index: number, duration = 750) => {
+        const timer = healTimers.get(index);
+        if (timer !== undefined) {
+          window.clearTimeout(timer);
+          healTimers.delete(index);
+        }
+        stopPiece(index);
+        activatedPieces.delete(index);
+        trackPiece(index, animate(piece, { x: 0, y: 0, rotate: 0, rotateX: 0, rotateY: 0, scale: 1, scaleX: 1, duration, ease: "out(3)" }));
+        if (activatedPieces.size === 0) fadeBase(1, 600);
       };
 
       const activatePiece = (piece: HTMLElement, index: number) => {
         if (activatedPieces.has(index)) return;
+        // Cancela una curación en curso: la pieza retoma el juego desde donde está.
+        const pendingHeal = healTimers.get(index);
+        if (pendingHeal !== undefined) window.clearTimeout(pendingHeal);
+        stopPiece(index);
         activatedPieces.add(index);
-        if (activatedPieces.size === 1 && mapBase) pieceAnimations.push(animate(mapBase, { opacity: 0, duration: 500, ease: "out(3)" }));
+        if (activatedPieces.size === 1) fadeBase(0, 500);
+        // El estado roto es transitorio: cada pieza vuelve sola, escalonada.
+        healTimers.set(index, window.setTimeout(() => healPiece(piece, index), 2600 + (index % 5) * 240));
 
         const behavior = index % 3;
         if (behavior === 0) {
-          pieceAnimations.push(animate(piece, { rotate: index % 2 ? 360 : -360, scale: 1.06, duration: 1100, ease: "out(4)" }));
+          trackPiece(index, animate(piece, { rotate: index % 2 ? 360 : -360, scale: 1.06, duration: 1100, ease: "out(4)" }));
           return;
         }
 
         if (behavior === 1) {
-          pieceAnimations.push(animate(piece, { rotate: index % 2 ? 180 : -180, rotateY: 180, scaleX: -1, scale: .98, duration: 1250, ease: "out(4)" }));
+          trackPiece(index, animate(piece, { rotate: index % 2 ? 180 : -180, rotateY: 180, scaleX: -1, scale: .98, duration: 1250, ease: "out(4)" }));
           return;
         }
 
+        // Vuelo acotado: se despegan sin cruzar sobre la columna de texto.
         const directionX = index % 2 ? 1 : -1;
         const directionY = index % 4 < 2 ? -1 : 1;
-        const targetX = directionX * (window.innerWidth * (.28 + (index % 5) * .035));
-        const targetY = directionY * (window.innerHeight * (.2 + (index % 4) * .045));
-        pieceAnimations.push(animate(piece, {
+        const targetX = directionX * (window.innerWidth * (.09 + (index % 5) * .018));
+        const targetY = directionY * (window.innerHeight * (.07 + (index % 4) * .025));
+        trackPiece(index, animate(piece, {
           x: targetX,
           y: targetY,
           rotate: directionX * (140 + index * 9),
@@ -173,18 +210,20 @@ export function TryhardHeroMap() {
           ease: "out(4)",
           onComplete: () => {
             if (!activatedPieces.has(index)) return;
-            pieceAnimations.push(animate(piece, { y: [targetY - 12, targetY + 12], rotate: [directionX * (140 + index * 9) - 5, directionX * (140 + index * 9) + 5], duration: 2600 + index * 40, alternate: true, loop: true, ease: "inOut(2)" }));
+            trackPiece(index, animate(piece, { y: [targetY - 12, targetY + 12], rotate: [directionX * (140 + index * 9) - 5, directionX * (140 + index * 9) + 5], duration: 2600 + index * 40, alternate: true, loop: true, ease: "inOut(2)" }));
           },
         }));
       };
 
+      /** Click en el fondo: curación inmediata de todo lo que esté fuera de lugar. */
       const resetPieces = () => {
-        clearPieceAnimations();
-        activatedPieces.clear();
-        if (mapBase) animate(mapBase, { opacity: 1, duration: 550, ease: "out(3)" });
-        mapPieces.forEach(piece => animate(piece, { x: 0, y: 0, rotate: 0, rotateX: 0, rotateY: 0, scale: 1, scaleX: 1, duration: 850, ease: "out(4)" }));
-        container.dataset.exploded = "false";
+        mapPieces.forEach((piece, index) => {
+          if (activatedPieces.has(index) || (pieceAnimations.get(index)?.length ?? 0) > 0) healPiece(piece, index, 850);
+        });
       };
+
+      const piecesGrid = container.querySelector<HTMLElement>(".tryhard-map-grid");
+      const invalidateGridRect = () => { gridRect = null; };
 
       const updatePointerInteraction = (event: PointerEvent) => {
         const x = event.clientX / window.innerWidth - .5;
@@ -194,12 +233,18 @@ export function TryhardHeroMap() {
         tilt.rotateY(x * 20);
         tilt.rotateX(y * -16);
 
+        if (!piecesGrid) return;
+        // Un solo BCR cacheado: los centros salen de la grilla uniforme 7x5.
+        // (El tilt lo corre unos px; tolerable para un radio de contacto de 46+.)
+        if (!gridRect) gridRect = piecesGrid.getBoundingClientRect();
+        const cellWidth = gridRect.width / COLUMNS;
+        const cellHeight = gridRect.height / ROWS;
+        const contactRadius = Math.max(46, cellWidth * .42);
         mapPieces.forEach((piece, index) => {
           if (activatedPieces.has(index)) return;
-          const bounds = piece.getBoundingClientRect();
-          const distanceX = event.clientX - (bounds.left + bounds.width / 2);
-          const distanceY = event.clientY - (bounds.top + bounds.height / 2);
-          if (Math.hypot(distanceX, distanceY) < Math.max(46, bounds.width * .42)) activatePiece(piece, index);
+          const centerX = gridRect!.left + (index % COLUMNS + .5) * cellWidth;
+          const centerY = gridRect!.top + (Math.floor(index / COLUMNS) + .5) * cellHeight;
+          if (Math.hypot(event.clientX - centerX, event.clientY - centerY) < contactRadius) activatePiece(piece, index);
         });
       };
 
@@ -229,14 +274,21 @@ export function TryhardHeroMap() {
       };
 
       window.addEventListener("pointermove", onPointerMove, { passive: true });
+      window.addEventListener("scroll", invalidateGridRect, { passive: true, capture: true });
+      window.addEventListener("resize", invalidateGridRect);
       document.addEventListener("click", onBackgroundClick, true);
       document.documentElement.addEventListener("mouseout", onPointerLeave);
 
       return () => {
         visibilityObserver.disconnect();
         if (pointerFrame !== null) cancelAnimationFrame(pointerFrame);
-        clearPieceAnimations();
+        healTimers.forEach(timer => window.clearTimeout(timer));
+        healTimers.clear();
+        pieceAnimations.forEach(animations => animations.forEach(animation => animation.pause()));
+        pieceAnimations.clear();
         window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("scroll", invalidateGridRect, true);
+        window.removeEventListener("resize", invalidateGridRect);
         document.removeEventListener("click", onBackgroundClick, true);
         document.documentElement.removeEventListener("mouseout", onPointerLeave);
       };
@@ -256,7 +308,7 @@ export function TryhardHeroMap() {
           <div className="relative aspect-[678/508] overflow-visible rounded-[28px] border border-white/90 bg-white/75 p-2.5 shadow-[0_28px_90px_rgba(1,102,255,.18)] backdrop-blur sm:p-3.5">
             <div className="relative size-full overflow-visible rounded-[20px] bg-[#eaf5ff]">
               <div className="tryhard-map-base absolute inset-0 rounded-[20px] bg-[url('/images/hero-map-smt.png')] bg-cover bg-center bg-no-repeat" />
-              <div className="absolute inset-0 grid grid-cols-7 grid-rows-5 overflow-visible">
+              <div className="tryhard-map-grid absolute inset-0 grid grid-cols-7 grid-rows-5 overflow-visible">
                 {pieces.map(({ index, column, row }) => (
                   <div
                     key={index}
