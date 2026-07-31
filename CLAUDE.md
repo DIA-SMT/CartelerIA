@@ -43,6 +43,19 @@ Todavía no hay una suite general ni configuración de ESLint.
   `hooks/use-dismissible.ts` (patrón `data-state`). Animar solo
   transform/opacity; el spotlight del tour ya se migró a transform — no
   reintroducir animación de top/left/width/height/box-shadow.
+- **Sistema de UI compartido (usarlo, no reimplementarlo)**:
+  `hooks/use-modal-shell.ts` (scroll lock apilado + focus trap donde solo el
+  modal tope atrapa Tab + restitución de foco) para todo overlay nuevo;
+  `components/confirm-dialog.tsx` para decisiones destructivas o con
+  fundamento (nada de `window.confirm`; los Esc de padres en capture deben
+  ceder con `confirmDialogIsOpen()`); `components/toaster.tsx` (`toast(...)`,
+  evento `carteleria:toast`) para feedback de acciones; `components/ask-card.tsx`
+  como cáscara de las consultas en lenguaje natural. Tipografía: piso de 10px
+  con tokens `text-micro`/`text-tiny` y clase `.micro-label` — no volver a
+  `text-[8px]`/`text-[9px]`. Estados con color dinámico: `.badge-soft`
+  (fondo neutro + punto de color), nunca texto blanco sobre el color crudo.
+  El contador de aprobaciones pendientes viaja por `APPROVALS_COUNT_EVENT`
+  (`data/approvals.ts`) de la bandeja al header.
 
 ## Identidad visual (obligatoria)
 
@@ -101,8 +114,11 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 ## Gotchas del entorno
 
 - La pestaña del Browser pane corre oculta (`document.hidden: true`):
-  screenshots y `requestAnimationFrame` se cuelgan — verificar con
-  `read_page`/`get_page_text`/`javascript_tool`, no con capturas.
+  screenshots y `requestAnimationFrame` se cuelgan. Peor aún desde Next 16:
+  el renderer del pane directamente crashea al cargar la página de la app
+  ("This page couldn't load"), aunque el server responda 200 y la página ande
+  perfecta en un navegador real. Verificar con `curl`, `tsc`, tests y build;
+  la pasada visual la hace Lucas en su navegador.
 - StrictMode en dev duplica efectos: los fetch de capas se ven repetidos (en
   prod es uno por capa).
 - `python` no existe en esta máquina (alias de Microsoft Store); usar `node -e`.
@@ -118,3 +134,6 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
    y auditar periódicamente falsos rechazos.
 4. `target: es5` en tsconfig y `as unknown as` sin validación de esquema donde
    entran los GeoJSON.
+5. Mobile administrativo (paquete D, pospuesto a pedido de Lucas hasta que
+   haya inspectores en la calle): tabla de expedientes → tarjetas en pantallas
+   chicas y `pb-[env(safe-area-inset-bottom)]` en los bottom-sheets.
