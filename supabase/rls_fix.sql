@@ -6,10 +6,11 @@
 alter table public.carteles enable row level security;
 
 drop policy if exists "carteles_public_read" on public.carteles;
-create policy "carteles_public_read"
+drop policy if exists carteles_authenticated_read on public.carteles;
+create policy carteles_authenticated_read
 on public.carteles
 for select
-to anon, authenticated
+to authenticated
 using (true);
 
 -- Sin escritura anónima.
@@ -23,5 +24,4 @@ create policy carteles_update_operativo on public.carteles
   with check (public.tiene_rol(array['administrador','coordinador','inspector']::public.app_rol[]));
 
 revoke all on public.carteles from anon;
-grant select on public.carteles to anon;
 grant select, update on public.carteles to authenticated;

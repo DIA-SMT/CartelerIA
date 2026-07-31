@@ -138,7 +138,7 @@ export function runQuery(intent: QueryIntent, carteles: AnalyzedCartel[]): Query
 // Traducción híbrida al filtro del mapa
 //   - Estructurada (editable) cuando el predicado es un AND de hojas sobre
 //     dimensiones distintas del filtro territorial (tax/registry/enablement/
-//     support/visualStatus). Semánticamente idéntica al evaluador.
+//     support/visualStatus/analysisStatus). Semánticamente idéntica al evaluador.
 //   - Fallback exacto por lista de IDs para todo lo demás.
 // ----------------------------------------------------------------------------
 type MapDimension = "tax" | "registry" | "enablement" | "support" | "main";
@@ -150,6 +150,16 @@ function leafToDimension(predicate: Predicate): { dimension: MapDimension; value
   else return null;
 
   switch (predicate.field) {
+    case "analysisStatus": {
+      const map: Record<string, string> = {
+        dentro_corredor: "dentro_corredor",
+        cerca_lugar_permitido: "revision",
+        fuera_zona_permitida: "fuera_corredor",
+      };
+      const mapped = values.map((value) => map[value]).filter(Boolean);
+      if (mapped.length !== values.length) return null;
+      return { dimension: "main", values: mapped };
+    }
     case "taxStatus": return { dimension: "tax", values };
     case "registryStatus": return { dimension: "registry", values };
     case "enablementStatus": return { dimension: "enablement", values };

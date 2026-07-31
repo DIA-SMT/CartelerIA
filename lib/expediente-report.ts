@@ -1,12 +1,21 @@
 // ============================================================================
 // Reportes de expedientes (Fase 6.3)
 //  - PDF: dossier imprimible del expediente vía window.print() (sin dependencia).
-//  - Excel: registro tabular .xlsx con SheetJS.
+//  - Excel: registro tabular .xlsx con write-excel-file.
 // ============================================================================
 
 import { getExpedienteState } from "@/data/expedientes";
 import { getInspectionState } from "@/data/inspections";
-import type { ExpedienteHistoryEntry, ExpedienteRecord } from "./expediente-repository";
+import {
+  APPROVAL_STATUS_LABELS,
+  stateChangeLabel,
+  type StateChangeRequest,
+} from "@/data/approvals";
+import type {
+  ExpedienteDocumento,
+  ExpedienteHistoryEntry,
+  ExpedienteRecord,
+} from "./expediente-repository";
 import type { InspectionRecord } from "./inspection-repository";
 
 function esc(value: unknown): string {
@@ -25,9 +34,18 @@ export interface DossierData {
   cartelName: string;
   inspecciones: InspectionRecord[];
   historial: ExpedienteHistoryEntry[];
+  requests: StateChangeRequest[];
+  documentos: ExpedienteDocumento[];
 }
 
-function buildDossierHtml({ expediente, cartelName, inspecciones, historial }: DossierData): string {
+function buildDossierHtml({
+  expediente,
+  cartelName,
+  inspecciones,
+  historial,
+  requests,
+  documentos,
+}: DossierData): string {
   const estado = getExpedienteState(expediente.estado);
   const emitido = new Date().toLocaleString("es-AR");
 
@@ -42,9 +60,55 @@ function buildDossierHtml({ expediente, cartelName, inspecciones, historial }: D
     ? historial.map((h) => {
         const to = getExpedienteState(h.estadoNuevo);
         const from = h.estadoAnterior ? getExpedienteState(h.estadoAnterior).label : "—";
-        return `<tr><td>${fecha(h.createdAt)}</td><td>${esc(from)}</td><td>${esc(to.label)}</td></tr>`;
+        const actor = [h.changedByName, h.changedByRole ? `(${h.changedByRole})` : null]
+          .filter(Boolean)
+          .join(" ");
+        return `<tr><td>${fecha(h.createdAt)}</td><td>${esc(from)}</td><td>${esc(to.label)}</td><td>${esc(actor || "—")}</td><td>${esc(h.nota || "—")}</td></tr>`;
       }).join("")
-    : `<tr><td colspan="3" class="muted">Sin movimientos.</td></tr>`;
+    : `<tr><td colspan="5" class="muted">Sin movimientos.</td></tr>`;
+
+  const approvalRows = requests.length
+    ? requests.map((request) => {
+        const requester = [
+          request.requesterName || request.requestedBy,
+          request.requesterRole ? `(${request.requesterRole})` : null,
+        ].filter(Boolean).join(" ");
+        const resolver = request.resolvedBy
+          ? [
+              request.resolverName || request.resolvedBy,
+              request.resolverRole ? `(${request.resolverRole})` : null,
+            ].filter(Boolean).join(" ")
+          : "—";
+        return `<tr>
+          <td>${fecha(request.createdAt)}</td>
+          <td>${esc(stateChangeLabel(request, "previous"))} → ${esc(stateChangeLabel(request, "requested"))}</td>
+          <td>${esc(request.reason)}</td>
+          <td>${esc(requester)}</td>
+          <td>${esc(APPROVAL_STATUS_LABELS[request.status])}</td>
+          <td>${esc(resolver)}</td>
+          <td>${esc(request.resolutionNote || "—")}</td>
+        </tr>`;
+      }).join("")
+    : `<tr><td colspan="7" class="muted">Sin solicitudes de aprobación registradas.</td></tr>`;
+
+  const documentRows = documentos.length
+    ? documentos.map((documento) => {
+        const verified = Boolean(
+          documento.sha256
+          && documento.byteSize
+          && documento.mimeType
+          && documento.uploadedBy,
+        );
+        return `<tr>
+          <td>${fecha(documento.createdAt)}</td>
+          <td>${esc(documento.descripcion || documento.storagePath.split("/").pop() || "Documento")}</td>
+          <td>${esc(documento.mimeType || documento.tipo || "—")}</td>
+          <td>${documento.byteSize != null ? esc(documento.byteSize) : "—"}</td>
+          <td class="hash">${esc(documento.sha256 || "—")}</td>
+          <td>${verified ? "Verificada" : "Histórica no verificada"}</td>
+        </tr>`;
+      }).join("")
+    : `<tr><td colspan="6" class="muted">Sin documentos incorporados.</td></tr>`;
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(expediente.numero || "Expediente")}</title>
 <style>
@@ -62,6 +126,8 @@ function buildDossierHtml({ expediente, cartelName, inspecciones, historial }: D
   .grid div { padding: 3px 0; border-bottom: 1px solid #f1f5f9; }
   .grid b { color: #64748b; font-weight: 700; }
   .muted { color: #94a3b8; }
+  .hash { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 8px; overflow-wrap: anywhere; }
+  .warning { border: 1px solid #fde68a; background: #fffbeb; color: #92400e; padding: 8px; border-radius: 6px; }
   .foot { margin-top: 24px; padding-top: 8px; border-top: 1px solid #e2e8f0; font-size: 9px; color: #94a3b8; }
   @media print { body { margin: 12mm; } }
 </style></head><body>
@@ -84,12 +150,19 @@ function buildDossierHtml({ expediente, cartelName, inspecciones, historial }: D
   <table><thead><tr><th>Fecha</th><th>Estado</th><th>Superficie</th><th>Observaciones</th></tr></thead><tbody>${inspRows}</tbody></table>
 
   <h2>Historial de estados</h2>
-  <table><thead><tr><th>Fecha</th><th>De</th><th>A</th></tr></thead><tbody>${histRows}</tbody></table>
+  <table><thead><tr><th>Fecha</th><th>De</th><th>A</th><th>Actor</th><th>Nota</th></tr></thead><tbody>${histRows}</tbody></table>
+
+  <h2>Solicitudes y resoluciones administrativas</h2>
+  <table><thead><tr><th>Fecha</th><th>Cambio</th><th>Fundamento</th><th>Solicitante</th><th>Estado</th><th>Resolutor</th><th>Nota</th></tr></thead><tbody>${approvalRows}</tbody></table>
+
+  <h2>Documentos y huellas de integridad</h2>
+  <table><thead><tr><th>Fecha</th><th>Documento</th><th>MIME</th><th>Bytes</th><th>SHA-256</th><th>Verificación</th></tr></thead><tbody>${documentRows}</tbody></table>
+  <p class="warning">Los archivos marcados como históricos no verificados fueron incorporados antes del control de huella y no deben presentarse como evidencia criptográficamente verificada.</p>
 
   <h2>Observaciones</h2>
   <p>${esc(expediente.observaciones || "—")}</p>
 
-  <div class="foot">Emitido el ${esc(emitido)} · Documento interno de gestión.</div>
+  <div class="foot">Emitido el ${esc(emitido)} · Documento interno de apoyo. No reemplaza el acto administrativo, la firma de la autoridad competente ni la revisión jurídica aplicable.</div>
 </body></html>`;
 }
 
@@ -121,22 +194,33 @@ export interface ExpedienteRegistroRow {
 }
 
 export async function exportExpedientesXlsx(rows: ExpedienteRegistroRow[]): Promise<void> {
-  // Carga diferida de SheetJS: solo se descarga al exportar, no en el bundle inicial.
-  const XLSX = await import("xlsx");
-  const data = rows.map(({ expediente, inspecciones }) => ({
-    "Número": expediente.numero || "",
-    Empresa: expediente.empresa || "",
-    Dirección: expediente.direccion || "",
-    Estado: getExpedienteState(expediente.estado).label,
-    Apertura: fecha(expediente.createdAt),
-    Cierre: fecha(expediente.cerradoEn),
-    Inspecciones: inspecciones,
-    Observaciones: expediente.observaciones || "",
-  }));
-  const worksheet = XLSX.utils.json_to_sheet(data);
-  worksheet["!cols"] = [{ wch: 15 }, { wch: 26 }, { wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 40 }];
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Expedientes");
+  // Carga diferida: el generador se descarga solo cuando el usuario exporta.
+  const { default: writeExcelFile } = await import("write-excel-file/browser");
+  const data = [
+    ["Número", "Empresa", "Dirección", "Estado", "Apertura", "Cierre", "Inspecciones", "Observaciones"],
+    ...rows.map(({ expediente, inspecciones }) => [
+      expediente.numero || "",
+      expediente.empresa || "",
+      expediente.direccion || "",
+      getExpedienteState(expediente.estado).label,
+      fecha(expediente.createdAt),
+      fecha(expediente.cerradoEn),
+      inspecciones,
+      expediente.observaciones || "",
+    ]),
+  ];
   const stamp = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(workbook, `expedientes-${stamp}.xlsx`);
+  await writeExcelFile(data, {
+    columns: [
+      { width: 15 },
+      { width: 26 },
+      { width: 30 },
+      { width: 12 },
+      { width: 12 },
+      { width: 12 },
+      { width: 12 },
+      { width: 40 },
+    ],
+    sheet: "Expedientes",
+  }).toFile(`expedientes-${stamp}.xlsx`);
 }

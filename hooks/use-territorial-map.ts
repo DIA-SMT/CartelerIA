@@ -11,37 +11,45 @@ import {
   type GeoPoint,
   type TerritorialFilterState,
 } from "@/data/territorial";
-import { loadCarteles } from "@/lib/cartel-repository";
+import type { CartelRecord } from "@/data/carteles";
+import { useAuth } from "@/hooks/use-auth";
+import { loadCarteles, type AdministrativeCartelSource } from "@/lib/cartel-repository";
 import { linkAdministrativeCarteles } from "@/lib/territorial-cartel-linker";
 
 const emptyLines: FeatureCollection<GeoLine> = { type: "FeatureCollection", features: [] };
 const emptyPoints: FeatureCollection<GeoPoint> = { type: "FeatureCollection", features: [] };
 
 export function useTerritorialMap() {
-  const [carteles, setCarteles] = useState<AnalyzedCartel[]>([]);
+  const auth = useAuth();
+  const [territorialCarteles, setTerritorialCarteles] = useState<AnalyzedCartel[]>([]);
+  const [administrativeCarteles, setAdministrativeCarteles] = useState<CartelRecord[]>([]);
   const [corridors, setCorridors] = useState<FeatureCollection<GeoLine>>(emptyLines);
   const [allowedPlaces, setAllowedPlaces] = useState<FeatureCollection<GeoPoint>>(emptyPoints);
   const [filters, setFilters] = useState<TerritorialFilterState>(initialTerritorialFilters);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [administrativeSource, setAdministrativeSource] = useState<"supabase" | "static">("static");
-  const [linkedCount, setLinkedCount] = useState(0);
+  const [administrativeSource, setAdministrativeSource] = useState<AdministrativeCartelSource | "none">("none");
+  const [administrativeOwnerId, setAdministrativeOwnerId] = useState<string | null>(null);
+  const [administrativeReloadKey, setAdministrativeReloadKey] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setAdministrativeReloadKey((value) => value + 1);
+    window.addEventListener("carteleria:administrative-refresh", refresh);
+    return () => window.removeEventListener("carteleria:administrative-refresh", refresh);
+  }, []);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
 
-    Promise.all([loadTerritorialLayers(), loadCarteles()])
-      .then(([layers, administrative]) => {
+    loadTerritorialLayers()
+      .then((layers) => {
         if (!active) return;
-        const linked = linkAdministrativeCarteles(layers.analyzed.features, administrative.data);
         setCorridors(layers.corridors);
         setAllowedPlaces(layers.allowedPlaces);
-        setCarteles(linked.carteles);
-        setLinkedCount(linked.linkedCount);
-        setAdministrativeSource(administrative.source);
+        setTerritorialCarteles(layers.analyzed.features);
       })
       .catch((cause: unknown) => {
         if (!active) return;
@@ -57,11 +65,47 @@ export function useTerritorialMap() {
     };
   }, [reloadKey]);
 
+  // El registro administrativo contiene datos privados y solo se consulta con
+  // una sesión activa. Al cerrar sesión se retira del estado inmediatamente.
+  useEffect(() => {
+    if (!auth.canRead || !auth.user) {
+      setAdministrativeCarteles([]);
+      setAdministrativeSource("none");
+      setAdministrativeOwnerId(null);
+      return;
+    }
+
+    let active = true;
+    const userId = auth.user.id;
+    setAdministrativeCarteles([]);
+    setAdministrativeSource("none");
+    setAdministrativeOwnerId(null);
+    loadCarteles().then((result) => {
+      if (!active) return;
+      setAdministrativeCarteles(result.data);
+      setAdministrativeSource(result.source);
+      setAdministrativeOwnerId(userId);
+    });
+    return () => {
+      active = false;
+    };
+  }, [auth.canRead, auth.user?.id, administrativeReloadKey]);
+
+  const linked = useMemo(
+    () => auth.canRead && auth.user && administrativeOwnerId === auth.user.id
+      ? linkAdministrativeCarteles(territorialCarteles, administrativeCarteles)
+      : { carteles: territorialCarteles, linkedCount: 0 },
+    [auth.canRead, auth.user, administrativeOwnerId, territorialCarteles, administrativeCarteles],
+  );
+  const carteles = linked.carteles;
   const filteredCarteles = useMemo(
     () => filterTerritorialCarteles(carteles, filters),
     [carteles, filters],
   );
-  const retry = useCallback(() => setReloadKey((value) => value + 1), []);
+  const retry = useCallback(() => {
+    setReloadKey((value) => value + 1);
+    setAdministrativeReloadKey((value) => value + 1);
+  }, []);
   const resetFilters = useCallback(() => setFilters(initialTerritorialFilters), []);
 
   return {
@@ -75,7 +119,9 @@ export function useTerritorialMap() {
     loading,
     error,
     retry,
-    administrativeSource,
-    linkedCount,
+    administrativeSource: auth.canRead && administrativeOwnerId === auth.user?.id
+      ? administrativeSource
+      : "none",
+    linkedCount: linked.linkedCount,
   };
 }

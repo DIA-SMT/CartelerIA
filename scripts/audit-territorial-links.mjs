@@ -6,10 +6,12 @@ import path from "node:path";
 nextEnv.loadEnvConfig(process.cwd());
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-if (!url || !anonKey) throw new Error("Faltan NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!url || !serviceRoleKey) throw new Error("Faltan NEXT_PUBLIC_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.");
 
-const supabase = createClient(url, anonKey, { auth: { persistSession: false } });
+// Script administrativo offline: usa service role porque `public.carteles` no
+// admite lectura anónima. La clave nunca debe exponerse al navegador.
+const supabase = createClient(url, serviceRoleKey, { auth: { persistSession: false } });
 const { data: records, error } = await supabase
   .from("carteles")
   .select("id,empresa,domicilio,numero,latitud,longitud,territorial_feature_id")
@@ -66,7 +68,7 @@ if (process.argv.includes("--write")) {
   const outputDirectory = path.join(process.cwd(), "reports");
   const outputPath = path.join(outputDirectory, "territorial-link-candidates.csv");
   await mkdir(outputDirectory, { recursive: true });
-  const header = ["record_id", "empresa", "domicilio", "candidate_feature_id", "candidate_name", "distance_m", "address_similarity", "candidate_conflicts", "confidence", "second_candidate_id", "second_distance_m", "approved", "review_notes"];
+  const header = ["record_id", "empresa", "domicilio", "candidate_feature_id", "candidate_name", "distance_m", "address_similarity", "candidate_conflicts", "confidence", "second_candidate_id", "second_distance_m", "reviewed", "review_notes"];
   const rows = candidates.map(({ record, address, best, second, confidence, conflicts }) => [
     record.id,
     record.empresa,

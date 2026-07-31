@@ -10,11 +10,25 @@ export interface NormativaCitation {
   seccion: string | null;
   fragmento: string;
   similarity: number;
+  contenidoHash: string | null;
+  sourcePdfHash: string | null;
+  audience: "publico" | "interno";
+  humanReviewed: boolean;
+  ocrDoubtful: boolean;
+  legalUseReady: boolean;
 }
 
 export interface NormativaResponse {
   refused: boolean;
   answer: string | null;
   citations: NormativaCitation[];
-  note?: "sin_llm" | "llm_error";
+  note?:
+    | "sin_llm"
+    | "ia_externa_desactivada"
+    | "fuente_restringida"
+    | "pii_detectada"
+    | "llm_error"
+    | "llm_refused"
+    | "citas_invalidas"
+    | "revision_humana_requerida";
 }

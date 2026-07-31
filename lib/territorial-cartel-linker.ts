@@ -14,17 +14,41 @@ export function linkAdministrativeCarteles(
   territorialCarteles: AnalyzedCartel[],
   administrativeCarteles: CartelRecord[],
 ): TerritorialLinkResult {
-  const byTerritorialId = new Map(
-    administrativeCarteles
-      .filter((cartel) => cartel.territorialFeatureId)
-      .map((cartel) => [String(cartel.territorialFeatureId), cartel]),
-  );
+  const priority = (cartel: CartelRecord) => {
+    if (cartel.territorialLinkStatus === "aprobado") return 3;
+    if (cartel.territorialLinkStatus === "pendiente") return 2;
+    if (cartel.territorialLinkStatus === "rechazado") return 1;
+    return 0;
+  };
+  const byTerritorialId = new Map<string, CartelRecord>();
+  for (const cartel of administrativeCarteles) {
+    const featureId = cartel.territorialFeatureId ?? cartel.proposedTerritorialFeatureId;
+    if (!featureId) continue;
+    const key = String(featureId);
+    const current = byTerritorialId.get(key);
+    if (!current || priority(cartel) > priority(current)) {
+      byTerritorialId.set(key, cartel);
+    }
+  }
   let linkedCount = 0;
 
   const carteles = territorialCarteles.map((feature) => {
     const record = byTerritorialId.get(String(feature.properties.id));
     if (!record) return feature;
-    linkedCount += 1;
+    if (record.territorialLinkStatus === "aprobado") {
+      linkedCount += 1;
+    } else {
+      return {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          administrative: {
+            recordId: record.id,
+            linkStatus: record.territorialLinkStatus ?? "sin_vinculo",
+          },
+        },
+      };
+    }
 
     return {
       ...feature,
@@ -32,6 +56,7 @@ export function linkAdministrativeCarteles(
         ...feature.properties,
         administrative: {
           recordId: record.id,
+          linkStatus: record.territorialLinkStatus ?? "sin_vinculo",
           empresa: record.empresa,
           cuit: record.cuit,
           tipoCartel: record.tipoCartel,

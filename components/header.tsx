@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Bell, HelpCircle, Menu, Search, X } from "lucide-react";
+import { HelpCircle, Menu, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { TOUR_EVENT } from "@/data/tour";
 import { HeaderSession } from "./header-session";
@@ -69,8 +69,6 @@ export function Header() {
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <button onClick={startTour} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white/85 px-2.5 py-2 text-[11px] font-bold text-slate-600 transition hover:border-municipal-300 hover:text-municipal-700" aria-label="¿Cómo funciona? Ver recorrido guiado"><HelpCircle size={15} /><span className="hidden lg:inline">¿Cómo funciona?</span></button>
           <HeaderSession />
-          <button className="icon-button hidden sm:grid" aria-label="Buscar"><Search size={18} /></button>
-          <button className="icon-button hidden sm:grid" aria-label="Notificaciones"><Bell size={18} /></button>
           <button ref={toggleRef} onClick={() => setMenuOpen(value => !value)} className="icon-button grid lg:hidden" aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"} aria-expanded={menuOpen} aria-controls="mobile-navigation">{menuOpen ? <X size={21}/> : <Menu size={21}/>}</button>
         </div>
       </div>
@@ -81,7 +79,6 @@ export function Header() {
           <nav className="grid gap-1" aria-label="Navegación mobile">
             {navigation.map((item, index) => <a key={item.href} href={item.href} onClick={closeMenu} className={`rounded-xl px-4 py-3 text-sm font-bold transition ${index === 0 ? "bg-municipal-50 text-municipal-700" : "text-slate-600 hover:bg-slate-50 hover:text-municipal-700"}`}>{item.label}</a>)}
           </nav>
-          <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3"><button onClick={closeMenu} className="secondary-button compact justify-center"><Search size={15}/>Buscar</button><button onClick={closeMenu} className="secondary-button compact justify-center"><Bell size={15}/>Avisos</button></div>
         </div>
       </div>}
     </header>

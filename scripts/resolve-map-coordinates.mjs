@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 
-const fileUrl = new URL("../data/carteles.json", import.meta.url);
+const fileUrl = new URL("../private/data/carteles.json", import.meta.url);
 const carteles = JSON.parse(await fs.readFile(fileUrl, "utf8"));
 
 function coordinatesFromUrl(url) {

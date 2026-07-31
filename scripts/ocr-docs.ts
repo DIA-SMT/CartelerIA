@@ -1,15 +1,16 @@
 // ============================================================================
 // Fase 5 — OCR del corpus escaneado (offline, opción A: tesseract.js)
 // ----------------------------------------------------------------------------
-// Aplica OCR (español) SOLO a las páginas escaneadas (imagen) de los PDFs de
-// public/docs, dejando el texto listo para el chunking/embeddings del RAG.
+// Aplica OCR (español) SOLO a las páginas escaneadas (imagen) del corpus,
+// dejando el texto listo para el chunking/embeddings del RAG.
 //
-//   npx tsx scripts/ocr-docs.ts            # procesa lo pendiente (idempotente)
-//   npx tsx scripts/ocr-docs.ts --force    # reprocesa todo
-//   npx tsx scripts/ocr-docs.ts doc-06     # procesa solo ese/esos docId
+//   npm run ocr:docs                       # procesa lo pendiente (idempotente)
+//   npm run ocr:docs -- --force            # reprocesa todo
+//   npm run ocr:docs -- doc-06             # procesa solo ese/esos docId
 //
-// - Preserva los PDF originales intactos (nunca escribe en public/docs).
-// - Salida: data/ocr/<docId>.json  { paginas:[{ pagina, fuente, confianza, texto }] }.
+// - Preserva los PDF originales intactos.
+// - Salida pública: data/ocr/<docId>.json.
+// - Salida interna: private/ocr/<docId>.json (excluida del despliegue).
 // - Idempotente: saltea digitales y lo ya procesado (hash del PDF sin cambios).
 // - Páginas que YA tienen texto se copian del PDF (fuente "pdf"); las imagen se
 //   renderizan (pdfjs@6 + @napi-rs/canvas) y se OCR-ean (fuente "ocr"),
@@ -21,11 +22,11 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
-import { documents } from "@/data/documents";
+import { corpusDocuments } from "../data/document-corpus.ts";
 
 const ROOT = process.cwd();
-const DOCS_DIR = path.join(ROOT, "public", "docs");
-const OUT_DIR = path.join(ROOT, "data", "ocr");
+const PUBLIC_OCR_DIR = path.join(ROOT, "data", "ocr");
+const PRIVATE_OCR_DIR = path.join(ROOT, "private", "ocr");
 const CACHE_DIR = path.join(ROOT, "node_modules", ".cache", "tesseract");
 
 const RENDER_SCALE = 2;     // ~2800px en el lado largo: buen OCR sin PNGs enormes
@@ -80,10 +81,11 @@ async function renderPagePng(page: any): Promise<Buffer> {
 }
 
 async function main() {
-  await mkdir(OUT_DIR, { recursive: true });
+  await mkdir(PUBLIC_OCR_DIR, { recursive: true });
+  await mkdir(PRIVATE_OCR_DIR, { recursive: true });
   await mkdir(CACHE_DIR, { recursive: true });
 
-  const targets = documents.filter((d) => d.pdfUrl && (ONLY.length === 0 || ONLY.includes(d.id)));
+  const targets = corpusDocuments.filter((d) => ONLY.length === 0 || ONLY.includes(d.id));
 
   const { createWorker } = await import("tesseract.js");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -100,13 +102,15 @@ async function main() {
   let salteados = 0;
 
   for (const doc of targets) {
-    const file = path.basename(doc.pdfUrl as string);
-    const filePath = path.join(DOCS_DIR, file);
+    const file = path.basename(doc.sourcePath);
+    const filePath = path.join(ROOT, doc.sourcePath);
     if (!existsSync(filePath)) { console.log(`✗ ${doc.id} ${file}: no existe`); continue; }
 
     const buf = await readFile(filePath);
     const sourceHash = createHash("sha256").update(buf).digest("hex");
-    const outPath = path.join(OUT_DIR, `${doc.id}.json`);
+    const outDir = doc.audience === "interno" ? PRIVATE_OCR_DIR : PUBLIC_OCR_DIR;
+    const outPath = path.join(outDir, `${doc.id}.json`);
+    const outputLabel = path.relative(ROOT, outPath).replaceAll("\\", "/");
 
     if (!FORCE && existsSync(outPath)) {
       try {
@@ -153,6 +157,11 @@ async function main() {
     process.stdout.write("\n");
 
     const confianzaMedia = confs.length ? Math.round((confs.reduce((a, b) => a + b, 0) / confs.length) * 10) / 10 : null;
+    const tienePaginaDudosa = pages.some(
+      (page) =>
+        page.fuente === "ocr"
+        && (page.confianza === null || page.confianza < LOW_CONF),
+    );
     const out = {
       docId: doc.id,
       titulo: doc.title,
@@ -165,12 +174,12 @@ async function main() {
       paginasTotal: pages.length,
       paginasOcr: confs.length,
       confianzaMedia,
-      dudosa: confianzaMedia != null && confianzaMedia < LOW_CONF,
+      dudosa: tienePaginaDudosa,
       paginas: pages,
     };
     await writeFile(outPath, JSON.stringify(out, null, 2), "utf8");
     procesados += 1;
-    console.log(`  ✔ ${doc.id}: conf. media ${confianzaMedia}%${out.dudosa ? " ⚠ DUDOSA" : ""} → data/ocr/${doc.id}.json`);
+    console.log(`  ✔ ${doc.id}: conf. media ${confianzaMedia}%${out.dudosa ? " ⚠ DUDOSA" : ""} → ${outputLabel}`);
   }
 
   if (worker) await worker.terminate();

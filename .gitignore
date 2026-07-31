@@ -8,6 +8,8 @@ node_modules
 reports/*.csv
 reports/*.md
 supabase/generated/
+# Corpus y OCR administrativos: se conservan solo en el entorno privado local.
+private/
 # Config local del editor/preview y archivos de prueba
 .claude/
 .sync-probe.txt

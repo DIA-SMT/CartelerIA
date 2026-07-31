@@ -1,7 +1,7 @@
 # CartelerIA — contexto para agentes
 
 Visualizador de cartelería urbana de la Municipalidad de San Miguel de Tucumán.
-Next.js 14 (App Router) + Tailwind 3 + Supabase + Leaflet + RAG documental con
+Next.js 16 (App Router) + Tailwind 3 + Supabase + Leaflet + RAG documental con
 OCR propio. Todo en español (UI, comentarios, commits).
 
 ## Comandos
@@ -9,11 +9,12 @@ OCR propio. Todo en español (UI, comentarios, commits).
 ```bash
 npm run dev                                # dev server (o .claude/launch.json "carteleria-dev")
 npx tsc --noEmit                           # typecheck (strict, cero `any` — mantenerlo)
-npx tsx scripts/validate-query-counts.ts   # gate del motor de consultas del mapa
+npm run test:workflow                      # gates administrativos y del motor
 npx next build                             # build (First Load JS de / ≈ 202 kB — no engordarlo)
 ```
 
-No hay tests ni config de ESLint (`next lint` dispara el wizard interactivo: no usarlo).
+Existe un test específico del flujo administrativo (`npm run test:workflow`).
+Todavía no hay una suite general ni configuración de ESLint.
 
 ## Arquitectura
 
@@ -27,9 +28,10 @@ No hay tests ni config de ESLint (`next lint` dispara el wizard interactivo: no 
 - **Sesión**: `AuthProvider` único montado en `app/layout.tsx`
   (`components/auth-provider.tsx`). `hooks/use-auth.ts` es solo re-export para
   compatibilidad. No instanciar estado de auth en componentes.
-- **Repositorios** (`lib/*-repository.ts`): acceso a Supabase con fallback a datos
-  estáticos de `data/` si no hay conexión. Ojo: el fallback enmascara caídas
-  (el usuario ve datos viejos sin aviso) — deuda conocida.
+- **Registro administrativo privado**: `loadCarteles()` solo se ejecuta con
+  sesión y no tiene fallback estático. No importar `data/carteles.json` desde
+  módulos cliente: contiene empresa, CUIT y padrón y terminaría en el bundle
+  público. Sin sesión, el mapa usa únicamente las capas territoriales.
 - **APIs** (`app/api/ask`, `app/api/normativa`): llaman a OpenRouter. Toda API
   nueva debe replicar sus defensas: rate limit por IP (`lib/rate-limit.ts`),
   límite de longitud del input, `AbortSignal.timeout`, y nunca filtrar
@@ -51,9 +53,37 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 
 - Migraciones idempotentes en `supabase/migrations/` (correrlas a mano en el SQL
   Editor; no hay CLI vinculado). `schema.sql` + seeds para setup desde cero.
-- Seguridad (migración 10): escritura en `carteles` exige rol operativo via
-  `tiene_rol`; `anon` solo lee; cuentas nuevas nacen con rol `consulta`.
+- Seguridad (migración 11, aplicada y verificada): lectura de `carteles` exige sesión; escritura exige
+  rol operativo via `tiene_rol`; `anon` no accede al registro administrativo y
+  las cuentas nuevas nacen con rol `consulta`.
   No crear policies `to anon` de escritura ni defaults de rol altos.
+- Flujo oficial (migración 12, aplicada y verificada): estados y vínculos cambian únicamente mediante
+  RPC auditados; los roles operativos solicitan y el administrador resuelve con
+  fundamento. No reintroducir `update({ estado })` directo ni borrado físico de
+  inspecciones, fotografías o documentos.
+- Endurecimiento (migraciones 13 y 14, aplicadas y verificadas): fuerza
+  estados iniciales, impide actuaciones sin vínculo aprobado, devuelve los 13
+  vínculos heredados a `pendiente` para ratificación administrativa, hace la
+  evidencia `insert-only` con SHA-256, refuerza la bitácora inmutable y permite
+  repostular vínculos rechazados. La cola global es exclusiva de
+  administradores. El corpus RAG quedó reingerido con 15 documentos, 192 chunks
+  y contrato atómico v1.
+- Retrieval serverless (migración 15, aplicada y verificada): la ruta interactiva
+  usa full-text search privado en PostgreSQL y superó los cinco probes del
+  verificador. `@huggingface/transformers` queda solo en dependencias de
+  desarrollo para ingesta offline; no volver a importarlo desde rutas Next.
+- `service_role` es una identidad técnica: puede ejecutar mantenimiento
+  autorizado, pero nunca debe registrarse ni interpretarse como aprobación
+  legal. Las aprobaciones exigen un administrador humano y fundamento.
+- La UI del flujo debe operar en modo *fail-closed*: ante errores de permisos,
+  contexto o carga de aprobaciones, bloquear acciones y no inferir autorización.
+  Al cambiar o cerrar sesión debe descartarse todo contexto administrativo
+  privado.
+- No habilitar actuaciones sobre los 13 vínculos heredados hasta que un
+  administrador los ratifique individualmente con fundamento.
+- `data/carteles.json` y los `seed*.sql` contienen datos personales: se guardan
+  bajo `private/`, fuera de Git y Vercel. Los scripts que los procesan deben
+  mantener esas rutas privadas.
 - Plan free: se pausa a los ~7 días sin actividad (el subdominio deja de
   resolver → parece error de DNS). Lo evita `.github/workflows/supabase-keepalive.yml`
   (ping diario; los `schedule` solo corren desde `main`; secrets `SUPABASE_URL`
@@ -65,7 +95,8 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 - Rama de trabajo `lucas` → push → Lucas mergea a `main` por PR en GitHub.
 - Commits en español, estilo `feat(scope): resumen` (ver `git log`).
 - Verificación mínima antes de commitear: `tsc --noEmit` + build si se tocó
-  el bundle + `validate-query-counts` si se tocó el motor de consultas.
+  el bundle + `npm run test:workflow` si se tocó el flujo administrativo +
+  `validate-query-counts` si se tocó el motor de consultas.
 
 ## Gotchas del entorno
 
@@ -79,11 +110,11 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 
 ## Deuda conocida (priorizada, no urgente)
 
-1. Cero tests (la lógica pura de `lib/map-query-engine.ts` y `data/map-query.ts`
-   es trivialmente testeable) y sin ESLint/CI de lint.
+1. Ampliar los tests de integración y agregar CI de lint; las invariantes críticas
+   del flujo administrativo y la privacidad del mapa ya tienen cobertura.
 2. Monolitos con exceso de `useState`: `inspection-form` (542 líneas),
    `cartel-detail-panel` (502), `expediente-panel` (328) — candidatos a reducer.
-3. Embeddings de `/api/normativa` corren en el request path (primera llamada
-   fría descarga el modelo).
-4. `xlsx@0.18.5` con CVEs sin fix; `target: es5` en tsconfig; `as unknown as`
-   sin validación de esquema donde entran los GeoJSON.
+3. Calibrar el recall de la búsqueda full-text con preguntas municipales reales
+   y auditar periódicamente falsos rechazos.
+4. `target: es5` en tsconfig y `as unknown as` sin validación de esquema donde
+   entran los GeoJSON.

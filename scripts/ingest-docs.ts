@@ -1,14 +1,14 @@
 // ============================================================================
 // Fase 5 — Ingesta RAG documental (offline)
 // ----------------------------------------------------------------------------
-// Extrae texto por página de los PDFs de public/docs, limpia, chunkea, embeda
-// (OpenAI text-embedding-3-small) y guarda en Supabase (rag_documentos/chunks).
+// Extrae texto por página de los PDFs públicos e internos, limpia, chunkea,
+// genera embeddings locales y guarda en Supabase (rag_documentos/chunks).
 //
-//   Dry-run (sin keys, sin DB):   npx tsx scripts/ingest-docs.ts --dry
-//   Ingesta real:                 npx tsx scripts/ingest-docs.ts
+//   Dry-run (sin keys, sin DB):   npm run ingest:docs:dry
+//   Ingesta real:                 npm run ingest:docs
 //
 // Requiere (solo ingesta real) en .env.local:
-//   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY
+//   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 // La escritura usa la service-role key (bypassa RLS). Idempotente por hash.
 // ============================================================================
 
@@ -18,15 +18,19 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { loadEnvConfig } from "@next/env";
-import { documents } from "@/data/documents";
-import { embedTexts } from "@/lib/embeddings";
+import nextEnv from "@next/env";
+import { corpusDocuments } from "../data/document-corpus.ts";
+import { embedTexts } from "../lib/embeddings.ts";
 
 const DRY = process.argv.includes("--dry");
+const { loadEnvConfig } = nextEnv;
 const MIN_TEXT_CHARS = 400;    // menos que esto ⇒ PDF escaneado, se saltea
 const TARGET_CHARS = 1500;     // tamaño objetivo de chunk
 const OVERLAP_CHARS = 200;
 const EMBED_BATCH = 96;
+const LOW_OCR_CONFIDENCE = 60;
+const INGEST_CONTRACT_VERSION = 1;
+type IngestDocument = (typeof corpusDocuments)[number];
 
 interface Chunk {
   pagina: number;
@@ -55,30 +59,68 @@ async function extractPages(buffer: Buffer): Promise<string[]> {
 }
 
 // ----------------------------------------------------------------------------
-// Texto OCR (data/ocr/<docId>.json, generado por scripts/ocr-docs.ts). Si existe
-// y su hash coincide con el PDF actual, se usan sus páginas (los documentos
-// escaneados dejan de saltearse). Si el PDF cambió, se ignora con aviso.
+// Texto OCR, generado por scripts/ocr-docs.ts. Los documentos públicos usan
+// data/ocr; los internos usan private/ocr para no mezclar artefactos sensibles
+// con el árbol público. Si el hash no coincide, el OCR se ignora con aviso.
 // ----------------------------------------------------------------------------
 interface OcrFile {
   sourceHash: string;
   confianzaMedia: number | null;
   dudosa: boolean;
-  paginas: { pagina: number; texto: string }[];
+  paginasTotal: number;
+  paginas: {
+    pagina: number;
+    fuente?: "pdf" | "ocr";
+    confianza?: number | null;
+    texto: string;
+  }[];
 }
 
-async function loadOcrPages(docId: string, pdfHash: string): Promise<{ pages: string[]; confianza: number | null; dudosa: boolean } | null> {
-  const ocrPath = path.join(process.cwd(), "data", "ocr", `${docId}.json`);
+async function loadOcrPages(
+  doc: IngestDocument,
+  pdfHash: string,
+): Promise<{ pages: string[]; confianza: number | null; dudosa: boolean } | null> {
+  const ocrRoot = doc.audience === "interno"
+    ? path.join("private", "ocr")
+    : path.join("data", "ocr");
+  const ocrPath = path.join(process.cwd(), ocrRoot, `${doc.id}.json`);
+  const displayPath = path.relative(process.cwd(), ocrPath).replaceAll("\\", "/");
   if (!existsSync(ocrPath)) return null;
   try {
     const parsed = JSON.parse(await readFile(ocrPath, "utf8")) as OcrFile;
     if (parsed.sourceHash !== pdfHash) {
-      console.log(`  ⚠ ${docId}: el OCR quedó desactualizado (el PDF cambió) — re-corré scripts/ocr-docs.ts`);
+      console.log(`  ⚠ ${doc.id}: ${displayPath} quedó desactualizado (el PDF cambió) — re-corré scripts/ocr-docs.ts`);
+      return null;
+    }
+    if (
+      !Number.isInteger(parsed.paginasTotal)
+      || parsed.paginasTotal <= 0
+      || !Array.isArray(parsed.paginas)
+      || parsed.paginas.length !== parsed.paginasTotal
+    ) {
+      console.log(`  ⚠ ${doc.id}: ${displayPath} no contiene un juego completo de páginas — se ignora`);
       return null;
     }
     const ordered = [...parsed.paginas].sort((a, b) => a.pagina - b.pagina);
-    return { pages: ordered.map((page) => page.texto ?? ""), confianza: parsed.confianzaMedia, dudosa: Boolean(parsed.dudosa) };
+    if (ordered.some((page, index) => page.pagina !== index + 1)) {
+      console.log(`  ⚠ ${doc.id}: ${displayPath} tiene páginas faltantes, repetidas o fuera de orden — se ignora`);
+      return null;
+    }
+    const hasLowConfidencePage = ordered.some((page) =>
+      page.fuente === "ocr"
+      && (
+        typeof page.confianza !== "number"
+        || !Number.isFinite(page.confianza)
+        || page.confianza < LOW_OCR_CONFIDENCE
+      )
+    );
+    return {
+      pages: ordered.map((page) => page.texto ?? ""),
+      confianza: parsed.confianzaMedia,
+      dudosa: Boolean(parsed.dudosa) || hasLowConfidencePage,
+    };
   } catch {
-    console.log(`  ⚠ ${docId}: data/ocr/${docId}.json ilegible — se ignora`);
+    console.log(`  ⚠ ${doc.id}: ${displayPath} ilegible — se ignora`);
     return null;
   }
 }
@@ -134,6 +176,20 @@ function buildChunks(pages: string[]): { chunks: Chunk[]; totalChars: number } {
   return { chunks, totalChars };
 }
 
+function canonicalChunkManifest(chunks: Chunk[]): string {
+  return chunks.map((chunk) => {
+    const section = chunk.seccion ?? "";
+    return [
+      chunk.orden,
+      chunk.pagina,
+      Buffer.byteLength(section, "utf8"),
+      section,
+      Buffer.byteLength(chunk.contenido, "utf8"),
+      chunk.contenido,
+    ].join(":");
+  }).join("\n");
+}
+
 // ----------------------------------------------------------------------------
 // Main
 // ----------------------------------------------------------------------------
@@ -143,19 +199,19 @@ async function main() {
   const createClient = DRY ? null : (await import("@supabase/supabase-js")).createClient;
   const supabase = DRY ? null : createClient!(reqEnv("NEXT_PUBLIC_SUPABASE_URL"), reqEnv("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 
-  console.log(`\n${DRY ? "DRY-RUN (sin embeddings ni DB)" : "INGESTA REAL"} — ${documents.length} documentos\n`);
+  console.log(`\n${DRY ? "DRY-RUN (sin embeddings ni DB)" : "INGESTA REAL"} — ${corpusDocuments.length} documentos\n`);
   let ingested = 0, skippedScan = 0, skippedUnchanged = 0, totalChunks = 0;
 
-  for (const doc of documents) {
-    if (!doc.pdfUrl) continue;
-    const filePath = path.join(process.cwd(), "public", doc.pdfUrl.replace(/^\//, ""));
+  for (const doc of corpusDocuments) {
+    const filePath = path.join(process.cwd(), doc.sourcePath);
 
     let pages: string[];
+    let sourcePdfHash = "";
     let ocrInfo: { confianza: number | null; dudosa: boolean } | null = null;
     try {
       const buffer = await readFile(filePath);
-      const pdfHash = createHash("sha256").update(buffer).digest("hex");
-      const ocr = await loadOcrPages(doc.id, pdfHash);
+      sourcePdfHash = createHash("sha256").update(buffer).digest("hex");
+      const ocr = await loadOcrPages(doc, sourcePdfHash);
       if (ocr) {
         pages = ocr.pages;
         ocrInfo = { confianza: ocr.confianza, dudosa: ocr.dudosa };
@@ -174,21 +230,100 @@ async function main() {
       continue;
     }
 
-    const hash = createHash("sha256").update(chunks.map((c) => c.contenido).join("\n")).digest("hex");
+    const contentHash = createHash("sha256")
+      .update(canonicalChunkManifest(chunks), "utf8")
+      .digest("hex");
+    const ocrConfidence = ocrInfo?.confianza != null
+      && Number.isFinite(ocrInfo.confianza)
+      && ocrInfo.confianza >= 0
+      && ocrInfo.confianza <= 100
+      ? ocrInfo.confianza
+      : null;
+    const ocrDoubtful = ocrInfo !== null
+      ? ocrInfo.dudosa || ocrConfidence === null
+      : false;
+    if (
+      doc.externalAiAllowed
+      && (
+        doc.audience !== "publico"
+        || !doc.humanReviewed
+        || ocrDoubtful
+      )
+    ) {
+      throw new Error(
+        `${doc.id}: externalAiAllowed exige documento público, revisión humana y OCR no dudoso`,
+      );
+    }
+    const documentPayload = {
+      id: doc.id,
+      titulo: doc.title,
+      categoria: doc.category,
+      pdf_url: doc.pdfUrl ?? `private:${doc.id}`,
+      contenido_hash: contentHash,
+      source_pdf_hash: sourcePdfHash,
+      paginas: pages.length,
+      chunks: chunks.length,
+      ingest_contract_version: INGEST_CONTRACT_VERSION,
+      audience: doc.audience,
+      ocr_confidence: ocrConfidence,
+      ocr_doubtful: ocrDoubtful,
+    };
     const sampleSections = Array.from(new Set(chunks.map((c) => c.seccion).filter(Boolean))).slice(0, 4);
     const ocrTag = ocrInfo ? ` · OCR ${ocrInfo.confianza ?? "?"}%${ocrInfo.dudosa ? " ⚠ dudoso" : ""}` : "";
-    console.log(`✓ ${doc.id} ${doc.title} — ${pages.length} pág., ${chunks.length} chunks${ocrTag}${sampleSections.length ? ` · secciones: ${sampleSections.join(", ")}` : ""}`);
+    const governanceTag = ` · ${doc.audience} · revisado=${doc.humanReviewed ? "sí" : "no"} · IA externa=${doc.externalAiAllowed ? "sí" : "no"}`;
+    console.log(`✓ ${doc.id} ${doc.title} — ${pages.length} pág., ${chunks.length} chunks${ocrTag}${governanceTag}${sampleSections.length ? ` · secciones: ${sampleSections.join(", ")}` : ""}`);
     totalChunks += chunks.length;
 
     if (DRY) {
-      console.log(`    muestra: "${chunks[0].contenido.slice(0, 110)}…"`);
+      console.log(
+        doc.audience === "publico"
+          ? `    muestra: "${chunks[0].contenido.slice(0, 110)}…"`
+          : "    muestra interna omitida del log",
+      );
       continue;
     }
 
-    // Idempotencia: si el hash no cambió, no re-embeder.
-    const { data: existing } = await supabase!.from("rag_documentos").select("contenido_hash").eq("id", doc.id).maybeSingle();
-    if (existing?.contenido_hash === hash) {
-      console.log(`    sin cambios (hash igual) — omitido`);
+    // Idempotencia: además de los hashes se comprueba el conteo real de chunks.
+    // Así una corrida interrumpida de una versión anterior no queda "sana" solo
+    // porque el catálogo ya haya guardado el hash nuevo.
+    const { data: existing, error: existingError } = await supabase!
+      .from("rag_documentos")
+      .select("contenido_hash, source_pdf_hash, ingest_contract_version")
+      .eq("id", doc.id)
+      .maybeSingle();
+    if (existingError) {
+      throw new Error(`consulta rag_documentos ${doc.id}: ${existingError.message}`);
+    }
+    let actualChunkCount = 0;
+    if (existing) {
+      const { count, error: countError } = await supabase!
+        .from("rag_chunks")
+        .select("id", { count: "exact", head: true })
+        .eq("documento_id", doc.id);
+      if (countError) {
+        throw new Error(`conteo rag_chunks ${doc.id}: ${countError.message}`);
+      }
+      actualChunkCount = count ?? 0;
+    }
+    const versionUnchanged = Boolean(
+      existing
+      && existing.contenido_hash === contentHash
+      && existing.source_pdf_hash === sourcePdfHash
+      && existing.ingest_contract_version === INGEST_CONTRACT_VERSION
+      && actualChunkCount === chunks.length,
+    );
+    if (versionUnchanged) {
+      const { data: synchronized, error: metadataError } = await supabase!
+        .rpc("sincronizar_documento_rag", {
+          p_documento: documentPayload,
+          p_chunks: null,
+        });
+      if (metadataError || synchronized !== true) {
+        throw new Error(
+          `metadata rag_documentos ${doc.id}: ${metadataError?.message ?? "respuesta inválida"}`,
+        );
+      }
+      console.log(`    sin cambios (PDF, texto y chunks) — metadata sincronizada`);
       skippedUnchanged += 1;
       continue;
     }
@@ -200,21 +335,26 @@ async function main() {
       embeddings.push(...(await embedTexts(batch)));
     }
 
-    // Upsert documento + reemplazo de chunks.
-    await supabase!.from("rag_documentos").upsert({
-      id: doc.id, titulo: doc.title, categoria: doc.category, pdf_url: doc.pdfUrl,
-      contenido_hash: hash, paginas: pages.length, chunks: chunks.length,
-    });
-    await supabase!.from("rag_chunks").delete().eq("documento_id", doc.id);
     const rows = chunks.map((c, i) => ({
-      documento_id: doc.id, pagina: c.pagina, seccion: c.seccion,
+      pagina: c.pagina, seccion: c.seccion,
       contenido: c.contenido, orden: c.orden, embedding: embeddings[i],
     }));
-    for (let i = 0; i < rows.length; i += 200) {
-      const { error } = await supabase!.from("rag_chunks").insert(rows.slice(i, i + 200));
-      if (error) throw new Error(`insert chunks ${doc.id}: ${error.message}`);
+    const { data: synchronized, error: syncError } = await supabase!
+      .rpc("sincronizar_documento_rag", {
+        p_documento: documentPayload,
+        p_chunks: rows,
+      });
+    if (syncError || synchronized !== true) {
+      const diagnostic = syncError
+        ? [syncError.code, syncError.message, syncError.details, syncError.hint]
+            .filter(Boolean)
+            .join(" | ")
+        : "respuesta inválida";
+      throw new Error(
+        `sincronización atómica ${doc.id}: ${diagnostic}`,
+      );
     }
-    console.log(`    ingestado (${chunks.length} chunks embebidos)`);
+    console.log(`    ingestado atómicamente (${chunks.length} chunks embebidos)`);
     ingested += 1;
   }
 

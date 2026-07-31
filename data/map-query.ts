@@ -40,6 +40,8 @@ export interface FieldConfig {
   field: QueryField;
   label: string;
   kind: FieldKind;
+  /** false mientras no exista una fuente oficial confiable para este dato. */
+  available?: boolean;
   /** Dataset al que pertenece el campo. Ausente = "carteles". */
   dataset?: DatasetKind;
   /** Valores válidos (solo enum): clave interna + etiqueta para UI. */
@@ -58,13 +60,14 @@ export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
     values: [
       { value: "dentro_corredor", label: "Dentro de corredor" },
       { value: "cerca_lugar_permitido", label: "Requiere revisión" },
-      { value: "fuera_zona_permitida", label: "Fuera de zona permitida" },
+      { value: "fuera_zona_permitida", label: "Fuera de las áreas analizadas" },
     ],
   },
   visualStatus: {
     field: "visualStatus",
     label: "Estado administrativo",
     kind: "enum",
+    available: false,
     values: [
       { value: "habilitado", label: "Habilitado" },
       { value: "deuda", label: "Con deuda" },
@@ -76,6 +79,7 @@ export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
     field: "taxStatus",
     label: "Estado tributario",
     kind: "enum",
+    available: false,
     values: [
       { value: "paga", label: "Paga" },
       { value: "no_paga", label: "No paga" },
@@ -87,6 +91,7 @@ export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
     field: "registryStatus",
     label: "Estado registral",
     kind: "enum",
+    available: false,
     values: [
       { value: "registrado", label: "Registrado" },
       { value: "no_registrado", label: "No registrado" },
@@ -98,6 +103,7 @@ export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
     field: "enablementStatus",
     label: "Habilitación",
     kind: "enum",
+    available: false,
     values: [
       { value: "habilitado", label: "Habilitado" },
       { value: "habilitable", label: "Habilitable" },
@@ -109,6 +115,7 @@ export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
     field: "supportType",
     label: "Tipo de soporte",
     kind: "enum",
+    available: false,
     values: [
       { value: "led", label: "Pantalla LED" },
       { value: "cartel_tradicional", label: "Cartel tradicional" },
@@ -121,6 +128,7 @@ export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
     field: "controlPriority",
     label: "Prioridad de control",
     kind: "enum",
+    available: false,
     values: [
       { value: "baja", label: "Baja" },
       { value: "media", label: "Media" },
@@ -128,8 +136,8 @@ export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
       { value: "critica", label: "Crítica" },
     ],
   },
-  sensitiveZone: { field: "sensitiveZone", label: "Zona sensible", kind: "boolean" },
-  empresa: { field: "empresa", label: "Empresa", kind: "text" },
+  sensitiveZone: { field: "sensitiveZone", label: "Zona sensible", kind: "boolean", available: false },
+  empresa: { field: "empresa", label: "Empresa", kind: "text", available: false },
   distanceToCorridorM: { field: "distanceToCorridorM", label: "Distancia al corredor (m)", kind: "number" },
   distanceToAllowedPlaceM: { field: "distanceToAllowedPlaceM", label: "Distancia a lugar permitido (m)", kind: "number" },
   // Dataset "inspecciones" (tabla Supabase). Los valores de estado salen de
@@ -177,7 +185,7 @@ export function isNumericField(field: QueryField): boolean {
 }
 
 export function isQueryField(value: unknown): value is QueryField {
-  return typeof value === "string" && value in QUERY_FIELDS;
+  return typeof value === "string" && Object.hasOwn(QUERY_FIELDS, value);
 }
 
 // ----------------------------------------------------------------------------
@@ -207,18 +215,29 @@ export function parsePredicate(value: unknown): Predicate | null {
 
   if (!isQueryField(p.field)) return null;
   const field = p.field;
+  if (QUERY_FIELDS[field].available === false) return null;
   const kind = QUERY_FIELDS[field].kind;
 
   switch (p.op) {
     case "eq":
     case "neq":
-      if (typeof p.value !== "string" || !enumValueOk(field, p.value)) return null;
+      if (
+        (kind !== "enum" && kind !== "text")
+        || typeof p.value !== "string"
+        || !enumValueOk(field, p.value)
+      ) return null;
       return { field, op: p.op, value: p.value };
     case "contains":
-      if (typeof p.value !== "string") return null;
+      if (kind !== "text" || typeof p.value !== "string" || p.value.trim().length === 0) {
+        return null;
+      }
       return { field, op: "contains", value: p.value };
     case "in": {
-      if (!Array.isArray(p.value) || p.value.length === 0) return null;
+      if (
+        (kind !== "enum" && kind !== "text")
+        || !Array.isArray(p.value)
+        || p.value.length === 0
+      ) return null;
       const values: string[] = [];
       for (const item of p.value) {
         if (typeof item !== "string" || !enumValueOk(field, item)) return null;
@@ -258,7 +277,11 @@ export function parseQueryIntent(value: unknown): QueryIntent | null {
   const operation = o.operation;
   if (operation !== "count" && operation !== "list" && operation !== "aggregate") return null;
 
-  const dataset: DatasetKind = o.dataset === "inspecciones" ? "inspecciones" : "carteles";
+  let dataset: DatasetKind = "carteles";
+  if (Object.hasOwn(o, "dataset")) {
+    if (o.dataset !== "carteles" && o.dataset !== "inspecciones") return null;
+    dataset = o.dataset;
+  }
 
   let predicate: Predicate | undefined;
   if (o.predicate != null) {
@@ -282,8 +305,17 @@ export function parseQueryIntent(value: unknown): QueryIntent | null {
     const agg = o.aggregate;
     if (typeof agg !== "object" || agg === null) return null;
     const a = agg as Record<string, unknown>;
-    if (!isQueryField(a.groupBy) || fieldDataset(a.groupBy) !== dataset) return null;
-    intent.aggregate = { groupBy: a.groupBy, top: typeof a.top === "number" ? a.top : undefined };
+    if (!isQueryField(a.groupBy) || QUERY_FIELDS[a.groupBy].available === false || fieldDataset(a.groupBy) !== dataset) return null;
+    let top: number | undefined;
+    if (Object.hasOwn(a, "top")) {
+      if (typeof a.top !== "number" || !Number.isInteger(a.top) || a.top < 1 || a.top > 100) {
+        return null;
+      }
+      top = a.top;
+    }
+    intent.aggregate = { groupBy: a.groupBy, top };
+  } else if (Object.hasOwn(o, "aggregate") && o.aggregate != null) {
+    return null;
   }
 
   return intent;

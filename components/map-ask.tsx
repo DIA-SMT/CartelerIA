@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Info, ListFilter, Loader2, Lock, MapPinned, RotateCcw, Send, Sparkles, X } from "lucide-react";
 import type { AnalyzedCartel, TerritorialFilterState } from "@/data/territorial";
 import { initialTerritorialFilters } from "@/data/territorial";
@@ -28,9 +28,9 @@ type Props = {
 };
 
 const EXAMPLES = [
-  "¿Cuántos están fuera de zona?",
-  "Carteles riesgosos cerca de zonas sensibles",
-  "Pantallas LED con deuda",
+  "¿Cuántos están fuera de las áreas analizadas?",
+  "Mostrame los que están dentro de corredores",
+  "Carteles que requieren revisión territorial",
   "¿Qué empresa tiene más observaciones?",
 ];
 
@@ -42,16 +42,36 @@ const OPERATION_LABEL: Record<QueryIntent["operation"], string> = {
 
 export function MapAsk({ carteles, onApply }: Props) {
   const auth = useAuth();
-  const canReadInspecciones = auth.available && Boolean(auth.user);
+  const canReadInspecciones = auth.canRead;
 
   const [question, setQuestion] = useState("");
-  const [intent, setIntent] = useState<QueryIntent | null>(null);
+  const [storedIntent, setIntent] = useState<QueryIntent | null>(null);
+  const [queryOwnerId, setQueryOwnerId] = useState<string | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [inspResult, setInspResult] = useState<InspectionQueryResult | null>(null);
   const [inspRecords, setInspRecords] = useState<InspectionRecord[]>([]);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [storedNotice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [source, setSource] = useState<InterpretSource | null>(null);
+  const requestSequence = useRef(0);
+  const currentOwnerId = auth.user?.id ?? null;
+  const intent = queryOwnerId === currentOwnerId ? storedIntent : null;
+  const notice = queryOwnerId === currentOwnerId ? storedNotice : null;
+
+  // Los resultados pueden contener datos administrativos. Al cambiar o perder
+  // la sesión se invalidan también las consultas que todavía estén en vuelo.
+  useEffect(() => {
+    requestSequence.current += 1;
+    setQuestion("");
+    setIntent(null);
+    setQueryOwnerId(null);
+    setResult(null);
+    setInspResult(null);
+    setInspRecords([]);
+    setNotice(null);
+    setSource(null);
+    setLoading(false);
+  }, [auth.user?.id]);
 
   const reset = () => {
     setIntent(null);
@@ -65,26 +85,43 @@ export function MapAsk({ carteles, onApply }: Props) {
   const ask = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
+    const sequence = ++requestSequence.current;
+    setIntent(null);
+    setResult(null);
+    setInspResult(null);
+    setInspRecords([]);
+    setNotice(null);
+    setQueryOwnerId(currentOwnerId);
     setLoading(true);
     try {
       const { intent: parsed, source: usedSource } = await interpretQuestionSmart(trimmed);
+      if (sequence !== requestSequence.current) return;
 
       if (parsed.dataset === "inspecciones") {
         setResult(null);
         if (!canReadInspecciones) {
           setNotice(
-            auth.available
-              ? "Ingresá con tu cuenta municipal para consultar inspecciones."
+            auth.user
+              ? auth.roleError || "Todavía no se pudieron verificar tus permisos municipales."
+              : auth.available
+                ? "Ingresá con tu cuenta municipal para consultar inspecciones."
               : "Las inspecciones no están disponibles en este entorno.",
           );
           setInspResult(null);
           setInspRecords([]);
         } else {
           const records = await loadInspections();
+          if (sequence !== requestSequence.current) return;
           setInspRecords(records);
           setInspResult(runInspectionQuery(parsed, records));
           setNotice(null);
         }
+      } else if (parsed.unsupported.length > 0 && !parsed.predicate) {
+        setResult(null);
+        setInspResult(null);
+        setNotice(
+          `No puedo ejecutar esa consulta porque todavía no hay una fuente oficial para: ${parsed.unsupported.join(", ")}.`,
+        );
       } else {
         setInspResult(null);
         setNotice(null);
@@ -93,8 +130,17 @@ export function MapAsk({ carteles, onApply }: Props) {
 
       setIntent(parsed);
       setSource(usedSource);
+    } catch {
+      if (sequence === requestSequence.current) {
+        setIntent(null);
+        setResult(null);
+        setInspResult(null);
+        setInspRecords([]);
+        setSource(null);
+        setNotice("No se pudo verificar la fuente administrativa. Reintentá o revisá tu sesión.");
+      }
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   };
 
@@ -119,7 +165,7 @@ export function MapAsk({ carteles, onApply }: Props) {
     <form onSubmit={(event) => { event.preventDefault(); ask(question); }} className="mt-3 flex items-center gap-2">
       <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 focus-within:border-municipal-400 focus-within:ring-2 focus-within:ring-municipal-100">
         <ListFilter size={14} className="shrink-0 text-slate-400"/>
-        <input value={question} maxLength={500} onChange={(event) => setQuestion(event.target.value)} placeholder="Ej: carteles fuera de zona con deuda" className="min-w-0 flex-1 bg-transparent text-[11px] font-semibold text-slate-700 outline-none placeholder:text-slate-400"/>
+        <input value={question} maxLength={500} onChange={(event) => setQuestion(event.target.value)} placeholder="Ej: carteles fuera de las áreas analizadas" className="min-w-0 flex-1 bg-transparent text-[11px] font-semibold text-slate-700 outline-none placeholder:text-slate-400"/>
         {question && <button type="button" onClick={() => { setQuestion(""); reset(); }} aria-label="Limpiar" className="text-slate-400 hover:text-municipal-700"><X size={13}/></button>}
       </div>
       <button type="submit" disabled={loading || !question.trim()} className="primary-button compact justify-center disabled:cursor-not-allowed disabled:opacity-60">{loading ? <Loader2 size={13} className="animate-spin"/> : <Send size={13}/>}{loading ? "Consultando…" : "Preguntar"}</button>
@@ -128,6 +174,7 @@ export function MapAsk({ carteles, onApply }: Props) {
     {!intent && <div className="mt-2 flex flex-wrap gap-1.5">{EXAMPLES.map((example) => (
       <button key={example} type="button" onClick={() => { setQuestion(example); ask(example); }} className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[9px] font-bold text-slate-500 transition hover:border-municipal-300 hover:text-municipal-700">{example}</button>
     ))}</div>}
+    {!intent && notice && <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-semibold text-amber-800"><Lock size={12} className="mt-0.5 shrink-0"/>{notice}</p>}
 
     {intent && <div className="mt-3 space-y-3">
       {/* Cómo lo interpretó */}
