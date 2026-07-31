@@ -14,6 +14,8 @@ import {
   type ApprovalStatus,
   type StateChangeRequest,
 } from "@/data/approvals";
+import { ConfirmDialog } from "./confirm-dialog";
+import { toast } from "./toaster";
 
 type Props = {
   requests: StateChangeRequest[];
@@ -31,29 +33,34 @@ export function StateChangeApprovals({
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<{ request: StateChangeRequest; approve: boolean; note: string } | null>(null);
   const resolvingIds = useRef(new Set<string>());
   const pending = requests.filter((request) => request.status === "pendiente");
   const resolved = requests.filter((request) => request.status !== "pendiente").slice(0, 5);
 
   if (requests.length === 0 && !loadError) return null;
 
-  const resolve = async (request: StateChangeRequest, approve: boolean) => {
+  // El click valida y abre el diálogo propio (reemplaza window.confirm).
+  const resolve = (request: StateChangeRequest, approve: boolean) => {
     const note = notes[request.id]?.trim() ?? "";
-    if (
-      note.length < 5
-      || loadError
-      || resolvingIds.current.has(request.id)
-      || !window.confirm(
-        `${approve ? "Aprobar" : "Rechazar"} el cambio de ${stateChangeLabel(request, "previous")} a ${stateChangeLabel(request, "requested")}?\n\nLa resolución quedará asentada en el historial.`,
-      )
-    ) return;
+    if (note.length < 5 || loadError || resolvingIds.current.has(request.id)) return;
+    setConfirming({ request, approve, note });
+  };
 
+  const executeResolution = async ({ request, approve, note }: NonNullable<typeof confirming>) => {
+    setConfirming(null);
+    if (resolvingIds.current.has(request.id)) return;
     resolvingIds.current.add(request.id);
     setBusyId(request.id);
     setFailedId(null);
     try {
       const ok = await onResolve(request.id, approve, note);
-      if (!ok) setFailedId(request.id);
+      if (ok) {
+        toast(approve ? "Solicitud aprobada y asentada en el historial." : "Solicitud rechazada y asentada en el historial.");
+      } else {
+        setFailedId(request.id);
+        toast("No se pudo resolver la solicitud.", "error");
+      }
     } finally {
       resolvingIds.current.delete(request.id);
       setBusyId(null);
@@ -126,6 +133,18 @@ export function StateChangeApprovals({
             </li>
           ))}
         </ul>
+      )}
+
+      {confirming && (
+        <ConfirmDialog
+          title={`${confirming.approve ? "Aprobar" : "Rechazar"} solicitud`}
+          description={`Cambio de ${stateChangeLabel(confirming.request, "previous")} a ${stateChangeLabel(confirming.request, "requested")}. La resolución quedará asentada en el historial con este fundamento:`}
+          quote={confirming.note}
+          tone={confirming.approve ? "approve" : "reject"}
+          confirmLabel={confirming.approve ? "Aprobar" : "Rechazar"}
+          onConfirm={() => void executeResolution(confirming)}
+          onCancel={() => setConfirming(null)}
+        />
       )}
     </div>
   );

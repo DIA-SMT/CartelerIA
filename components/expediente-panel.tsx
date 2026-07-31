@@ -22,6 +22,9 @@ import type { StateChangeRequest } from "@/data/approvals";
 import { getInspectionState } from "@/data/inspections";
 import type { AuthState } from "@/hooks/use-auth";
 import { useDismissible } from "@/hooks/use-dismissible";
+import { useModalShell } from "@/hooks/use-modal-shell";
+import { confirmDialogIsOpen } from "./confirm-dialog";
+import { toast } from "./toaster";
 import {
   loadStateChangeRequests,
   requestExpedienteStateChange,
@@ -53,6 +56,8 @@ type Props = {
 
 export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate, onClose }: Props) {
   const { open, close } = useDismissible(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalShell(panelRef);
   const canRead = auth.canRead;
   const canManage = canMutate
     && auth.canRead
@@ -71,9 +76,10 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate
 
   useEffect(() => {
     // Capture + stopPropagation: abre sobre la ficha del cartel (que escucha
-    // Esc en burbuja); sin esto un solo Esc cierra los dos paneles.
+    // Esc en burbuja); sin esto un solo Esc cierra los dos paneles. Si hay un
+    // diálogo de confirmación encima, el Esc es de él.
     const handler = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || confirmDialogIsOpen()) return;
       event.stopPropagation();
       close();
     };
@@ -146,7 +152,7 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-ink/40 backdrop-blur-sm transition-opacity duration-200 ease-out sm:items-center sm:p-4" style={{ opacity: open ? 1 : 0 }} role="presentation" onClick={close}>
-      <div role="dialog" aria-modal="true" aria-label={`Expediente de ${cartelName}`} className="flex max-h-[92vh] w-full flex-col rounded-t-2xl border border-white bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-spring will-change-transform sm:max-w-lg sm:rounded-2xl" style={{ opacity: open ? 1 : 0, transform: open ? "translate3d(0,0,0)" : "translate3d(0,18px,0)" }} onClick={(event) => event.stopPropagation()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={`Expediente de ${cartelName}`} className="flex max-h-[92vh] w-full flex-col rounded-t-2xl border border-white bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-spring will-change-transform sm:max-w-lg sm:rounded-2xl" style={{ opacity: open ? 1 : 0, transform: open ? "translate3d(0,0,0)" : "translate3d(0,18px,0)" }} onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 pb-3 pt-4">
           <div className="min-w-0">
             <span className="section-kicker">Expediente</span>
@@ -231,8 +237,10 @@ function NewExpediente({ cartelName, cartelId, prefill, canManage, busy, setBusy
       observaciones: observaciones.trim() || null,
     });
     setBusy(false);
-    if (created) onCreated();
-    else setFailed(true);
+    if (created) {
+      toast("Expediente abierto.");
+      onCreated();
+    } else setFailed(true);
   };
 
   return <div className="space-y-3">
@@ -256,14 +264,18 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, reque
 }) {
   const config = getExpedienteState(expediente.estado);
   const [obs, setObs] = useState(expediente.observaciones ?? "");
-  const [savedObs, setSavedObs] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const saveObs = async () => {
     setBusy(true);
     const ok = await updateExpediente(expediente.id, { observaciones: obs.trim() || null });
     setBusy(false);
-    if (ok) { setSavedObs(true); onChanged(); }
+    if (ok) {
+      toast("Observaciones del expediente guardadas.");
+      onChanged();
+    } else {
+      toast("No se pudieron guardar las observaciones.", "error");
+    }
   };
 
   const transition = async (next: ExpedienteState, reason: string) => {
@@ -290,8 +302,10 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, reque
     setBusy(true);
     try {
       const ok = await uploadExpedienteDocumento(expediente.id, file, file.name);
-      if (ok) await onChanged();
-      else setUploadError("El archivo no fue incorporado al expediente. No lo uses como evidencia hasta reintentar y verificarlo.");
+      if (ok) {
+        toast("Documento incorporado al expediente.");
+        await onChanged();
+      } else setUploadError("El archivo no fue incorporado al expediente. No lo uses como evidencia hasta reintentar y verificarlo.");
     } catch {
       setUploadError("No se pudo verificar la carga del archivo.");
     } finally {
@@ -358,8 +372,8 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, reque
     <Section icon={<FileText size={13}/>} title="Observaciones">
       {canManage ? (
         <div className="space-y-1.5">
-          <textarea value={obs} onChange={(e) => { setObs(e.target.value); setSavedObs(false); }} rows={3} className="w-full rounded-xl bg-slate-50 px-3 py-2 text-xs text-ink outline-none ring-1 ring-inset ring-slate-100 focus:ring-municipal-500"/>
-          <button type="button" onClick={saveObs} disabled={busy} className="secondary-button compact justify-center disabled:opacity-60"><Save size={12}/>{savedObs ? "Guardado" : "Guardar"}</button>
+          <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={3} className="w-full rounded-xl bg-slate-50 px-3 py-2 text-xs text-ink outline-none ring-1 ring-inset ring-slate-100 focus:ring-municipal-500"/>
+          <button type="button" onClick={saveObs} disabled={busy} className="secondary-button compact justify-center disabled:opacity-60"><Save size={12}/>Guardar</button>
         </div>
       ) : (
         <p className="text-[10px] leading-4 text-slate-500">{expediente.observaciones || "Sin observaciones."}</p>

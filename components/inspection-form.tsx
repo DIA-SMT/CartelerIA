@@ -31,7 +31,10 @@ import {
 } from "@/lib/inspection-repository";
 import type { AuthState } from "@/hooks/use-auth";
 import { useDismissible } from "@/hooks/use-dismissible";
+import { useModalShell } from "@/hooks/use-modal-shell";
+import { ConfirmDialog, confirmDialogIsOpen } from "./confirm-dialog";
 import { PhotoLightbox, type LightboxPhoto } from "./photo-lightbox";
+import { toast } from "./toaster";
 
 type Props = {
   cartelId: string;
@@ -77,7 +80,26 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [photosWarning, setPhotosWarning] = useState<number>(0);
   const [savedWithEvidenceWarning, setSavedWithEvidenceWarning] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalShell(panelRef);
+
+  /** Valores al abrir: si algo difiere, cerrar pide confirmación de descarte. */
+  const initialValues = useRef({ empresa, cuit, tipoSoporte, ancho, alto, observaciones }).current;
+  const isDirty = photos.length > 0
+    || empresa !== initialValues.empresa
+    || cuit !== initialValues.cuit
+    || tipoSoporte !== initialValues.tipoSoporte
+    || ancho !== initialValues.ancho
+    || alto !== initialValues.alto
+    || observaciones !== initialValues.observaciones;
+
+  /** Cierra directo si no hay nada que perder; si no, confirma el descarte. */
+  const requestClose = () => {
+    if (isDirty && !savedWithEvidenceWarning) setConfirmDiscard(true);
+    else close();
+  };
 
   useEffect(() => {
     if (!existing) {
@@ -112,16 +134,17 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
 
   useEffect(() => {
     // Capture + stopPropagation para no cerrar también la ficha del cartel
-    // (que escucha Esc en burbuja). Si el lightbox está abierto, se cede: su
-    // propio handler (capture, registrado después) cierra solo el lightbox.
+    // (que escucha Esc en burbuja). Si el lightbox o el diálogo de descarte
+    // están abiertos, se cede: sus handlers (capture, registrados después)
+    // cierran solo esa capa.
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || lightbox) return;
+      if (event.key !== "Escape" || lightbox || confirmDialogIsOpen()) return;
       event.stopPropagation();
-      close();
+      requestClose();
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [close, lightbox]);
+  });
 
   const totalSteps = INSPECTION_FORM_STEPS.length;
   const currentStep = INSPECTION_FORM_STEPS[step];
@@ -175,6 +198,7 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
         setErrorMessage("Los datos se guardaron, pero parte de la evidencia no fue incorporada. Cerrá y revisá la inspección antes de decidir con ella.");
         return;
       }
+      toast("Cambios de la inspección guardados.");
       onSaved();
       return;
     }
@@ -201,6 +225,7 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
       setErrorMessage("La inspección se guardó, pero parte de la evidencia no fue incorporada. Cerrá y revisá la inspección antes de decidir con ella.");
       return;
     }
+    toast("Inspección guardada.");
     onSaved();
   };
 
@@ -209,9 +234,10 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
       className="fixed inset-0 z-[1000] flex items-end justify-center bg-ink/40 backdrop-blur-sm transition-opacity duration-200 ease-out sm:items-center sm:p-4"
       style={{ opacity: open ? 1 : 0 }}
       role="presentation"
-      onClick={close}
+      onClick={requestClose}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={`Inspección de ${cartelName}`}
@@ -222,7 +248,7 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
         <header className="border-b border-slate-100 px-5 pb-3 pt-4">
           <div className="flex items-center justify-between">
             <span className="section-kicker">{isEdit ? "Editar inspección" : "Nueva inspección"}</span>
-            <button onClick={close} className="icon-button grid" aria-label="Cerrar">
+            <button onClick={requestClose} className="icon-button grid" aria-label="Cerrar">
               <X size={18} />
             </button>
           </div>
@@ -441,6 +467,17 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
         </footer>
       </div>
       {lightbox && <PhotoLightbox photos={lightbox.photos} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
+      {confirmDiscard && (
+        <ConfirmDialog
+          title="¿Descartar la inspección?"
+          description={`Hay datos sin guardar${photos.length > 0 ? ` y ${photos.length} foto(s) sin subir` : ""}. Si cerrás ahora, se pierden.`}
+          tone="discard"
+          confirmLabel="Descartar"
+          cancelLabel="Seguir editando"
+          onConfirm={() => { setConfirmDiscard(false); close(); }}
+          onCancel={() => setConfirmDiscard(false)}
+        />
+      )}
     </div>
   );
 }

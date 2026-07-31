@@ -16,6 +16,7 @@ import { PdfLibrary } from "./pdf-library";
 import { PdfViewer } from "./pdf-viewer";
 import { ProductTour } from "./product-tour";
 import { StatsCards } from "./stats-cards";
+import { Toaster } from "./toaster";
 import { TryhardHeroMap } from "./TryhardHeroMap";
 import { ApprovalInbox } from "./approval-inbox";
 
@@ -64,5 +65,6 @@ export function Dashboard() {
     <footer className="relative z-[1] mt-20 border-t border-slate-200 bg-white/90 backdrop-blur-sm"><div className="page-shell flex flex-col justify-between gap-4 py-8 sm:flex-row sm:items-center"><div className="text-xs text-slate-400"><b className="block text-ink">Cartelería Urbana SMT</b>Municipalidad de San Miguel de Tucumán</div><span className="text-xs text-slate-400">Capas territoriales estáticas · GeoJSON</span></div></footer>
     {viewer && <PdfViewer document={viewer.document} page={viewer.page} onClose={() => setViewer(null)}/>}
     <ProductTour/>
+    <Toaster/>
   </>;
 }

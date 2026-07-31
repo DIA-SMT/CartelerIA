@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { useModalShell } from "@/hooks/use-modal-shell";
 import { useDismissible } from "@/hooks/use-dismissible";
 
 export interface LightboxPhoto {
@@ -23,6 +24,8 @@ export function PhotoLightbox({ photos, startIndex, onClose }: Props) {
   const [index, setIndex] = useState(() => Math.min(Math.max(startIndex, 0), photos.length - 1));
   const many = photos.length > 1;
   const { open, close } = useDismissible(onClose);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalShell(containerRef);
 
   const prev = useCallback(() => setIndex((i) => (i - 1 + photos.length) % photos.length), [photos.length]);
   const next = useCallback(() => setIndex((i) => (i + 1) % photos.length), [photos.length]);
@@ -44,6 +47,7 @@ export function PhotoLightbox({ photos, startIndex, onClose }: Props) {
 
   return (
     <div
+      ref={containerRef}
       className="fixed inset-0 z-[1300] flex items-center justify-center bg-ink/85 p-4 backdrop-blur-sm transition-opacity duration-200 ease-out"
       style={{ opacity: open ? 1 : 0 }}
       role="dialog"

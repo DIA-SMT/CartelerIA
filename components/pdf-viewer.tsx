@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ExternalLink, FileQuestion, X } from "lucide-react";
 import type { UrbanDocument } from "@/data/documents";
 import { useDismissible } from "@/hooks/use-dismissible";
+import { useModalShell } from "@/hooks/use-modal-shell";
 
 export function PdfViewer({ document: doc, page, onClose }: { document: UrbanDocument; page?: number | null; onClose: () => void }) {
   const { open, close } = useDismissible(onClose, 300);
+  const panelRef = useRef<HTMLElement>(null);
+  useModalShell(panelRef);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
@@ -27,6 +30,7 @@ export function PdfViewer({ document: doc, page, onClose }: { document: UrbanDoc
       onMouseDown={close}
     >
       <aside
+        ref={panelRef}
         className="flex h-full w-full max-w-5xl flex-col bg-white shadow-2xl transition-transform duration-300 ease-out will-change-transform"
         style={{ transform: open ? "translate3d(0,0,0)" : "translate3d(100%,0,0)" }}
         onMouseDown={(event) => event.stopPropagation()}

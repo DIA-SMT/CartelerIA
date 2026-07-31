@@ -24,8 +24,14 @@ import {
   resolveCartelTerritorialLink,
   type PendingCartelLink,
 } from "@/lib/cartel-repository";
+import { ConfirmDialog } from "./confirm-dialog";
+import { toast } from "./toaster";
 
 type LoadPhase = "idle" | "loading" | "ready" | "error";
+
+type PendingResolution =
+  | { kind: "state"; request: StateChangeRequest; approve: boolean; note: string }
+  | { kind: "link"; request: PendingCartelLink; approve: boolean; note: string };
 
 export function ApprovalInbox() {
   const auth = useAuth();
@@ -38,6 +44,7 @@ export function ApprovalInbox() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   const [dataOwnerId, setDataOwnerId] = useState<string | null>(null);
+  const [pendingResolution, setPendingResolution] = useState<PendingResolution | null>(null);
   const refreshSequence = useRef(0);
   const resolvingIds = useRef(new Set<string>());
 
@@ -88,57 +95,41 @@ export function ApprovalInbox() {
   if (!isAdmin) return null;
   const ownsData = dataOwnerId === auth.user?.id;
 
-  const resolveState = async (request: StateChangeRequest, approve: boolean) => {
+  // Paso 1: el click solo valida y abre el diálogo de confirmación propio
+  // (reemplaza window.confirm) mostrando el fundamento que se va a asentar.
+  const resolveState = (request: StateChangeRequest, approve: boolean) => {
     const id = `state-${request.id}`;
     const note = notes[id]?.trim() ?? "";
-    if (
-      note.length < 5
-      || loadPhase !== "ready"
-      || resolvingIds.current.has(id)
-      || !window.confirm(
-        `${approve ? "Aprobar" : "Rechazar"} el cambio de ${stateChangeLabel(request, "previous")} a ${stateChangeLabel(request, "requested")}?\n\nLa resolución quedará registrada con el fundamento ingresado.`,
-      )
-    ) return;
-
-    resolvingIds.current.add(id);
-    setBusyId(id);
-    setFailedId(null);
-    try {
-      const ok = await resolveStateChangeRequest(request.id, approve, note);
-      if (ok) {
-        window.dispatchEvent(new Event("carteleria:administrative-refresh"));
-        await refresh();
-      } else {
-        setFailedId(id);
-      }
-    } finally {
-      resolvingIds.current.delete(id);
-      setBusyId(null);
-    }
+    if (note.length < 5 || loadPhase !== "ready" || resolvingIds.current.has(id)) return;
+    setPendingResolution({ kind: "state", request, approve, note });
   };
 
-  const resolveLink = async (request: PendingCartelLink, approve: boolean) => {
+  const resolveLink = (request: PendingCartelLink, approve: boolean) => {
     const id = `link-${request.cartelId}`;
     const note = notes[id]?.trim() ?? "";
-    if (
-      note.length < 5
-      || loadPhase !== "ready"
-      || resolvingIds.current.has(id)
-      || !window.confirm(
-        `${approve ? "Aprobar" : "Rechazar"} el vínculo del registro ${request.cartelId} con el punto ${request.territorialFeatureId}?\n\nLa resolución quedará registrada con el fundamento ingresado.`,
-      )
-    ) return;
+    if (note.length < 5 || loadPhase !== "ready" || resolvingIds.current.has(id)) return;
+    setPendingResolution({ kind: "link", request, approve, note });
+  };
 
+  // Paso 2: confirmado en el diálogo, se ejecuta la resolución.
+  const executeResolution = async (resolution: PendingResolution) => {
+    setPendingResolution(null);
+    const id = resolution.kind === "state" ? `state-${resolution.request.id}` : `link-${resolution.request.cartelId}`;
+    if (resolvingIds.current.has(id)) return;
     resolvingIds.current.add(id);
     setBusyId(id);
     setFailedId(null);
     try {
-      const ok = await resolveCartelTerritorialLink(request.cartelId, approve, note);
+      const ok = resolution.kind === "state"
+        ? await resolveStateChangeRequest(resolution.request.id, resolution.approve, resolution.note)
+        : await resolveCartelTerritorialLink(resolution.request.cartelId, resolution.approve, resolution.note);
       if (ok) {
+        toast(resolution.approve ? "Solicitud aprobada y asentada en la bitácora." : "Solicitud rechazada y asentada en la bitácora.");
         window.dispatchEvent(new Event("carteleria:administrative-refresh"));
         await refresh();
       } else {
         setFailedId(id);
+        toast("No se pudo resolver la solicitud.", "error");
       }
     } finally {
       resolvingIds.current.delete(id);
@@ -247,6 +238,20 @@ export function ApprovalInbox() {
             </div>
           ) : null}
         </>
+      )}
+
+      {pendingResolution && (
+        <ConfirmDialog
+          title={`${pendingResolution.approve ? "Aprobar" : "Rechazar"} solicitud`}
+          description={pendingResolution.kind === "state"
+            ? `Cambio de ${stateChangeLabel(pendingResolution.request, "previous")} a ${stateChangeLabel(pendingResolution.request, "requested")}. La resolución quedará registrada con este fundamento:`
+            : `Vínculo del registro ${pendingResolution.request.cartelId} con el punto territorial ${pendingResolution.request.territorialFeatureId}. La resolución quedará registrada con este fundamento:`}
+          quote={pendingResolution.note}
+          tone={pendingResolution.approve ? "approve" : "reject"}
+          confirmLabel={pendingResolution.approve ? "Aprobar" : "Rechazar"}
+          onConfirm={() => void executeResolution(pendingResolution)}
+          onCancel={() => setPendingResolution(null)}
+        />
       )}
     </section>
   );
