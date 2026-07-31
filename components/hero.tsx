@@ -2,7 +2,8 @@ import { ArrowRight, FileSearch, MapPin } from "lucide-react";
 
 export function Hero() {
   return (
-    <section id="inicio" className="relative flex min-h-[100svh] items-start overflow-hidden border-b border-black/5 bg-transparent pb-10 pt-5 sm:pb-14 sm:pt-7 lg:pb-16 lg:pt-9">
+    // 88svh y no 100: las stats cards asoman bajo el fold como señal de scroll.
+    <section id="inicio" className="relative flex min-h-[88svh] items-start overflow-hidden border-b border-black/5 bg-transparent pb-10 pt-5 sm:pb-14 sm:pt-7 lg:pb-16 lg:pt-9">
       <div className="hero-grid absolute inset-0 opacity-40" />
       <div className="absolute -right-32 top-0 size-[520px] rounded-full bg-[#2DB0FF]/10 blur-3xl" />
       <div className="absolute -left-36 bottom-0 size-80 rounded-full bg-[#0166FF]/5 blur-3xl" />
@@ -15,7 +16,7 @@ export function Hero() {
           </span>
 
           <h1 className="mt-6 font-display tracking-[-.05em] sm:mt-7">
-            <span className="block text-[2.7rem] font-extrabold leading-[.98] text-ink sm:text-[3.45rem] lg:whitespace-nowrap lg:text-[3.8rem]">Visualizador de</span>
+            <span className="block text-[2.7rem] font-extrabold leading-[.98] text-ink sm:text-[3.45rem] lg:text-[3.8rem]">Visualizador de</span>
             <span className="mt-2 block max-w-[690px] text-[3.25rem] font-black leading-[.92] text-[#0166FF] sm:text-[4.2rem] lg:text-[4.6rem]">Cartelería Urbana</span>
           </h1>
 
@@ -32,14 +33,23 @@ export function Hero() {
             </a>
           </div>
 
-          <div className="mt-7 flex flex-wrap gap-2 border-t border-slate-200/80 pt-5 sm:mt-9">
-            <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[.11em] text-slate-500 shadow-sm backdrop-blur">Diagnóstico territorial</span>
-            <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[.11em] text-slate-500 shadow-sm backdrop-blur">Control administrativo</span>
-            <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[.11em] text-slate-500 shadow-sm backdrop-blur">Normativa municipal</span>
-          </div>
+          {/* Accesos por área: anclas reales, no decoración con forma de botón. */}
+          <nav aria-label="Áreas del visualizador" className="mt-7 flex flex-wrap gap-2 border-t border-slate-200/80 pt-5 sm:mt-9">
+            <HeroChip href="#mapa">Diagnóstico territorial</HeroChip>
+            <HeroChip href="#carteles">Control administrativo</HeroChip>
+            <HeroChip href="#normativa">Normativa municipal</HeroChip>
+          </nav>
         </div>
 
       </div>
     </section>
+  );
+}
+
+function HeroChip({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a href={href} className="rounded-full border border-white/80 bg-white/70 px-3 py-1.5 text-micro font-extrabold uppercase tracking-[.11em] text-slate-500 shadow-sm backdrop-blur transition duration-fast ease-out hover:border-municipal-300 hover:text-municipal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-municipal-500 focus-visible:ring-offset-2">
+      {children}
+    </a>
   );
 }
