@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, FileText, History, Loader2, Plus, RefreshCw, Save } from "lucide-react";
+import { AlertTriangle, FileText, History, Loader2, RefreshCw, Save } from "lucide-react";
+import type { AnalyzedCartel } from "@/data/territorial";
 import { useAuth } from "@/hooks/use-auth";
 import {
   ESTADO_ARTICULO_COLORS,
@@ -19,6 +20,7 @@ import {
 import { ConfirmDialog } from "../confirm-dialog";
 import { toast } from "../toaster";
 import { HistorialArticulo } from "./historial-articulo";
+import { PanelDiagnostico } from "./panel-diagnostico";
 
 type LoadPhase = "idle" | "loading" | "ready" | "error";
 
@@ -44,7 +46,16 @@ const SIGUIENTES: Record<EstadoArticulo, EstadoArticulo[]> = {
  * y que el texto del borrador recibido quede siempre a la vista para poder
  * explicar por qué se cambió.
  */
-export default function Fabrica({ onVolver }: { onVolver: () => void }) {
+export default function Fabrica({
+  onVolver,
+  carteles,
+  onVerEnMapa,
+}: {
+  onVolver: () => void;
+  /** Capas ya cargadas por el dashboard: no se vuelven a pedir. */
+  carteles: AnalyzedCartel[];
+  onVerEnMapa: (ids: string[]) => void;
+}) {
   const auth = useAuth();
   const puedeEscribir = auth.canInspect;
 
@@ -376,6 +387,12 @@ export default function Fabrica({ onVolver }: { onVolver: () => void }) {
                   Tu rol puede leer el articulado y dejar observaciones, pero no editarlo.
                 </p>
               )}
+
+              <PanelDiagnostico
+                articulo={seleccionado}
+                carteles={carteles}
+                onVerEnMapa={onVerEnMapa}
+              />
             </div>
           )}
         </div>

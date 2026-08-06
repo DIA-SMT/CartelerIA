@@ -1,4 +1,5 @@
 import type { LoadResult } from "@/data/approvals";
+import { esClaveParametro, type ClaveParametro } from "./norma-simulador";
 import { isAppRole, type AppRole } from "./roles";
 import { supabase } from "./supabase";
 
@@ -215,6 +216,210 @@ export async function cambiarEstadoArticulo(
   });
   if (error) return { ok: false, error: traducir(error.message, "No se pudo cambiar el estado.") };
   return { ok: true, error: null };
+}
+
+// ----------------------------------------------------------------------------
+// Parámetros y diagnósticos
+// ----------------------------------------------------------------------------
+export interface ParametroGuardado {
+  id: string;
+  clave: ClaveParametro;
+  valor: number | string[];
+  unidad: string | null;
+  cita: string;
+  fundamento: string | null;
+  confirmadoEn: string | null;
+}
+
+export interface DiagnosticoGuardado {
+  id: string;
+  tipo: string;
+  severidad: "baja" | "media" | "alta";
+  descripcion: string;
+  referencia: string | null;
+  cita: string | null;
+  confianza: string | null;
+  generadoEn: string;
+  atendidoEn: string | null;
+  fundamento: string | null;
+}
+
+function valorDeParametro(value: unknown): number | string[] | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+  return null;
+}
+
+export async function loadParametros(articuloId: string): Promise<LoadResult<ParametroGuardado[]>> {
+  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
+  const { data, error } = await supabase
+    .from("norma_parametro")
+    .select("id, clave, valor, unidad, cita, fundamento, confirmado_en")
+    .eq("articulo_id", articuloId)
+    .order("clave");
+  if (error || !data) {
+    return { ok: false, data: [], error: "No se pudieron cargar los parámetros del artículo." };
+  }
+  const parametros: ParametroGuardado[] = [];
+  for (const row of data as Record<string, unknown>[]) {
+    const valor = valorDeParametro(row.valor);
+    if (typeof row.id !== "string" || !esClaveParametro(row.clave) || valor === null) {
+      return { ok: false, data: [], error: "Los parámetros devolvieron un contrato inesperado." };
+    }
+    parametros.push({
+      id: row.id,
+      clave: row.clave,
+      valor,
+      unidad: typeof row.unidad === "string" ? row.unidad : null,
+      cita: typeof row.cita === "string" ? row.cita : "",
+      fundamento: typeof row.fundamento === "string" ? row.fundamento : null,
+      confirmadoEn: typeof row.confirmado_en === "string" ? row.confirmado_en : null,
+    });
+  }
+  return { ok: true, data: parametros, error: null };
+}
+
+export async function loadDiagnosticos(articuloId: string): Promise<LoadResult<DiagnosticoGuardado[]>> {
+  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
+  const { data, error } = await supabase
+    .from("norma_diagnostico")
+    .select("id, tipo, severidad, descripcion, referencia, cita, datos, generado_en, atendido_en, fundamento")
+    .eq("articulo_id", articuloId)
+    .order("generado_en", { ascending: false });
+  if (error || !data) {
+    return { ok: false, data: [], error: "No se pudieron cargar los diagnósticos." };
+  }
+  const diagnosticos: DiagnosticoGuardado[] = [];
+  for (const row of data as Record<string, unknown>[]) {
+    if (typeof row.id !== "string" || typeof row.descripcion !== "string") {
+      return { ok: false, data: [], error: "Los diagnósticos devolvieron un contrato inesperado." };
+    }
+    const severidad = row.severidad === "alta" || row.severidad === "media" ? row.severidad : "baja";
+    const datos = row.datos as { confianza?: unknown } | null;
+    diagnosticos.push({
+      id: row.id,
+      tipo: typeof row.tipo === "string" ? row.tipo : "vacio",
+      severidad,
+      descripcion: row.descripcion,
+      referencia: typeof row.referencia === "string" ? row.referencia : null,
+      cita: typeof row.cita === "string" ? row.cita : null,
+      confianza: typeof datos?.confianza === "string" ? datos.confianza : null,
+      generadoEn: typeof row.generado_en === "string" ? row.generado_en : "",
+      atendidoEn: typeof row.atendido_en === "string" ? row.atendido_en : null,
+      fundamento: typeof row.fundamento === "string" ? row.fundamento : null,
+    });
+  }
+  return { ok: true, data: diagnosticos, error: null };
+}
+
+export async function confirmarParametro(input: {
+  articuloId: string;
+  clave: ClaveParametro;
+  valor: number | string[];
+  unidad: string | null;
+  cita: string;
+  fundamento: string;
+}): Promise<ResultadoEscritura> {
+  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
+  const { error } = await supabase.rpc("confirmar_parametro", {
+    p_articulo_id: input.articuloId,
+    p_clave: input.clave,
+    p_valor: input.valor,
+    p_unidad: input.unidad,
+    p_cita: input.cita,
+    p_fundamento: input.fundamento,
+  });
+  if (error) {
+    const conocido = /no aparece textualmente/i.test(error.message)
+      ? "La cita tiene que estar copiada textualmente del artículo."
+      : /cita textual/i.test(error.message)
+        ? "Pegá la cita del artículo que sostiene este parámetro (mínimo 25 caracteres)."
+        : /rol operativo/i.test(error.message)
+          ? "Tu rol no permite confirmar parámetros."
+          : null;
+    return { ok: false, error: conocido ?? "No se pudo confirmar el parámetro." };
+  }
+  return { ok: true, error: null };
+}
+
+export async function atenderDiagnostico(
+  diagnosticoId: string,
+  fundamento: string,
+): Promise<ResultadoEscritura> {
+  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
+  const { error } = await supabase.rpc("atender_diagnostico", {
+    p_diagnostico_id: diagnosticoId,
+    p_fundamento: fundamento,
+  });
+  if (error) {
+    return {
+      ok: false,
+      error: /rol administrador o coordinador/i.test(error.message)
+        ? "Atender un diagnóstico exige rol administrador o coordinador."
+        : /fundamento/i.test(error.message)
+          ? `El fundamento debe tener al menos ${MOTIVO_MIN_LENGTH} caracteres.`
+          : "No se pudo atender el diagnóstico.",
+    };
+  }
+  return { ok: true, error: null };
+}
+
+export interface RespuestaAsistente {
+  ok: boolean;
+  asistido: boolean;
+  motivo: string | null;
+  fragmentos: { titulo: string; seccion: string | null; contenido: string }[];
+  error: string | null;
+}
+
+/**
+ * Diagnóstico contra la normativa vigente.
+ *
+ * Devuelve también los fragmentos recuperados cuando la asistencia está
+ * deshabilitada: aunque el modelo no redacte, tener a la vista qué dice la
+ * norma vigente sobre el tema sigue siendo útil para redactar.
+ */
+export async function diagnosticarContraVigente(
+  articuloId: string,
+  texto: string,
+): Promise<RespuestaAsistente> {
+  const vacio = { ok: false, asistido: false, motivo: null, fragmentos: [], error: "" };
+  if (!supabase) return { ...vacio, error: "Supabase no está configurado." };
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) return { ...vacio, error: "Tu sesión no está vigente." };
+
+  let respuesta: Response;
+  try {
+    respuesta = await fetch("/api/fabrica", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ accion: "diagnosticar_vigente", articuloId, texto }),
+    });
+  } catch {
+    return { ...vacio, error: "No se pudo contactar al servidor." };
+  }
+
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = await respuesta.json() as Record<string, unknown>;
+  } catch {
+    // Se resuelve por el status.
+  }
+  if (!respuesta.ok) {
+    return { ...vacio, error: "No se pudo ejecutar el diagnóstico." };
+  }
+  const fragmentos = Array.isArray(payload.fragmentos)
+    ? payload.fragmentos.filter((item): item is { titulo: string; seccion: string | null; contenido: string } =>
+        Boolean(item) && typeof item === "object" && typeof (item as { titulo?: unknown }).titulo === "string")
+    : [];
+  return {
+    ok: true,
+    asistido: payload.asistido === true,
+    motivo: typeof payload.motivo === "string" ? payload.motivo : null,
+    fragmentos,
+    error: null,
+  };
 }
 
 export async function crearArticulo(input: {
