@@ -156,8 +156,13 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   ("This page couldn't load"), aunque el server responda 200 y la página ande
   perfecta en un navegador real. Verificar con `curl`, `tsc`, tests y build;
   la pasada visual la hace Lucas en su navegador.
-- StrictMode en dev duplica efectos: los fetch de capas se ven repetidos (en
-  prod es uno por capa).
+- **StrictMode está apagado** (`next.config.mjs`) porque react-leaflet 4.2.1 no
+  soporta el doble montaje: dejaba el mapa a medio destruir y el overlay de
+  error tapaba la pantalla en dev ("Map container is already initialized"). Solo
+  afecta a dev; producción nunca duplicó efectos. Consecuencia: ya no se ven los
+  fetch de capas repetidos, y tampoco se detectan efectos mal limpiados —
+  revisar a mano las limpiezas de `useEffect` al escribir overlays nuevos.
+  Reactivarlo al migrar a react-leaflet 5 (pide React 19).
 - `python` no existe en esta máquina (alias de Microsoft Store); usar `node -e`.
   `gh` CLI tampoco está instalado.
 

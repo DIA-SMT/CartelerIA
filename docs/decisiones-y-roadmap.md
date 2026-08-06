@@ -337,6 +337,10 @@ período, respetando los permisos de acceso.
 
 ### Prioridad media
 
+- Volver a activar `reactStrictMode`. Está apagado desde el 2026-08-06 porque
+  react-leaflet 4.2.1 crea el mapa en un callback de ref cuya limpieza nunca lo
+  destruye, así que el doble montaje de StrictMode rompía el mapa en dev. El
+  arreglo de fondo es migrar a react-leaflet 5, que requiere React 19.
 - Poner cuota a `registrar_acceso_sensible`. Está otorgada a `authenticated` y
   acepta `recurso_id` como texto libre: una cuenta municipal podría inflar la
   tabla insert-only atribuyéndose accesos que nunca ocurrieron. Los accesos a
