@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ClipboardCheck,
   FolderOpen,
@@ -19,6 +21,7 @@ import { APPROVALS_COUNT_EVENT } from "@/data/approvals";
 import { useAuth } from "@/hooks/use-auth";
 import { useDismissible } from "@/hooks/use-dismissible";
 import { useModalShell } from "@/hooks/use-modal-shell";
+import type { AppRole } from "@/lib/roles";
 
 /**
  * Escala de z-index del proyecto, que hasta ahora estaba repartida por el
@@ -41,6 +44,20 @@ import { useModalShell } from "@/hooks/use-modal-shell";
  * lee un documento.
  */
 const SIDEBAR_Z_INDEX = 1050;
+
+const ROLE_LABELS: Record<AppRole, string> = {
+  administrador: "Administrador",
+  coordinador: "Coordinador",
+  inspector: "Inspector",
+  consulta: "Consulta",
+};
+
+const ROLE_COLORS: Record<AppRole, string> = {
+  administrador: "#0166FF",
+  coordinador: "#0891b2",
+  inspector: "#16a34a",
+  consulta: "#64748b",
+};
 
 type SidebarItem = {
   href: string;
@@ -65,6 +82,12 @@ const NAVEGACION: SidebarItem[] = [
 /**
  * Único punto de navegación de la aplicación.
  *
+ * El cajón se dibuja en un portal sobre `document.body`, no donde está el
+ * botón. No es un capricho: la barra superior tiene `backdrop-blur`, y un
+ * `backdrop-filter` convierte a ese elemento en el bloque contenedor de sus
+ * descendientes `position: fixed`. Sin el portal, el cajón queda encerrado
+ * dentro de los 72px de alto del header.
+ *
  * Se desliza POR ENCIMA del contenido y no lo empuja: es lo que evita que
  * Leaflet tenga que recalcular su tamaño, que el spotlight del recorrido
  * guiado se reposicione y que los anclajes apunten a otro lado.
@@ -73,7 +96,11 @@ export function AppSidebar() {
   const auth = useAuth();
   const [open, setOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [montado, setMontado] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
+
+  // El portal solo existe en el navegador.
+  useEffect(() => setMontado(true), []);
 
   // Contador de aprobaciones pendientes: lo publica la bandeja al refrescar.
   // Vive acá y en ningún otro lado: antes lo escuchaba el header.
@@ -126,17 +153,27 @@ export function AppSidebar() {
         <span className="hidden sm:inline">Menú</span>
       </button>
 
-      {open && (
+      {open && montado && createPortal(
         <SidebarDrawer
           grupos={grupos}
+          rol={auth.canRead ? auth.role : null}
           onClose={() => setOpen(false)}
-        />
+        />,
+        document.body,
       )}
     </>
   );
 }
 
-function SidebarDrawer({ grupos, onClose }: { grupos: SidebarGroup[]; onClose: () => void }) {
+function SidebarDrawer({
+  grupos,
+  rol,
+  onClose,
+}: {
+  grupos: SidebarGroup[];
+  rol: AppRole | null;
+  onClose: () => void;
+}) {
   // 200ms: el mismo valor que la clase `duration-200` de abajo, para que el
   // desmontaje no corte la animación de salida. Ojo: el token `DEFAULT` de
   // tailwind.config (250ms) NO tiene clase utilitaria — ni `duration` ni
@@ -146,13 +183,21 @@ function SidebarDrawer({ grupos, onClose }: { grupos: SidebarGroup[]; onClose: (
   // Scroll lock apilado, foco inicial, trampa de Tab y restitución del foco al
   // cerrar. Antes el header resolvía todo esto a mano; ya no.
   useModalShell(panelRef);
+  const [activo, setActivo] = useState<string>(() =>
+    typeof window === "undefined" ? "#inicio" : window.location.hash || "#inicio",
+  );
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
+    const onHash = () => setActivo(window.location.hash || "#inicio");
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("hashchange", onHash);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("hashchange", onHash);
+    };
   }, [close]);
 
   return (
@@ -176,48 +221,91 @@ function SidebarDrawer({ grupos, onClose }: { grupos: SidebarGroup[]; onClose: (
         role="dialog"
         aria-modal="true"
         aria-label="Menú de navegación"
-        className="absolute inset-y-0 left-0 flex w-[86vw] max-w-xs flex-col border-r border-black/5 bg-white/95 shadow-2xl backdrop-blur-xl transition-transform duration-200 ease-out will-change-transform"
+        className="absolute inset-y-0 left-0 flex w-[87vw] max-w-[19rem] flex-col border-r border-black/5 bg-white/95 shadow-2xl backdrop-blur-xl transition-transform duration-200 ease-out will-change-transform"
         style={{ transform: open ? "translate3d(0,0,0)" : "translate3d(-100%,0,0)" }}
       >
-        <div className="flex h-[72px] shrink-0 items-center justify-between gap-2 border-b border-black/5 px-4">
-          <span className="micro-label">Navegar</span>
+        {/* Identidad, a la misma altura que la barra superior: al abrir el
+            cajón el logo queda exactamente donde estaba. */}
+        <div className="flex h-[72px] shrink-0 items-center gap-3 border-b border-black/5 px-4">
+          <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white p-1 shadow-sm ring-1 ring-slate-100">
+            <Image src="/logo-municipalidad-smt.png" alt="" width={38} height={38}/>
+          </span>
+          <span className="min-w-0 flex-1">
+            <strong className="block truncate font-display text-tiny tracking-tight text-ink">
+              Cartelería Urbana
+            </strong>
+            <small className="block truncate text-micro font-semibold uppercase tracking-[.14em] text-slate-400">
+              San Miguel de Tucumán
+            </small>
+          </span>
           <button
             type="button"
             onClick={close}
             aria-label="Cerrar menú"
-            className="icon-button grid"
+            className="grid size-9 shrink-0 place-items-center rounded-xl text-slate-400 transition duration-fast hover:bg-slate-100 hover:text-municipal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-municipal-500"
           >
-            <X size={19}/>
+            <X size={18}/>
           </button>
         </div>
 
-        <nav aria-label="Navegación principal" className="flex-1 overflow-y-auto px-3 py-4">
-          {grupos.map((grupo) => (
-            <div key={grupo.titulo} className="mb-4 last:mb-0">
+        <nav aria-label="Navegación principal" className="flex-1 overflow-y-auto overscroll-contain px-3 py-4">
+          {grupos.map((grupo, indice) => (
+            <div key={grupo.titulo} className={indice > 0 ? "mt-5 border-t border-slate-100 pt-4" : ""}>
               <span className="micro-label px-2">{grupo.titulo}</span>
-              <ul className="mt-1.5 grid gap-0.5">
-                {grupo.items.map((item) => (
-                  <li key={item.href}>
-                    <a
-                      href={item.href}
-                      onClick={close}
-                      className="flex items-center gap-2.5 rounded-xl px-2 py-2.5 text-tiny font-bold text-slate-600 transition duration-fast hover:bg-municipal-50 hover:text-municipal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-municipal-500"
-                    >
-                      <item.icon size={16} className="shrink-0 text-slate-400"/>
-                      <span className="flex-1">{item.label}</span>
-                      {Boolean(item.badge) && (
-                        <span className="badge-soft" aria-label={`${item.badge} pendientes`}>
-                          <i style={{ background: "#f59e0b" }}/>
-                          {(item.badge ?? 0) > 99 ? "99+" : item.badge}
+              <ul className="mt-2 grid gap-1">
+                {grupo.items.map((item) => {
+                  const esActivo = item.href === activo;
+                  return (
+                    <li key={item.href}>
+                      <a
+                        href={item.href}
+                        onClick={close}
+                        aria-current={esActivo ? "page" : undefined}
+                        className={`group flex items-center gap-2.5 rounded-xl px-2 py-2 text-tiny font-bold transition duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-municipal-500 ${
+                          esActivo
+                            ? "bg-municipal-50 text-municipal-700"
+                            : "text-slate-600 hover:bg-slate-50 hover:text-municipal-700"
+                        }`}
+                      >
+                        <span
+                          className={`grid size-8 shrink-0 place-items-center rounded-lg transition duration-fast ${
+                            esActivo
+                              ? "bg-municipal-600 text-white"
+                              : "bg-slate-100 text-slate-500 group-hover:bg-municipal-100 group-hover:text-municipal-700"
+                          }`}
+                        >
+                          <item.icon size={16}/>
                         </span>
-                      )}
-                    </a>
-                  </li>
-                ))}
+                        <span className="flex-1 truncate">{item.label}</span>
+                        {Boolean(item.badge) && (
+                          <span className="badge-soft shrink-0" aria-label={`${item.badge} pendientes`}>
+                            <i style={{ background: "#f59e0b" }}/>
+                            {(item.badge ?? 0) > 99 ? "99+" : item.badge}
+                          </span>
+                        )}
+                      </a>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ))}
         </nav>
+
+        {/* Pie: con qué rol se está mirando. Es la pregunta que uno se hace
+            cuando algo no aparece en pantalla. */}
+        <div className="shrink-0 border-t border-black/5 px-4 py-3">
+          {rol ? (
+            <span className="badge-soft">
+              <i style={{ background: ROLE_COLORS[rol] }}/>
+              {ROLE_LABELS[rol]}
+            </span>
+          ) : (
+            <span className="text-micro font-semibold text-slate-400">
+              Sesión no iniciada · solo capas territoriales
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

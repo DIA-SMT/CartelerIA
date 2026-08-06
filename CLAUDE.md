@@ -65,6 +65,12 @@ Todavía no hay una suite general ni configuración de ESLint.
   `use-modal-shell` y `use-dismissible`; no reimplementar focus trap, scroll
   lock ni Escape. Se superpone al contenido y **no lo empuja**: es lo que evita
   que Leaflet recalcule tamaño y que el spotlight del tour se reposicione.
+  El cajón se dibuja con `createPortal` sobre `document.body`, y es
+  obligatorio: la barra superior tiene `backdrop-blur`, y un `backdrop-filter`
+  convierte al elemento en bloque contenedor de sus descendientes
+  `position: fixed`. Sin portal, el cajón queda encerrado en los 72px del
+  header. **Mismo cuidado con cualquier overlay nuevo que se monte dentro de un
+  contenedor con blur.**
   El sidebar es dueño de la lógica de rol de la nav y del único listener de
   `APPROVALS_COUNT_EVENT`. La escala de z-index del proyecto está documentada
   en ese archivo (el cajón va en 1050).
@@ -193,6 +199,11 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   fetch de capas repetidos, y tampoco se detectan efectos mal limpiados —
   revisar a mano las limpiezas de `useEffect` al escribir overlays nuevos.
   Reactivarlo al migrar a react-leaflet 5 (pide React 19).
+- En el Browser pane, `requestAnimationFrame` NO dispara (`document.hidden`).
+  Como `use-dismissible` abre con un rAF, **todo overlay se queda en su estado
+  de salida** dentro del pane: el cajón aparece en `translateX(-100%)` y los
+  telones en `opacity: 0`. No es un bug. Para verificar geometría, forzar el
+  estilo por JS y medir; la animación la confirma Lucas en su navegador.
 - `python` no existe en esta máquina (alias de Microsoft Store); usar `node -e`.
   `gh` CLI tampoco está instalado.
 
