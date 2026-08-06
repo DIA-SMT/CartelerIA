@@ -74,3 +74,38 @@ button { cursor: pointer; }
   }
   .skeleton::after { animation: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Documento normativo e impresión
+   ---------------------------------------------------------------------------
+   El PDF para elevar sale de acá: se abre el articulado completo y se guarda
+   como PDF desde el navegador. Es infinitamente más liviano que meter un
+   navegador headless en una función serverless, y para elevar un documento
+   alcanza. El membrete se resuelve en CSS y no con una imagen, para que no
+   dependa de que una request de red termine antes de imprimir.
+--------------------------------------------------------------------------- */
+.documento-normativo { @apply mx-auto max-w-[46rem] text-slate-800; }
+.documento-normativo .membrete { @apply mb-6 border-b-2 border-municipal-600 pb-4 text-center; }
+.documento-normativo .membrete .organismo { @apply text-micro font-extrabold uppercase tracking-[.18em] text-slate-500; }
+.documento-normativo .membrete h1 { @apply mt-1 font-display text-xl font-extrabold tracking-tight text-ink; }
+.documento-normativo .membrete .marca-borrador { @apply mt-2 inline-block rounded-full bg-amber-100 px-3 py-1 text-micro font-extrabold uppercase tracking-wider text-amber-800; }
+.documento-normativo .articulo { @apply mb-4; }
+.documento-normativo .articulo h2 { @apply font-display text-tiny font-extrabold text-ink; }
+.documento-normativo .articulo p { @apply mt-1 whitespace-pre-wrap text-tiny leading-6 text-slate-700; }
+.documento-normativo .pie { @apply mt-8 border-t border-slate-200 pt-3 text-micro leading-4 text-slate-400; }
+.solo-impresion { @apply hidden; }
+
+@media print {
+  /* Solo el documento llega al papel. */
+  body > *:not(:has(.documento-normativo)) { display: none !important; }
+  .documento-normativo { max-width: none; }
+  .documento-normativo .articulo { break-inside: avoid; }
+  .solo-impresion { display: inline !important; font-weight: 700; }
+  /* La marca de borrador se repite en cada página: un documento sin aprobar
+     tiene que verse como tal aunque alguien imprima una hoja suelta. */
+  .documento-normativo .membrete { position: running(membrete); }
+  @page {
+    margin: 18mm 16mm 20mm;
+    size: A4;
+  }
+}

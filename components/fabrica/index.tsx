@@ -19,6 +19,7 @@ import {
 } from "@/lib/fabrica-repository";
 import { ConfirmDialog } from "../confirm-dialog";
 import { toast } from "../toaster";
+import { ArticuladoCompleto } from "./articulado-completo";
 import { HistorialArticulo } from "./historial-articulo";
 import { PanelDiagnostico } from "./panel-diagnostico";
 
@@ -73,6 +74,7 @@ export default function Fabrica({
   const [guardando, setGuardando] = useState(false);
   const [cambio, setCambio] = useState<CambioPendiente | null>(null);
   const [historialDe, setHistorialDe] = useState<ArticuloNorma | null>(null);
+  const [verArticulado, setVerArticulado] = useState(false);
   const refreshSequence = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -221,6 +223,16 @@ export default function Fabrica({
           <RefreshCw size={13} className={loadPhase === "loading" ? "animate-spin" : ""}/>
           Actualizar
         </button>
+        {proyecto && articulos.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setVerArticulado(true)}
+            className="secondary-button compact"
+          >
+            <FileText size={13}/>
+            Ver articulado completo
+          </button>
+        )}
       </div>
 
       {!ownsData || loadPhase === "loading" || loadPhase === "idle" ? (
@@ -412,6 +424,15 @@ export default function Fabrica({
 
       {historialDe && (
         <HistorialArticulo articulo={historialDe} onClose={() => setHistorialDe(null)}/>
+      )}
+
+      {verArticulado && proyecto && (
+        <ArticuladoCompleto
+          proyecto={proyecto}
+          articulos={articulos}
+          onClose={() => setVerArticulado(false)}
+          onIrAlArticulo={(articuloId) => setSeleccionId(articuloId)}
+        />
       )}
     </section>
   );

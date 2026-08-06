@@ -1091,6 +1091,81 @@ test("el asistente propone pero nunca guarda", async () => {
   assert.match(sql, /El contenido de un diagnostico es inmutable/);
 });
 
+test("la exportacion para elevar es fail-closed", async () => {
+  const { ensamblarArticulado, evaluarElevacion, pieDelDocumento } =
+    await import("../lib/norma-export.ts");
+
+  const art = (id, orden, estado) => ({
+    id, orden, estado, numero: null, sumilla: `S${orden}`,
+    texto: "Texto del artículo con longitud suficiente para el documento.",
+    origen: "borrador_recibido", textoOriginal: null, aprobadoEn: null, actualizadoEn: "",
+  });
+
+  // La numeración se recalcula al ensamblar: el `orden` es lo que manda, así
+  // que reordenar no obliga a renumerar a mano.
+  const desordenados = [art("c", 3, "aprobado"), art("a", 1, "aprobado"), art("b", 2, "aprobado")];
+  assert.deepEqual(ensamblarArticulado(desordenados).map((a) => a.numero), [1, 2, 3]);
+  assert.deepEqual(ensamblarArticulado(desordenados).map((a) => a.articuloId), ["a", "b", "c"]);
+
+  // Un descartado sale del documento pero no se borra de la base.
+  const conDescartado = [...desordenados, art("d", 4, "descartado")];
+  assert.equal(ensamblarArticulado(conDescartado).length, 3);
+
+  // Todo aprobado y sin diagnósticos graves: se puede elevar.
+  assert.equal(evaluarElevacion(desordenados, []).puede, true);
+
+  // Un artículo sin aprobar bloquea, y se dice cuál.
+  const conPendiente = [art("a", 1, "aprobado"), art("b", 2, "en_revision")];
+  const bloqueado = evaluarElevacion(conPendiente, []);
+  assert.equal(bloqueado.puede, false);
+  assert.equal(bloqueado.faltantes.length, 1);
+  assert.equal(bloqueado.faltantes[0].tipo, "articulo_sin_aprobar");
+  assert.equal(bloqueado.faltantes[0].articuloId, "b", "el faltante enlaza al artículo pendiente");
+  assert.match(bloqueado.faltantes[0].detalle, /artículo 2/);
+
+  // Un diagnóstico grave sin atender también bloquea.
+  const conGrave = evaluarElevacion(desordenados, [
+    { articuloId: "b", severidad: "alta", atendidoEn: null },
+  ]);
+  assert.equal(conGrave.puede, false);
+  assert.equal(conGrave.faltantes[0].tipo, "diagnostico_grave_sin_atender");
+
+  // Atendido, deja de bloquear.
+  assert.equal(
+    evaluarElevacion(desordenados, [{ articuloId: "b", severidad: "alta", atendidoEn: "2026-08-06" }]).puede,
+    true,
+  );
+  // Y uno leve nunca bloqueó.
+  assert.equal(
+    evaluarElevacion(desordenados, [{ articuloId: "b", severidad: "media", atendidoEn: null }]).puede,
+    true,
+  );
+  // Un diagnóstico grave sobre un artículo descartado no bloquea: ese artículo
+  // no va en el documento.
+  assert.equal(
+    evaluarElevacion(conDescartado, [{ articuloId: "d", severidad: "alta", atendidoEn: null }]).puede,
+    true,
+  );
+
+  // Un proyecto sin artículos no se eleva.
+  assert.equal(evaluarElevacion([], []).puede, false);
+
+  // El pie declara cómo se hizo el documento: es más defendible decirlo.
+  const oficial = pieDelDocumento("Proyecto X", true);
+  assert.match(oficial, /asistencia de herramientas automáticas y revisión humana/i);
+  assert.match(oficial, /Versión para elevar/);
+  const trabajo = pieDelDocumento("Proyecto X", false);
+  assert.match(trabajo, /BORRADOR/);
+  assert.match(trabajo, /No utilizar como documento oficial/);
+
+  // La interfaz deshabilita el botón oficial y falla cerrado si no puede
+  // verificar los diagnósticos.
+  const ui = await source("components/fabrica/articulado-completo.tsx");
+  assert.match(ui, /disabled=\{exportando \|\| cargando \|\| !evaluacion\?\.puede\}/);
+  assert.match(ui, /if \(oficial && !evaluacion\?\.puede\) return;/);
+  assert.match(ui, /puede: false,[\s\S]{0,200}No se pudieron verificar los diagnósticos/);
+});
+
 test("las migraciones declaradas coinciden con los archivos reales", async () => {
   const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
   const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))

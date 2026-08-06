@@ -312,6 +312,44 @@ export async function loadDiagnosticos(articuloId: string): Promise<LoadResult<D
   return { ok: true, data: diagnosticos, error: null };
 }
 
+/**
+ * Diagnósticos de todo el proyecto, para la compuerta de exportación.
+ *
+ * Se traen solo las tres columnas que la compuerta necesita: no hace falta el
+ * texto del hallazgo para saber si bloquea.
+ */
+export async function loadDiagnosticosDelProyecto(
+  proyectoId: string,
+): Promise<LoadResult<{ articuloId: string; severidad: string; atendidoEn: string | null }[]>> {
+  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
+  const { data: articulos, error: articulosError } = await supabase
+    .from("norma_articulo")
+    .select("id")
+    .eq("proyecto_id", proyectoId);
+  if (articulosError || !articulos) {
+    return { ok: false, data: [], error: "No se pudo verificar el articulado del proyecto." };
+  }
+  const ids = (articulos as { id: string }[]).map((fila) => fila.id);
+  if (ids.length === 0) return { ok: true, data: [], error: null };
+
+  const { data, error } = await supabase
+    .from("norma_diagnostico")
+    .select("articulo_id, severidad, atendido_en")
+    .in("articulo_id", ids);
+  if (error || !data) {
+    return { ok: false, data: [], error: "No se pudieron verificar los diagnósticos del proyecto." };
+  }
+  return {
+    ok: true,
+    data: (data as Record<string, unknown>[]).map((fila) => ({
+      articuloId: String(fila.articulo_id),
+      severidad: typeof fila.severidad === "string" ? fila.severidad : "baja",
+      atendidoEn: typeof fila.atendido_en === "string" ? fila.atendido_en : null,
+    })),
+    error: null,
+  };
+}
+
 export async function confirmarParametro(input: {
   articuloId: string;
   clave: ClaveParametro;
