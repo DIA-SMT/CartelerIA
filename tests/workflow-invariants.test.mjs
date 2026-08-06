@@ -1166,6 +1166,63 @@ test("la exportacion para elevar es fail-closed", async () => {
   assert.match(ui, /puede: false,[\s\S]{0,200}No se pudieron verificar los diagnósticos/);
 });
 
+test("el documento impreso no se contradice sobre si es oficial", async () => {
+  const ui = await source("components/fabrica/articulado-completo.tsx");
+  const css = await source("app/globals.css");
+
+  // Una sola fuente de verdad. Si la marca de borrador vuelve a mirar
+  // `sinAprobar`, un articulado aprobado con un diagnóstico grave sin atender
+  // sale sin marca arriba y con la leyenda de borrador abajo.
+  assert.match(ui, /const esOficial = Boolean\(evaluacion\?\.puede\);/);
+  assert.match(ui, /\{!esOficial && <p className="marca-borrador">/);
+  assert.match(ui, /pieDelDocumento\(proyecto\.titulo, esOficial\)/);
+  assert.doesNotMatch(
+    ui,
+    /sinAprobar > 0 && <p className="marca-borrador"/,
+    "la marca de borrador no puede depender solo de los artículos sin aprobar",
+  );
+  assert.doesNotMatch(
+    ui,
+    /pieDelDocumento\([^)]*sinAprobar/,
+    "el pie tiene que leer la misma evaluación que la marca",
+  );
+  // Mientras carga no se sabe, y no saber no es estar en condiciones.
+  assert.match(ui, /const motivoBorrador = cargando/);
+
+  // El panel se monta por portal: sin eso la regla de impresión no apaga nada
+  // y se imprime el tablero entero.
+  assert.match(ui, /return createPortal\(/);
+  assert.match(ui, /className="print-root fixed/);
+  assert.match(ui, /document\.body,\s*\);/);
+  assert.match(css, /body > \*:not\(\.print-root\) \{ display: none !important; \}/);
+
+  // La espera del montaje va en un componente de afuera: `useModalShell` lee su
+  // ref al montarse y una sola vez, así que un `return null` con el hook ya
+  // llamado dejaría el overlay sin scroll lock ni focus trap para siempre.
+  assert.match(
+    ui,
+    /export function ArticuladoCompleto\(props: PropsArticulado\) \{[\s\S]{0,240}if \(!montado\) return null;[\s\S]{0,80}<PanelArticulado \{\.\.\.props\}/,
+    "el guard de montaje tiene que envolver al panel, no vivir adentro",
+  );
+  assert.doesNotMatch(
+    ui,
+    /useModalShell\(panelRef\);[\s\S]{0,900}if \(!montado\) return null;/,
+    "no puede haber un return antes de que el ref del panel exista",
+  );
+
+  // La marca corriente se repite por página con el único mecanismo que los
+  // navegadores implementan. `position: running()` no es uno de ellos.
+  assert.match(css, /\.documento-normativo \.marca-corriente \{ display: table-header-group; \}/);
+  assert.match(css, /\.documento-normativo \.cuerpo \{ display: table-row-group; \}/);
+  assert.doesNotMatch(css, /position: running\(/, "position: running() no existe en los navegadores");
+
+  // El nombre del archivo es el mismo salga por Word o por PDF.
+  assert.match(ui, /document\.title = nombreDocumento\(esOficial\);/);
+  assert.match(ui, /window\.addEventListener\("afterprint", restaurar\);/);
+  const exportador = await source("lib/norma-export.ts");
+  assert.match(exportador, /enlace\.download = `\$\{nombreDocumento\(input\.oficial\)\}\.docx`;/);
+});
+
 test("una observacion no se edita ni se borra, ni siquiera la propia", async () => {
   const sql = await source("supabase/migrations/20260806_24_observaciones_articulo.sql");
 

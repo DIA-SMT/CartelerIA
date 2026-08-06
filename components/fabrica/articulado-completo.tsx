@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, FileDown, Loader2, Printer, X } from "lucide-react";
 import { useDismissible } from "@/hooks/use-dismissible";
 import { useModalShell } from "@/hooks/use-modal-shell";
@@ -10,6 +11,7 @@ import {
   ensamblarArticulado,
   evaluarElevacion,
   exportarArticuladoWord,
+  nombreDocumento,
   pieDelDocumento,
   type EvaluacionElevacion,
 } from "@/lib/norma-export";
@@ -27,18 +29,34 @@ import { toast } from "../toaster";
  * `@media print`. Cualquiera guarda como PDF desde el navegador y el resultado
  * es correcto: meter un navegador headless en una función serverless sería la
  * dependencia más pesada y frágil del proyecto para conseguir lo mismo.
+ *
+ * El panel va por `createPortal` a `document.body`, y para el PDF eso no es
+ * cosmético: la regla de impresión apaga a los hermanos directos de `body`, así
+ * que montado dentro del árbol del tablero se imprimía la página entera —mapa,
+ * tablas y todo— con el documento en el medio.
  */
-export function ArticuladoCompleto({
-  proyecto,
-  articulos,
-  onClose,
-  onIrAlArticulo,
-}: {
+interface PropsArticulado {
   proyecto: ProyectoNorma;
   articulos: ArticuloNorma[];
   onClose: () => void;
   onIrAlArticulo: (articuloId: string) => void;
-}) {
+}
+
+/**
+ * El panel real no se monta hasta tener `document.body`, y la espera va acá
+ * afuera a propósito: `useModalShell` lee su ref una sola vez, al montarse. Si
+ * el primer render devolviera `null` con el hook ya llamado, el ref estaría
+ * vacío y el bloqueo de scroll, el focus trap y la restitución de foco no se
+ * engancharían nunca. Es el mismo orden que usa el cajón lateral.
+ */
+export function ArticuladoCompleto(props: PropsArticulado) {
+  const [montado, setMontado] = useState(false);
+  useEffect(() => { setMontado(true); }, []);
+  if (!montado) return null;
+  return <PanelArticulado {...props}/>;
+}
+
+function PanelArticulado({ proyecto, articulos, onClose, onIrAlArticulo }: PropsArticulado) {
   const { open, close } = useDismissible(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useModalShell(panelRef);
@@ -95,9 +113,44 @@ export function ArticuladoCompleto({
 
   const sinAprobar = ensamblado.filter((articulo) => !articulo.aprobado).length;
 
-  return (
+  // Una sola fuente de verdad para "esto es oficial". Antes la marca de
+  // borrador miraba `sinAprobar` y el pie miraba la evaluación, así que un
+  // articulado con todo aprobado pero con un diagnóstico grave sin atender
+  // salía sin marca arriba y con la leyenda de borrador abajo. Un documento
+  // que se contradice a sí mismo sobre si es oficial es peor que uno que se
+  // declara borrador de más.
+  //
+  // `evaluarElevacion` ya exige todos los artículos aprobados, así que no hace
+  // falta volver a mirar `sinAprobar`: si `puede` es true, no hay ninguno.
+  const esOficial = Boolean(evaluacion?.puede);
+
+  const motivoBorrador = cargando
+    ? "verificación pendiente"
+    : sinAprobar > 0
+      ? `${sinAprobar} artículo${sinAprobar === 1 ? "" : "s"} sin aprobar`
+      : evaluacion?.faltantes.some((f) => f.tipo === "diagnostico_grave_sin_atender")
+        ? "diagnósticos graves sin atender"
+        : "sin verificar";
+
+  /**
+   * El navegador nombra el PDF con `document.title` y lo imprime en su propio
+   * encabezado. Sin esto el archivo sale llamándose como la aplicación, que no
+   * dice qué documento es ni si es oficial.
+   */
+  const imprimir = () => {
+    const anterior = document.title;
+    document.title = nombreDocumento(esOficial);
+    const restaurar = () => {
+      document.title = anterior;
+      window.removeEventListener("afterprint", restaurar);
+    };
+    window.addEventListener("afterprint", restaurar);
+    window.print();
+  };
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[1100] grid place-items-center bg-ink/45 p-4 backdrop-blur-sm transition-opacity duration-200 ease-out print:static print:block print:bg-transparent print:p-0 print:backdrop-blur-none"
+      className="print-root fixed inset-0 z-[1100] grid place-items-center bg-ink/45 p-4 backdrop-blur-sm transition-opacity duration-200 ease-out print:static print:block print:bg-transparent print:p-0 print:backdrop-blur-none"
       style={{ opacity: open ? 1 : 0 }}
       role="presentation"
       onClick={close}
@@ -138,7 +191,7 @@ export function ArticuladoCompleto({
               <FileDown size={13}/>
               Word para elevar
             </button>
-            <button type="button" onClick={() => window.print()} className="secondary-button compact">
+            <button type="button" onClick={imprimir} className="secondary-button compact">
               <Printer size={13}/>
               Imprimir / PDF
             </button>
@@ -188,37 +241,48 @@ export function ArticuladoCompleto({
         {/* El documento. Esto es lo único que se imprime. */}
         <div className="min-h-0 flex-1 overflow-y-auto p-4 print:overflow-visible print:p-0">
           <article className="documento-normativo">
-            <header className="membrete">
-              <p className="organismo">Municipalidad de San Miguel de Tucumán</p>
-              <h1>{proyecto.titulo}</h1>
-              {sinAprobar > 0 && <p className="marca-borrador">BORRADOR · {sinAprobar} artículo(s) sin aprobar</p>}
-            </header>
+            {/* Marca corriente: se repite arriba de CADA página impresa, porque
+                una hoja suelta de un borrador tiene que poder identificarse sin
+                el resto del documento. En pantalla no se ve. */}
+            <div className="marca-corriente" aria-hidden="true">
+              <span>Municipalidad de San Miguel de Tucumán · {proyecto.titulo}</span>
+              {!esOficial && <b>BORRADOR — NO OFICIAL</b>}
+            </div>
 
-            {ensamblado.map((articulo) => (
-              <section key={articulo.articuloId} className="articulo">
-                <h2>
-                  Artículo {articulo.numero}.—
-                  {articulo.sumilla ? ` ${articulo.sumilla}` : ""}
-                  {!articulo.aprobado && (
-                    <span className="badge-soft ml-2 print:hidden">
-                      <i style={{ background: "#f59e0b" }}/>
-                      Sin aprobar
-                    </span>
-                  )}
-                  {!articulo.aprobado && <span className="solo-impresion"> [SIN APROBAR]</span>}
-                </h2>
-                <p>{articulo.texto}</p>
-              </section>
-            ))}
+            <div className="cuerpo">
+              <header className="membrete">
+                <p className="organismo">Municipalidad de San Miguel de Tucumán</p>
+                <h1>{proyecto.titulo}</h1>
+                {!esOficial && <p className="marca-borrador">BORRADOR · {motivoBorrador}</p>}
+              </header>
 
-            <footer className="pie">
-              {pieDelDocumento(proyecto.titulo, Boolean(evaluacion?.puede) && sinAprobar === 0)
-                .split("\n")
-                .map((linea, indice) => <p key={indice}>{linea}</p>)}
-            </footer>
+              {ensamblado.map((articulo) => (
+                <section key={articulo.articuloId} className="articulo">
+                  <h2>
+                    Artículo {articulo.numero}.—
+                    {articulo.sumilla ? ` ${articulo.sumilla}` : ""}
+                    {!articulo.aprobado && (
+                      <span className="badge-soft ml-2 print:hidden">
+                        <i style={{ background: "#f59e0b" }}/>
+                        Sin aprobar
+                      </span>
+                    )}
+                    {!articulo.aprobado && <span className="solo-impresion"> [SIN APROBAR]</span>}
+                  </h2>
+                  <p>{articulo.texto}</p>
+                </section>
+              ))}
+
+              <footer className="pie">
+                {pieDelDocumento(proyecto.titulo, esOficial)
+                  .split("\n")
+                  .map((linea, indice) => <p key={indice}>{linea}</p>)}
+              </footer>
+            </div>
           </article>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

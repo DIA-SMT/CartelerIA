@@ -108,6 +108,17 @@ export function evaluarElevacion(
   return { puede: faltantes.length === 0, faltantes };
 }
 
+/**
+ * Nombre del archivo, compartido por el Word y el PDF.
+ *
+ * El PDF lo nombra el navegador a partir de `document.title`, así que el mismo
+ * documento tiene que llamarse igual salga por donde salga. Un archivo
+ * "CartelerIA.pdf" en la carpeta de alguien no dice qué es ni si es oficial.
+ */
+export function nombreDocumento(oficial: boolean): string {
+  return `${oficial ? "ordenanza" : "borrador"}-${new Date().toISOString().slice(0, 10)}`;
+}
+
 /** Pie que llevan los dos documentos. Decir cómo se hizo es más defendible. */
 export function pieDelDocumento(proyecto: string, oficial: boolean): string {
   const fecha = new Date().toLocaleDateString("es-AR");
@@ -293,7 +304,7 @@ export async function exportarArticuladoWord(input: {
   const url = URL.createObjectURL(blob);
   const enlace = document.createElement("a");
   enlace.href = url;
-  enlace.download = `${input.oficial ? "ordenanza" : "borrador"}-${new Date().toISOString().slice(0, 10)}.docx`;
+  enlace.download = `${nombreDocumento(input.oficial)}.docx`;
   document.body.appendChild(enlace);
   enlace.click();
   document.body.removeChild(enlace);
