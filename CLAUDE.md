@@ -230,12 +230,12 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   la instancia el 2026-08-06): 29 comprobaciones, incluidos los cinco RPC del
   bloque 3, la columna `origen`, los 33 artículos sembrados, y que `service_role`
   reciba `42501` al intentar insertar, reescribir o borrar una observación.
-  **Las 25 y 26 están pendientes de aplicación**: la 25 reemplaza
-  `crear_articulo` por una versión de cinco argumentos con motivo obligatorio y
-  borra la sobrecarga de cuatro; la 26 agrega
-  `habilitar_documento_ia_externa` y `fragmentos_documento`. Sin ellas, los
-  botones avisan cuál falta. El detalle de las reglas está arriba, en
-  Arquitectura.
+  Las **25 y 26 también están aplicadas y verificadas** (2026-08-06, 9
+  comprobaciones): la sobrecarga vieja de `crear_articulo` de cuatro argumentos
+  quedó efectivamente borrada, y `habilitar_documento_ia_externa` le responde a
+  `service_role` con `permission denied for function` — el `revoke` lo frena al
+  nivel del grant, antes del chequeo interno. El detalle de las reglas está
+  arriba, en Arquitectura.
 - **El `ocr_doubtful` de la máquina no es confiable en los dos sentidos.**
   `doc-02` (Decreto 0609/18) figura con OCR limpio y su texto indexado dice
   "TÍCULO 1*.-" y "hacla la Via Pública". La métrica de confianza del OCR no
