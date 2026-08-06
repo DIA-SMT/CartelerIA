@@ -1,9 +1,8 @@
 import type { LoadResult } from "@/data/approvals";
-import { isAppRole, type AppRole } from "./roles";
+import { ROLE_REASON_MIN_LENGTH, isAppRole, type AppRole } from "./roles";
 import { supabase } from "./supabase";
 
-/** Mismo mínimo que valida `asignar_rol` en PostgreSQL. */
-export const ROLE_REASON_MIN_LENGTH = 12;
+export { ROLE_REASON_MIN_LENGTH };
 
 export interface PerfilMunicipal {
   userId: string;
@@ -121,6 +120,74 @@ const KNOWN_ERRORS: { match: RegExp; message: string }[] = [
   { match: /administrador autenticado/i, message: "Solo un administrador autenticado puede asignar roles." },
   { match: /perfil municipal/i, message: "La cuenta afectada no tiene un perfil municipal." },
 ];
+
+export interface InvitarUsuarioResult {
+  ok: boolean;
+  /** true si además del alta se aplicó el rol pedido. */
+  rolAsignado: boolean;
+  error: string | null;
+}
+
+const INVITE_ERRORS: Record<string, string> = {
+  rate_limited: "Se enviaron demasiadas invitaciones seguidas. Esperá un minuto.",
+  not_configured: "El servicio de invitaciones no está configurado.",
+  unauthorized: "Tu sesión no está vigente. Volvé a ingresar.",
+  forbidden: "Solo un administrador puede invitar cuentas.",
+  invalid_email: "El correo no tiene un formato válido.",
+  invalid_role: "El rol elegido no es válido.",
+  invalid_reason: `El fundamento debe tener al menos ${ROLE_REASON_MIN_LENGTH} caracteres.`,
+  email_ya_registrado: "Ya existe una cuenta con ese correo.",
+  invite_failed: "No se pudo enviar la invitación. Revisá el correo o reintentá.",
+};
+
+/**
+ * Crea una cuenta municipal y le asigna su rol en un solo paso.
+ *
+ * El alta la ejecuta el servidor; el cambio de rol viaja con el token de quien
+ * invita, así que queda asentado en el historial con su nombre y fundamento.
+ */
+export async function invitarUsuario(input: {
+  email: string;
+  nombre: string | null;
+  rol: AppRole;
+  fundamento: string;
+}): Promise<InvitarUsuarioResult> {
+  if (!supabase) {
+    return { ok: false, rolAsignado: false, error: "Supabase no está configurado." };
+  }
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) {
+    return { ok: false, rolAsignado: false, error: "Tu sesión no está vigente." };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch("/api/usuarios/invitar", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    return { ok: false, rolAsignado: false, error: "No se pudo contactar al servidor." };
+  }
+
+  let payload: { ok?: unknown; rolAsignado?: unknown; error?: unknown } = {};
+  try {
+    payload = await response.json() as typeof payload;
+  } catch {
+    // Se resuelve por el status.
+  }
+  if (!response.ok && response.status !== 207) {
+    const codigo = typeof payload.error === "string" ? payload.error : "";
+    return {
+      ok: false,
+      rolAsignado: false,
+      error: INVITE_ERRORS[codigo] ?? "No se pudo invitar a la cuenta.",
+    };
+  }
+  return { ok: true, rolAsignado: payload.rolAsignado === true, error: null };
+}
 
 export async function asignarRol(
   userId: string,

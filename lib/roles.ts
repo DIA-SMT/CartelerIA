@@ -41,3 +41,10 @@ export function fiscalSource(table: FiscalTable, role: AppRole | null): string {
 
 /** Texto único para un dato que existe pero el rol no puede ver. */
 export const RESTRICTED_BY_ROLE_LABEL = "Restringido por rol";
+
+/**
+ * Mismo mínimo que valida `asignar_rol` en PostgreSQL. Vive acá para que lo
+ * puedan compartir la UI y las rutas del servidor sin arrastrar el cliente
+ * Supabase del navegador.
+ */
+export const ROLE_REASON_MIN_LENGTH = 12;

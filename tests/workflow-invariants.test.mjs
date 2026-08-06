@@ -386,6 +386,32 @@ test("ninguna cuenta nueva nace con rol privilegiado", async () => {
   assert.match(correccion, /raise exception 'handle_new_user seguiria creando cuentas/i);
 });
 
+test("la invitación crea la cuenta pero no se auto-otorga el rol", async () => {
+  const route = await source("app/api/usuarios/invitar/route.ts");
+
+  // Solo un administrador invita, y se verifica ANTES de crear nada.
+  assert.match(route, /perfil\?\.rol !== "administrador"/);
+  assert.ok(
+    route.indexOf('perfil?.rol !== "administrador"') < route.indexOf("inviteUserByEmail"),
+    "el control de rol debe ocurrir antes del alta",
+  );
+
+  // El rol lo asigna quien invita con su propio token, no service_role: así el
+  // cambio queda en perfiles_historial con actor y fundamento reales.
+  assert.match(route, /Authorization: `Bearer \$\{token\}`/);
+  assert.match(route, /comoInvitante\.rpc\("asignar_rol"/);
+  assert.doesNotMatch(route, /admin\.rpc\("asignar_rol"/);
+
+  // Defensas de toda ruta nueva.
+  assert.match(route, /rateLimit\(/);
+  assert.match(route, /"Cache-Control": "no-store"/);
+  assert.match(route, /createAdminClient\(\{ timeoutMs/);
+  assert.doesNotMatch(route, /error:\s*\w*[Ee]rror\.message/);
+
+  // Si falla la asignación, la cuenta queda en el rol MENOS privilegiado.
+  assert.match(route, /rol: "consulta", rolAsignado: false/);
+});
+
 test("los indicadores se calculan en PostgreSQL y no inventan ceros", async () => {
   const [sql, repo, ui] = await Promise.all([
     source("supabase/migrations/20260806_17_indicadores_gestion.sql"),

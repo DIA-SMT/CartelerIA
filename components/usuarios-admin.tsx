@@ -5,9 +5,11 @@ import {
   AlertTriangle,
   History,
   Loader2,
+  Mail,
   RefreshCw,
   ShieldCheck,
   UserCog,
+  UserPlus,
   Users,
   X,
 } from "lucide-react";
@@ -18,6 +20,7 @@ import { APP_ROLES, type AppRole } from "@/lib/roles";
 import {
   ROLE_REASON_MIN_LENGTH,
   asignarRol,
+  invitarUsuario,
   loadCambiosDeRol,
   loadPerfiles,
   type CambioDeRol,
@@ -75,6 +78,8 @@ export function UsuariosAdmin() {
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [historyFor, setHistoryFor] = useState<PerfilMunicipal | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
   const refreshSequence = useRef(0);
   const applyingIds = useRef(new Set<string>());
 
@@ -183,15 +188,26 @@ export function UsuariosAdmin() {
           <h2>Usuarios y roles</h2>
           <p>Padrón de cuentas municipales. Cada cambio de rol exige fundamento y queda asentado.</p>
         </div>
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={loadPhase === "loading" || busyId !== null}
-          className="secondary-button compact"
-        >
-          <RefreshCw size={13} className={loadPhase === "loading" ? "animate-spin" : ""}/>
-          Actualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={loadPhase === "loading" || busyId !== null}
+            className="secondary-button compact"
+          >
+            <RefreshCw size={13} className={loadPhase === "loading" ? "animate-spin" : ""}/>
+            Actualizar
+          </button>
+          <button
+            type="button"
+            onClick={() => setInviteOpen(true)}
+            disabled={blocked || inviteBusy}
+            className="primary-button compact disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <UserPlus size={14}/>
+            Invitar usuario
+          </button>
+        </div>
       </div>
 
       {!ownsData || loadPhase === "idle" || loadPhase === "loading" ? (
@@ -265,7 +281,214 @@ export function UsuariosAdmin() {
       {historyFor && (
         <RoleHistoryPanel perfil={historyFor} onClose={() => setHistoryFor(null)}/>
       )}
+
+      {inviteOpen && (
+        <InvitePanel
+          busy={inviteBusy}
+          onBusy={setInviteBusy}
+          onClose={() => setInviteOpen(false)}
+          onInvited={refresh}
+        />
+      )}
     </section>
+  );
+}
+
+/**
+ * Alta de cuenta y asignación de rol en un solo paso.
+ *
+ * La cuenta siempre nace en `consulta` (lo impone el trigger de alta); si se
+ * pidió otro rol, el servidor lo asigna con el token de quien invita, así el
+ * cambio queda en el historial con su nombre y su fundamento. Por eso el
+ * fundamento se exige solo cuando hay un cambio real que asentar.
+ */
+function InvitePanel({
+  busy,
+  onBusy,
+  onClose,
+  onInvited,
+}: {
+  busy: boolean;
+  onBusy: (value: boolean) => void;
+  onClose: () => void;
+  onInvited: () => Promise<void>;
+}) {
+  const { open, close } = useDismissible(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalShell(panelRef);
+  const [email, setEmail] = useState("");
+  const [nombre, setNombre] = useState("");
+  const [rol, setRol] = useState<AppRole>("consulta");
+  const [fundamento, setFundamento] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  const requiereFundamento = rol !== "consulta";
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || confirmDialogIsOpen() || busy) return;
+      close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close, busy]);
+
+  const validar = () => {
+    const correo = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(correo)) {
+      setError("Escribí un correo válido.");
+      return;
+    }
+    if (requiereFundamento && fundamento.trim().length < ROLE_REASON_MIN_LENGTH) {
+      setError(`El fundamento debe tener al menos ${ROLE_REASON_MIN_LENGTH} caracteres.`);
+      return;
+    }
+    setError(null);
+    setConfirming(true);
+  };
+
+  const enviar = async () => {
+    setConfirming(false);
+    onBusy(true);
+    setError(null);
+    try {
+      const result = await invitarUsuario({
+        email: email.trim(),
+        nombre: nombre.trim() || null,
+        rol,
+        fundamento: fundamento.trim(),
+      });
+      if (!result.ok) {
+        setError(result.error);
+        toast(result.error ?? "No se pudo invitar a la cuenta.", "error");
+        return;
+      }
+      toast(
+        result.rolAsignado || !requiereFundamento
+          ? `Invitación enviada a ${email.trim()} con rol ${ROLE_LABELS[rol]}.`
+          : `Cuenta creada, pero el rol quedó en Consulta: asignalo desde la tabla.`,
+        result.rolAsignado || !requiereFundamento ? "success" : "info",
+      );
+      await onInvited();
+      close();
+    } finally {
+      onBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[1100] grid place-items-center bg-ink/45 p-4 backdrop-blur-sm transition-opacity duration-200 ease-out"
+      style={{ opacity: open ? 1 : 0 }}
+      role="presentation"
+      onClick={() => { if (!busy) close(); }}
+      data-state={open ? "open" : "closed"}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Invitar cuenta municipal"
+        className="w-full max-w-md rounded-2xl border border-white bg-white p-5 shadow-2xl transition-[transform,opacity] duration-200 ease-spring will-change-transform"
+        style={{ opacity: open ? 1 : 0, transform: open ? "translate3d(0,0,0) scale(1)" : "translate3d(0,8px,0) scale(.96)" }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <span className="micro-label">Alta de cuenta</span>
+            <h2 className="font-display text-base font-extrabold text-ink">Invitar usuario</h2>
+          </div>
+          <button type="button" onClick={close} disabled={busy} aria-label="Cerrar" className="secondary-button compact"><X size={14}/></button>
+        </div>
+
+        <p className="mt-2 text-tiny leading-4 text-slate-500">
+          Se envía una invitación por correo. La persona define su contraseña al aceptarla.
+        </p>
+
+        <div className="mt-4 space-y-3">
+          <label className="block">
+            <span className="micro-label">Correo</span>
+            <input
+              type="email"
+              autoFocus
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              maxLength={254}
+              placeholder="nombre@smt.gob.ar"
+              className="mt-1 min-h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-tiny text-slate-700 outline-none focus:border-municipal-500"
+            />
+          </label>
+          <label className="block">
+            <span className="micro-label">Nombre (opcional)</span>
+            <input
+              value={nombre}
+              onChange={(event) => setNombre(event.target.value)}
+              maxLength={120}
+              placeholder="Cómo figura en el padrón"
+              className="mt-1 min-h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-tiny text-slate-700 outline-none focus:border-municipal-500"
+            />
+          </label>
+          <label className="block">
+            <span className="micro-label">Rol</span>
+            <select
+              value={rol}
+              onChange={(event) => setRol(event.target.value as AppRole)}
+              className="mt-1 min-h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-tiny font-semibold text-slate-700 outline-none focus:border-municipal-500"
+            >
+              {APP_ROLES.map((item) => (
+                <option key={item} value={item}>{ROLE_LABELS[item]}</option>
+              ))}
+            </select>
+          </label>
+          {requiereFundamento && (
+            <label className="block">
+              <span className="micro-label">Fundamento del rol (obligatorio)</span>
+              <textarea
+                value={fundamento}
+                onChange={(event) => setFundamento(event.target.value)}
+                rows={2}
+                maxLength={500}
+                placeholder={`Por qué recibe este rol (mínimo ${ROLE_REASON_MIN_LENGTH} caracteres)`}
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-tiny text-slate-700 outline-none focus:border-municipal-500"
+              />
+            </label>
+          )}
+          {!requiereFundamento && (
+            <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-micro leading-4 text-slate-500">
+              Una cuenta de consulta nace con ese rol: no hay cambio que fundamentar.
+            </p>
+          )}
+        </div>
+
+        {error && <p role="alert" className="mt-2 text-micro font-semibold text-red-700">{error}</p>}
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button type="button" onClick={close} disabled={busy} className="secondary-button compact">Cancelar</button>
+          <button
+            type="button"
+            onClick={validar}
+            disabled={busy || !email.trim()}
+            className="primary-button compact disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={13} className="animate-spin"/> : <Mail size={13}/>}
+            Enviar invitación
+          </button>
+        </div>
+      </div>
+
+      {confirming && (
+        <ConfirmDialog
+          title="Invitar cuenta municipal"
+          description={`Se invitará a ${email.trim()} con rol ${ROLE_LABELS[rol]}.${requiereFundamento ? " El rol queda asentado en el historial con este fundamento:" : ""}`}
+          quote={requiereFundamento ? fundamento.trim() : null}
+          tone="approve"
+          confirmLabel="Invitar"
+          onConfirm={() => void enviar()}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </div>
   );
 }
 
