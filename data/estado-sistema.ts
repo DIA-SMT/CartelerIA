@@ -98,4 +98,5 @@ export const MIGRACIONES_DECLARADAS: MigracionDeclarada[] = [
   { numero: 19, archivo: "20260806_19_bitacora_y_corpus.sql", resumen: "Bitácora unificada y resumen del corpus" },
   { numero: 20, archivo: "20260806_20_corpus_estado_legal.sql", resumen: "Corpus separado por estado legal" },
   { numero: 21, archivo: "20260806_21_fabrica_normativa.sql", resumen: "Articulado de la ordenanza en construcción" },
+  { numero: 22, archivo: "20260806_22_estado_legal_efectivo.sql", resumen: "El estado legal del corpus se aplica de verdad" },
 ];

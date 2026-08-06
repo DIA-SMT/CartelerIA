@@ -207,6 +207,17 @@ begin
       using errcode = '22023';
   end if;
 
+  -- Idempotente: un borrador da origen a un solo proyecto. Reejecutar la
+  -- ingesta devuelve el que ya existe en vez de crear un duplicado que
+  -- despues nadie sabria cual es el bueno.
+  select p.id into v_id
+  from public.norma_proyecto p
+  where p.documento_origen_id = p_documento_origen_id
+  limit 1;
+  if v_id is not null then
+    return v_id;
+  end if;
+
   insert into public.norma_proyecto (titulo, objeto, documento_origen_id)
   values (btrim(p_titulo), nullif(btrim(coalesce(p_objeto, '')), ''), p_documento_origen_id)
   returning id into v_id;

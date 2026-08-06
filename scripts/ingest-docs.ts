@@ -259,6 +259,91 @@ function canonicalChunkManifest(chunks: Chunk[]): string {
 }
 
 // ----------------------------------------------------------------------------
+// Estado legal y siembra: dos actos independientes de la sincronización
+// ----------------------------------------------------------------------------
+/**
+ * Solo lo que estas dos funciones usan del cliente. El cliente real se importa
+ * de forma dinámica (el script corre también en dry-run, sin credenciales), así
+ * que se describe estructuralmente en vez de arrastrar el tipo completo.
+ */
+type ClienteIngesta = {
+  rpc: (nombre: string, args: Record<string, unknown>) => PromiseLike<{
+    data: unknown;
+    error: { message: string } | null;
+  }>;
+};
+
+/**
+ * Fija el estado legal del documento.
+ *
+ * Va aparte porque `sincronizar_documento_rag` escribe una lista fija de
+ * columnas y no conoce `estado_legal`: recibía el dato en el payload y lo
+ * descartaba en silencio. Así el borrador quedó marcado como vigente y el
+ * asistente normativo podía citarlo, que es justo lo que había que impedir.
+ */
+async function fijarEstadoLegal(
+  supabase: ClienteIngesta,
+  doc: { id: string; estadoLegal?: string },
+): Promise<void> {
+  const estado = doc.estadoLegal ?? "vigente";
+  const { error } = await supabase.rpc("fijar_estado_legal_documento", {
+    p_documento_id: doc.id,
+    p_estado: estado,
+  });
+  if (error) {
+    throw new Error(`estado legal ${doc.id}: ${error.message}`);
+  }
+}
+
+/**
+ * Siembra el articulado si el documento es el borrador de origen.
+ *
+ * Se llama en todas las corridas, cambie o no el texto: el articulado no
+ * depende de si el borrador se modificó. `sembrar_articulado` ya rechaza un
+ * proyecto que tenga artículos, así que repetir la llamada es inofensivo y no
+ * pisa trabajo hecho.
+ */
+async function sembrarSiCorresponde(
+  supabase: ClienteIngesta,
+  doc: { id: string; title: string; description: string; siembraArticulado?: boolean },
+  corte: CorteArticulado | null,
+): Promise<void> {
+  if (!doc.siembraArticulado) return;
+  if (!corte?.estructurado) {
+    console.log("    ⚠ articulado NO sembrado: el borrador no tiene estructura de artículos reconocible");
+    return;
+  }
+
+  // `crear_proyecto_norma` es idempotente: si el borrador ya dio origen a un
+  // proyecto, devuelve ese mismo en vez de crear un duplicado.
+  const { data: proyectoId, error: proyectoError } = await supabase.rpc("crear_proyecto_norma", {
+    p_titulo: doc.title,
+    p_objeto: doc.description,
+    p_documento_origen_id: doc.id,
+  });
+  if (proyectoError || typeof proyectoId !== "string") {
+    throw new Error(`alta del proyecto ${doc.id}: ${proyectoError?.message ?? "respuesta inválida"}`);
+  }
+
+  const articulos = corte.articulos.map((articulo) => ({
+    numero: articulo.numero,
+    sumilla: articulo.sumilla,
+    texto: articulo.texto,
+  }));
+  const { data: sembrados, error: siembraError } = await supabase.rpc("sembrar_articulado", {
+    p_proyecto_id: proyectoId,
+    p_articulos: articulos,
+  });
+  if (siembraError) {
+    // Falla a propósito si el proyecto ya tiene artículos: no pisa trabajo
+    // hecho. Se avisa con claridad en vez de dejarlo pasar.
+    console.log(`    · articulado ya sembrado, no se toca (${siembraError.message})`);
+    return;
+  }
+  console.log(`    articulado sembrado: ${sembrados} artículos en estado propuesto`);
+}
+
+// ----------------------------------------------------------------------------
 // Main
 // ----------------------------------------------------------------------------
 async function main() {
@@ -418,8 +503,13 @@ async function main() {
           `metadata rag_documentos ${doc.id}: ${metadataError?.message ?? "respuesta inválida"}`,
         );
       }
+      await fijarEstadoLegal(supabase!, doc);
       console.log(`    sin cambios (PDF, texto y chunks) — metadata sincronizada`);
       skippedUnchanged += 1;
+      // La siembra NO va dentro del camino de ingesta: el articulado no depende
+      // de si el texto del borrador cambió. Acoplarlos hacía que un documento
+      // "sin cambios" saltara la siembra para siempre.
+      await sembrarSiCorresponde(supabase!, doc, corte);
       continue;
     }
 
@@ -449,45 +539,10 @@ async function main() {
         `sincronización atómica ${doc.id}: ${diagnostic}`,
       );
     }
+    await fijarEstadoLegal(supabase!, doc);
     console.log(`    ingestado atómicamente (${chunks.length} chunks embebidos)`);
     ingested += 1;
-
-    // Siembra del articulado. Solo para el borrador que da origen al proyecto y
-    // solo si el corte reconoció una estructura de artículos: inventar una
-    // numeración sería peor que no sembrar nada.
-    if (doc.siembraArticulado && corte?.estructurado) {
-      const { data: proyectoId, error: proyectoError } = await supabase!
-        .rpc("crear_proyecto_norma", {
-          p_titulo: doc.title,
-          p_objeto: doc.description,
-          p_documento_origen_id: doc.id,
-        });
-      if (proyectoError || typeof proyectoId !== "string") {
-        throw new Error(
-          `alta del proyecto ${doc.id}: ${proyectoError?.message ?? "respuesta inválida"}`,
-        );
-      }
-
-      const articulos = corte.articulos.map((articulo) => ({
-        numero: articulo.numero,
-        sumilla: articulo.sumilla,
-        texto: articulo.texto,
-      }));
-      const { data: sembrados, error: siembraError } = await supabase!
-        .rpc("sembrar_articulado", {
-          p_proyecto_id: proyectoId,
-          p_articulos: articulos,
-        });
-      if (siembraError) {
-        // La RPC falla a propósito si el proyecto ya tiene artículos: no pisa
-        // trabajo hecho. Se avisa con claridad en vez de dejarlo pasar.
-        console.log(`    ⚠ articulado NO sembrado: ${siembraError.message}`);
-      } else {
-        console.log(`    articulado sembrado: ${sembrados} artículos en estado propuesto`);
-      }
-    } else if (doc.siembraArticulado && !corte?.estructurado) {
-      console.log("    ⚠ articulado NO sembrado: el borrador no tiene estructura de artículos reconocible");
-    }
+    await sembrarSiCorresponde(supabase!, doc, corte);
   }
 
   console.log(`\nResumen: ${DRY ? "(dry-run) " : ""}${ingested} ingestados, ${skippedUnchanged} sin cambios, ${skippedScan} escaneados salteados, ${totalChunks} chunks totales.\n`);

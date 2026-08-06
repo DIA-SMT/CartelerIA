@@ -780,8 +780,45 @@ test("la siembra del articulado no pisa trabajo hecho ni inventa aprobaciones", 
   );
 
   // Sin estructura reconocible no se siembra: inventar numeración es peor.
-  assert.match(script, /doc\.siembraArticulado && corte\?\.estructurado/);
+  assert.match(script, /if \(!corte\?\.estructurado\)/);
   assert.match(script, /articulado NO sembrado/);
+
+  // El estado legal se fija SIEMPRE, cambie o no el texto. Acoplarlo a la
+  // sincronización dejó el borrador marcado como vigente durante una tarde.
+  assert.match(script, /fijar_estado_legal_documento/);
+  const corridas = (script.match(/await fijarEstadoLegal\(/g) ?? []).length;
+  assert.equal(corridas, 2, "el estado legal debe fijarse en los dos caminos: con y sin cambios");
+  const siembras = (script.match(/await sembrarSiCorresponde\(/g) ?? []).length;
+  assert.equal(siembras, 2, "la siembra debe intentarse aunque el documento no haya cambiado");
+
+  // El proyecto es idempotente: reingerir no duplica.
+  assert.match(sql, /Idempotente: un borrador da origen a un solo proyecto/i);
+  assert.match(sql, /where p\.documento_origen_id = p_documento_origen_id/i);
+});
+
+test("un proyecto sin sancionar no puede volverse publico ni salir a IA externa", async () => {
+  const sql = await source("supabase/migrations/20260806_22_estado_legal_efectivo.sql");
+
+  // La RPC de estado legal es del script, no de la aplicación.
+  assert.match(sql, /create or replace function public\.fijar_estado_legal_documento/i);
+  assert.match(sql, /El estado legal de un documento lo fija el script de ingesta/i);
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function public\.fijar_estado_legal_documento\(text, text\)\s*\n\s*to authenticated/i,
+  );
+
+  // Red de seguridad: un proyecto nunca es público ni habilitado para IA.
+  assert.match(
+    sql,
+    /new\.estado_legal = 'proyecto'\s*\n\s*and \(new\.external_ai_allowed or new\.audience = 'publico'\)/i,
+  );
+  assert.match(
+    sql,
+    /create trigger trg_rag_documentos_proyecto\s*\n\s*before insert or update on public\.rag_documentos/i,
+  );
+
+  // Y corrige el dato que quedó mal cargado.
+  assert.match(sql, /set estado_legal = 'proyecto'\s*\n\s*where id = 'doc-16'/i);
 });
 
 test("guardar un articulo versiona y nunca sobrescribe", async () => {
