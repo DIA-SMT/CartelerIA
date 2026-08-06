@@ -403,11 +403,42 @@ export async function atenderDiagnostico(
   return { ok: true, error: null };
 }
 
+/**
+ * Un fragmento de la vigente que la búsqueda recuperó.
+ *
+ * `visto` es la parte que importa: el modelo solo recibe los fragmentos de
+ * documentos habilitados. Los demás se muestran igual en pantalla para leerlos,
+ * pero un "sin hallazgos" calculado sin mirarlos no es lo mismo que uno
+ * calculado con todo a la vista, y la interfaz tiene que decirlo.
+ */
+export interface FragmentoRecuperado {
+  titulo: string;
+  seccion: string | null;
+  contenido: string;
+  visto: boolean;
+}
+
+function toFragmentos(valor: unknown): FragmentoRecuperado[] {
+  if (!Array.isArray(valor)) return [];
+  return valor
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .filter((item) => typeof item.titulo === "string" && typeof item.contenido === "string")
+    .map((item) => ({
+      titulo: item.titulo as string,
+      seccion: typeof item.seccion === "string" ? item.seccion : null,
+      contenido: item.contenido as string,
+      // Sin la marca explícita se asume NO visto: es la lectura prudente.
+      visto: item.visto === true,
+    }));
+}
+
 export interface RespuestaAsistente {
   ok: boolean;
   asistido: boolean;
   motivo: string | null;
-  fragmentos: { titulo: string; seccion: string | null; contenido: string }[];
+  fragmentos: FragmentoRecuperado[];
+  /** Cuántos de esos fragmentos NO llegaron al modelo. */
+  sinVer: number;
   error: string | null;
 }
 
@@ -435,7 +466,7 @@ export async function diagnosticarContraVigente(
   articuloId: string,
   texto: string,
 ): Promise<RespuestaAsistente> {
-  const vacio = { ok: false, asistido: false, motivo: null, fragmentos: [], error: "" };
+  const vacio = { ok: false, asistido: false, motivo: null, fragmentos: [], sinVer: 0, error: "" };
   if (!supabase) return { ...vacio, error: "Supabase no está configurado." };
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
@@ -461,15 +492,13 @@ export async function diagnosticarContraVigente(
   if (!respuesta.ok) {
     return { ...vacio, error: "No se pudo ejecutar el diagnóstico." };
   }
-  const fragmentos = Array.isArray(payload.fragmentos)
-    ? payload.fragmentos.filter((item): item is { titulo: string; seccion: string | null; contenido: string } =>
-        Boolean(item) && typeof item === "object" && typeof (item as { titulo?: unknown }).titulo === "string")
-    : [];
+  const fragmentos = toFragmentos(payload.fragmentos);
   return {
     ok: true,
     asistido: payload.asistido === true,
     motivo: typeof payload.motivo === "string" ? payload.motivo : null,
     fragmentos,
+    sinVer: fragmentos.filter((fragmento) => !fragmento.visto).length,
     error: null,
   };
 }
@@ -650,7 +679,9 @@ export interface PropuestaArticulo {
   falta: string | null;
   sumilla: string | null;
   texto: string;
-  fragmentos: { titulo: string; seccion: string | null; contenido: string }[];
+  fragmentos: FragmentoRecuperado[];
+  /** Cuántos de esos fragmentos NO llegaron al modelo. */
+  sinVer: number;
   error: string | null;
 }
 
@@ -667,7 +698,7 @@ export interface PropuestaArticulo {
 export async function proponerArticulo(idea: string): Promise<PropuestaArticulo> {
   const vacio = {
     ok: false, asistido: false, motivo: null, suficiente: false,
-    falta: null, sumilla: null, texto: "", fragmentos: [], error: "",
+    falta: null, sumilla: null, texto: "", fragmentos: [], sinVer: 0, error: "",
   };
   if (!supabase) return { ...vacio, error: "Supabase no está configurado." };
   const { data: sessionData } = await supabase.auth.getSession();
@@ -700,15 +731,13 @@ export async function proponerArticulo(idea: string): Promise<PropuestaArticulo>
     };
   }
 
-  const fragmentos = Array.isArray(payload.fragmentos)
-    ? payload.fragmentos.filter((item): item is { titulo: string; seccion: string | null; contenido: string } =>
-        Boolean(item) && typeof item === "object" && typeof (item as { titulo?: unknown }).titulo === "string")
-    : [];
+  const fragmentos = toFragmentos(payload.fragmentos);
 
   return {
     ok: true,
     asistido: payload.asistido === true,
     motivo: typeof payload.motivo === "string" ? payload.motivo : null,
+    sinVer: fragmentos.filter((fragmento) => !fragmento.visto).length,
     suficiente: payload.suficiente === true,
     falta: typeof payload.falta === "string" ? payload.falta : null,
     sumilla: typeof payload.sumilla === "string" ? payload.sumilla : null,

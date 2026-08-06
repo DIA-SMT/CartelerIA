@@ -1067,16 +1067,20 @@ test("el asistente propone pero nunca guarda", async () => {
   assert.match(route, /Devolver una lista vacía es una respuesta VÁLIDA y FRECUENTE/);
 
   // Misma política de IA externa que /api/normativa: nada sale del entorno sin
-  // habilitación explícita del documento.
+  // habilitación explícita del documento. Desde la migración 26 se decide
+  // documento por documento en vez de bloquear la consulta entera.
   assert.match(route, /ENABLE_EXTERNAL_NORMATIVA_AI/);
-  assert.match(route, /!fragmento\.external_ai_allowed/);
+  assert.match(route, /fragmento\.external_ai_allowed\s*$/m);
+  assert.match(route, /fragmento\.human_reviewed\s*$/m);
+  assert.match(route, /!fragmento\.ocr_doubtful\s*$/m);
+  assert.match(route, /fragmento\.audience === "publico"/);
   assert.match(route, /hasPotentialPii\(consulta, contexto\)/);
   // El contexto sale SIEMPRE de la normativa vigente.
   assert.match(route, /p_estados: \["vigente"\]/);
 
   // Saneado una sola vez: lo que ve el modelo es contra lo que se verifica.
   assert.match(route, /const saneados = fragmentos\.map/);
-  assert.match(route, /verificarHallazgos\(\s*\n?\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*\n?\s*saneados,?\s*\n?\s*\)/);
+  assert.match(route, /verificarHallazgos\(\s*\n?\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*\n?\s*saneadosHabilitados,?\s*\n?\s*\)/);
 
   // Defensas de toda ruta nueva, con cuota propia.
   assert.match(route, /rateLimit\(`fabrica:/);
@@ -1221,6 +1225,53 @@ test("el documento impreso no se contradice sobre si es oficial", async () => {
   assert.match(ui, /window\.addEventListener\("afterprint", restaurar\);/);
   const exportador = await source("lib/norma-export.ts");
   assert.match(exportador, /enlace\.download = `\$\{nombreDocumento\(input\.oficial\)\}\.docx`;/);
+});
+
+test("la salida hacia IA externa se autoriza por documento y se declara que no vio el modelo", async () => {
+  const sql = await source("supabase/migrations/20260806_26_habilitacion_ia_externa.sql");
+  const ruta = await source("app/api/fabrica/route.ts");
+  const aviso = await source("components/fabrica/fragmentos-vigente.tsx");
+
+  // Habilitar es un acto administrativo, no una bandera que se toca a mano.
+  assert.match(sql, /coalesce\(auth\.role\(\), ''\) = 'service_role'/);
+  assert.match(sql, /v_rol is distinct from 'administrador'::public\.app_rol/);
+  assert.match(sql, /char_length\(btrim\(coalesce\(p_fundamento, ''\)\)\) < 12/);
+  assert.match(
+    sql,
+    /insert into public\.auditoria_eventos[\s\S]{0,700}'fundamento', btrim\(p_fundamento\)/,
+    "el fundamento tiene que quedar al lado del antes y el después",
+  );
+  assert.match(
+    sql,
+    /revoke all on function public\.habilitar_documento_ia_externa\(text, boolean, boolean, text\)\s*from public, anon, service_role;/,
+  );
+
+  // Dos barreras que no dependen de quién llame.
+  assert.match(sql, /Un documento interno no sale del municipio/);
+  assert.match(sql, /un proyecto sin sancionar, nunca/);
+  assert.match(sql, /Un documento sin revision humana no se habilita para IA externa/);
+  // Y esas barreras son SOLO al habilitar: apagar tiene que poder hacerse ya.
+  assert.match(sql, /if p_ia_externa then[\s\S]{0,900}end if;\s*update public\.rag_documentos/);
+
+  // La ruta filtra en vez de bloquear: antes un solo fragmento restringido
+  // cortaba la consulta entera, así que habilitar un documento no servía de nada.
+  assert.match(ruta, /const indicesHabilitados = fragmentos/);
+  assert.doesNotMatch(
+    ruta,
+    /const fuenteRestringida = fragmentos\.some/,
+    "un fragmento restringido no puede volver a bloquear toda la consulta",
+  );
+
+  // Las citas se verifican contra lo que el modelo VIO. Contra todo, una cita
+  // inventada que coincidiera con un fragmento retenido pasaría por verificada.
+  assert.match(ruta, /verificarHallazgos\(\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*saneadosHabilitados,\s*\)/);
+  assert.match(ruta, /const saneadosHabilitados = indicesHabilitados\.map/);
+
+  // Y el precio de filtrar se declara: un "sin hallazgos" calculado sin ver
+  // todo no es un certificado de que no hay conflicto.
+  assert.match(ruta, /visto: puedeSalir\(fragmento\)/);
+  assert.match(aviso, /El asistente no vio \{sinVer\.length\} de los \{fragmentos\.length\} fragmentos/);
+  assert.match(aviso, /no quiere decir que no haya conflicto/);
 });
 
 test("un articulo nuevo guarda que se pidio y quien lo escribio", async () => {

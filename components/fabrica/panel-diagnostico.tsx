@@ -14,6 +14,7 @@ import {
   loadParametros,
   type ArticuloNorma,
   type DiagnosticoGuardado,
+  type FragmentoRecuperado,
   type ParametroGuardado,
 } from "@/lib/fabrica-repository";
 import {
@@ -25,6 +26,7 @@ import {
 } from "@/lib/norma-simulador";
 import { ConfirmDialog } from "../confirm-dialog";
 import { toast } from "../toaster";
+import { FragmentosVigente } from "./fragmentos-vigente";
 
 const SEVERIDAD_COLORS: Record<string, string> = {
   alta: "#dc2626",
@@ -65,7 +67,7 @@ export function PanelDiagnostico({
   const [error, setError] = useState<string | null>(null);
   const [diagnosticando, setDiagnosticando] = useState(false);
   const [avisoAsistente, setAvisoAsistente] = useState<string | null>(null);
-  const [fragmentos, setFragmentos] = useState<{ titulo: string; seccion: string | null; contenido: string }[]>([]);
+  const [fragmentos, setFragmentos] = useState<FragmentoRecuperado[]>([]);
   const [simulacion, setSimulacion] = useState<ResumenSimulacion | null>(null);
   const [errorSimulacion, setErrorSimulacion] = useState<string | null>(null);
   const [atendiendo, setAtendiendo] = useState<DiagnosticoGuardado | null>(null);
@@ -187,21 +189,7 @@ export function PanelDiagnostico({
       )}
 
       {/* Fragmentos de la vigente, útiles incluso sin asistente */}
-      {fragmentos.length > 0 && (
-        <details className="mt-2 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-          <summary className="cursor-pointer text-micro font-extrabold uppercase tracking-wider text-slate-500">
-            Normativa vigente relacionada ({fragmentos.length})
-          </summary>
-          <ul className="mt-2 space-y-2">
-            {fragmentos.map((fragmento, indice) => (
-              <li key={indice} className="rounded-lg bg-white p-2.5">
-                <span className="micro-label">{fragmento.titulo}{fragmento.seccion ? ` · ${fragmento.seccion}` : ""}</span>
-                <p className="mt-1 text-micro leading-4 text-slate-600">{fragmento.contenido}</p>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      <FragmentosVigente fragmentos={fragmentos} asistido={avisoAsistente === null}/>
 
       {/* Hallazgos */}
       {cargando ? (

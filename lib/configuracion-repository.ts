@@ -170,6 +170,97 @@ export async function loadResumenCorpus(): Promise<LoadResult<ResumenCorpus | nu
 }
 
 // ----------------------------------------------------------------------------
+// Revisión del corpus y salida hacia IA externa
+// ----------------------------------------------------------------------------
+export interface FragmentoIndexado {
+  id: string;
+  seccion: string | null;
+  pagina: number | null;
+  contenido: string;
+}
+
+/**
+ * El texto de un documento tal como quedó indexado.
+ *
+ * Es exactamente lo que vería el modelo, y no lo que dice el PDF: entre los dos
+ * está el OCR, que es donde aparecen los errores. Leer esto es lo que convierte
+ * "marcar como revisado" en una revisión de verdad.
+ */
+export async function loadFragmentosDocumento(
+  documentoId: string,
+): Promise<LoadResult<FragmentoIndexado[]>> {
+  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
+  const { data, error } = await supabase.rpc("fragmentos_documento", {
+    p_documento_id: documentoId,
+  });
+  if (error || !Array.isArray(data)) {
+    return {
+      ok: false,
+      data: [],
+      error: error?.code === "PGRST202"
+        ? "Falta aplicar la migración 26 en el SQL Editor."
+        : "No se pudo leer el texto del documento.",
+    };
+  }
+  const fragmentos: FragmentoIndexado[] = [];
+  for (const row of data as Record<string, unknown>[]) {
+    if (typeof row.contenido !== "string") {
+      return { ok: false, data: [], error: "El documento devolvió un contrato inesperado." };
+    }
+    fragmentos.push({
+      id: String(row.id),
+      seccion: typeof row.seccion === "string" ? row.seccion : null,
+      pagina: typeof row.pagina === "number" ? row.pagina : null,
+      contenido: row.contenido,
+    });
+  }
+  return { ok: true, data: fragmentos, error: null };
+}
+
+/**
+ * Decide si un documento puede salir del municipio hacia un proveedor externo.
+ *
+ * PostgreSQL vuelve a validar todo: administrador humano, fundamento, y las dos
+ * barreras que no dependen de quien llame (nada interno y nada sin sancionar
+ * sale, aunque se lo pida). Acá solo se traducen los rechazos.
+ */
+export async function habilitarDocumentoIaExterna(input: {
+  documentoId: string;
+  revisado: boolean;
+  iaExterna: boolean;
+  fundamento: string;
+}): Promise<{ ok: boolean; error: string | null }> {
+  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
+  const { error } = await supabase.rpc("habilitar_documento_ia_externa", {
+    p_documento_id: input.documentoId,
+    p_revisado: input.revisado,
+    p_ia_externa: input.iaExterna,
+    p_fundamento: input.fundamento,
+  });
+  if (!error) return { ok: true, error: null };
+  if (error.code === "PGRST202") {
+    return { ok: false, error: "Falta aplicar la migración 26 en el SQL Editor." };
+  }
+  const mensaje = error.message ?? "";
+  if (/Solo un administrador/i.test(mensaje)) {
+    return { ok: false, error: "Solo un administrador decide qué documentos salen del municipio." };
+  }
+  if (/fundamento de al menos/i.test(mensaje)) {
+    return { ok: false, error: "El fundamento debe tener al menos 12 caracteres." };
+  }
+  if (/documento interno no sale/i.test(mensaje)) {
+    return { ok: false, error: "Un documento interno no sale del municipio." };
+  }
+  if (/documento vigente sale/i.test(mensaje)) {
+    return { ok: false, error: "Un proyecto sin sancionar no sale del municipio." };
+  }
+  if (/sin revision humana/i.test(mensaje)) {
+    return { ok: false, error: "Marcalo como revisado antes de habilitarlo para IA externa." };
+  }
+  return { ok: false, error: "No se pudo cambiar la habilitación del documento." };
+}
+
+// ----------------------------------------------------------------------------
 // Buckets de evidencia
 // ----------------------------------------------------------------------------
 export interface EstadoBucket {

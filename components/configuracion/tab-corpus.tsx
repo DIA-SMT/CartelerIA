@@ -1,9 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Database } from "lucide-react";
+import { AlertTriangle, Database, FileSearch } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { loadResumenCorpus, type ResumenCorpus } from "@/lib/configuracion-repository";
+import {
+  loadResumenCorpus,
+  type DocumentoCorpus,
+  type ResumenCorpus,
+} from "@/lib/configuracion-repository";
+import { RevisarDocumento } from "./revisar-documento";
 
 type LoadPhase = "idle" | "loading" | "ready" | "error";
 
@@ -25,6 +30,7 @@ export function TabCorpus() {
   const [loadPhase, setLoadPhase] = useState<LoadPhase>("idle");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dataOwnerId, setDataOwnerId] = useState<string | null>(null);
+  const [revisando, setRevisando] = useState<DocumentoCorpus | null>(null);
   const refreshSequence = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -102,6 +108,7 @@ export function TabCorpus() {
               <th className="px-3 py-2.5">Huella del PDF</th>
               <th className="px-3 py-2.5">Huella del texto</th>
               <th className="px-3 py-2.5">Estado</th>
+              <th className="px-3 py-2.5"><span className="sr-only">Revisar</span></th>
             </tr>
           </thead>
           <tbody>
@@ -141,6 +148,17 @@ export function TabCorpus() {
                     )}
                   </div>
                 </td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    type="button"
+                    onClick={() => setRevisando(documento)}
+                    title="Leer el texto indexado y decidir si sale del municipio"
+                    className="secondary-button compact"
+                  >
+                    <FileSearch size={13}/>
+                    Revisar
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -153,6 +171,14 @@ export function TabCorpus() {
         no desde acá. Un documento sin revisión humana o con OCR dudoso no debería citarse como
         respaldo jurídico sin leer antes la fuente.
       </p>
+
+      {revisando && (
+        <RevisarDocumento
+          documento={revisando}
+          onClose={() => setRevisando(null)}
+          onCambio={refresh}
+        />
+      )}
     </div>
   );
 }

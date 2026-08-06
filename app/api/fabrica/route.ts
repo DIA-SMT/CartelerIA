@@ -200,37 +200,63 @@ export async function POST(request: Request) {
   }
   const fragmentos = Array.isArray(crudos) ? crudos.filter(esFragmento) : [];
 
-  // Misma política que /api/normativa: nada sale del entorno sin habilitación
-  // explícita. Hoy ningún documento del corpus está habilitado, así que el
-  // asistente se niega. Es una decisión municipal pendiente, no una falla.
-  const fuenteRestringida = fragmentos.some((fragmento) => (
-    fragmento.audience !== "publico"
-    || !fragmento.human_reviewed
-    || !fragmento.external_ai_allowed
-    || fragmento.ocr_doubtful
-  ));
-
   // Saneado UNA sola vez: el mismo string que ve el modelo es contra el que se
   // verifican las citas. Si divergieran, toda cita válida se descartaría.
   const saneados = fragmentos.map((fragmento) => sanearFragmento(fragmento.contenido));
-  const contexto = fragmentos
-    .map((fragmento, indice) => `[${indice + 1}] ${fragmento.titulo}${fragmento.seccion ? ` · ${fragmento.seccion}` : ""}\n${saneados[indice]}`)
+
+  /**
+   * Habilitación documento por documento.
+   *
+   * Antes bastaba un fragmento restringido para bloquear la consulta entera:
+   * como la búsqueda recorre los quince documentos vigentes, habilitar uno solo
+   * no servía de nada. Ahora el modelo recibe únicamente los fragmentos
+   * habilitados y los demás quedan acá, para leerlos en pantalla.
+   *
+   * El costo de filtrar en vez de bloquear es un falso negativo: el asistente
+   * puede decir "sin hallazgos" porque no vio el documento donde estaba el
+   * conflicto. Por eso la respuesta declara cuáles vio y cuáles no, y la
+   * pantalla lo muestra: un "sin hallazgos" que no aclara qué se miró es peor
+   * que no responder.
+   */
+  const puedeSalir = (fragmento: Fragmento) => (
+    fragmento.audience === "publico"
+    && fragmento.human_reviewed
+    && fragmento.external_ai_allowed
+    && !fragmento.ocr_doubtful
+  );
+  const indicesHabilitados = fragmentos
+    .map((fragmento, indice) => (puedeSalir(fragmento) ? indice : -1))
+    .filter((indice) => indice !== -1);
+
+  const saneadosHabilitados = indicesHabilitados.map((indice) => saneados[indice]!);
+  const contexto = indicesHabilitados
+    .map((indice, posicion) => {
+      const fragmento = fragmentos[indice]!;
+      return `[${posicion + 1}] ${fragmento.titulo}${fragmento.seccion ? ` · ${fragmento.seccion}` : ""}\n${saneadosHabilitados[posicion]}`;
+    })
     .join("\n\n");
 
-  if (!EXTERNAL_AI_ENABLED || !openrouterKey || fuenteRestringida || hasPotentialPii(consulta, contexto)) {
+  /** Todo lo recuperado, marcando qué llegó al modelo y qué no. */
+  const detalleFragmentos = fragmentos.map((fragmento, indice) => ({
+    titulo: fragmento.titulo,
+    seccion: fragmento.seccion,
+    contenido: saneados[indice],
+    visto: puedeSalir(fragmento),
+  }));
+  const sinVer = detalleFragmentos.filter((fragmento) => !fragmento.visto).length;
+
+  const sinHabilitados = indicesHabilitados.length === 0;
+  if (!EXTERNAL_AI_ENABLED || !openrouterKey || sinHabilitados || hasPotentialPii(consulta, contexto)) {
     return response({
       ok: true,
       asistido: false,
       motivo: !EXTERNAL_AI_ENABLED || !openrouterKey
         ? "asistencia_deshabilitada"
-        : fuenteRestringida
+        : sinHabilitados
           ? "fuente_restringida"
           : "pii_detectada",
-      fragmentos: fragmentos.map((fragmento, indice) => ({
-        titulo: fragmento.titulo,
-        seccion: fragmento.seccion,
-        contenido: saneados[indice],
-      })),
+      fragmentos: detalleFragmentos,
+      sinVer,
     });
   }
 
@@ -248,6 +274,8 @@ export async function POST(request: Request) {
         asistido: true,
         suficiente: false,
         falta: typeof propuesta.falta === "string" ? propuesta.falta : "Faltan definiciones para escribir el artículo.",
+        fragmentos: detalleFragmentos,
+        sinVer,
       });
     }
     // La propuesta vuelve al navegador. No se guarda: la crea una persona al
@@ -258,6 +286,8 @@ export async function POST(request: Request) {
       suficiente: true,
       sumilla: typeof propuesta.sumilla === "string" ? propuesta.sumilla : null,
       texto: typeof propuesta.texto === "string" ? propuesta.texto : "",
+      fragmentos: detalleFragmentos,
+      sinVer,
     });
   }
 
@@ -270,9 +300,12 @@ export async function POST(request: Request) {
   if (!salida) return response({ error: "asistente_no_disponible" }, 502);
 
   const crudosHallazgos = Array.isArray(salida.hallazgos) ? salida.hallazgos : [];
+  // Contra los fragmentos que el modelo VIO, no contra todos: una cita que
+  // coincidiera con un fragmento retenido sería una invención que da en el
+  // blanco por casualidad, y pasaría por verificada.
   const { verificados, descartados } = verificarHallazgos(
     crudosHallazgos as HallazgoSinVerificar[],
-    saneados,
+    saneadosHabilitados,
   );
   if (descartados.length > 0) {
     // Queda en el log del servidor: un modelo que inventa citas es información
@@ -303,5 +336,7 @@ export async function POST(request: Request) {
     asistido: true,
     hallazgos: verificados,
     descartados: descartados.length,
+    fragmentos: detalleFragmentos,
+    sinVer,
   });
 }

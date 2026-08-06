@@ -10,9 +10,11 @@ import {
   MOTIVO_MIN_LENGTH,
   crearArticulo,
   proponerArticulo,
+  type FragmentoRecuperado,
 } from "@/lib/fabrica-repository";
 import { ConfirmDialog, confirmDialogIsOpen } from "../confirm-dialog";
 import { toast } from "../toaster";
+import { FragmentosVigente } from "./fragmentos-vigente";
 
 /** Piso de la ruta para pedirle una propuesta al asistente. */
 const IDEA_MINIMA = 20;
@@ -62,7 +64,7 @@ function PanelLienzo({ proyectoId, onClose, onCreado }: PropsLienzo) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [falta, setFalta] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [fragmentos, setFragmentos] = useState<{ titulo: string; seccion: string | null; contenido: string }[]>([]);
+  const [fragmentos, setFragmentos] = useState<FragmentoRecuperado[]>([]);
   const [confirmarSalida, setConfirmarSalida] = useState(false);
 
   const hayTrabajo = idea.trim().length > 0 || texto.trim().length > 0;
@@ -294,23 +296,7 @@ function PanelLienzo({ proyectoId, onClose, onCreado }: PropsLienzo) {
             </p>
           )}
 
-          {fragmentos.length > 0 && (
-            <details className="mt-4 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-              <summary className="cursor-pointer text-micro font-extrabold uppercase tracking-wider text-slate-500">
-                Normativa vigente relacionada ({fragmentos.length})
-              </summary>
-              <ul className="mt-2 space-y-2">
-                {fragmentos.map((fragmento, indice) => (
-                  <li key={indice} className="rounded-lg bg-white p-2.5">
-                    <span className="micro-label">
-                      {fragmento.titulo}{fragmento.seccion ? ` · ${fragmento.seccion}` : ""}
-                    </span>
-                    <p className="mt-1 text-micro leading-4 text-slate-600">{fragmento.contenido}</p>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
+          <FragmentosVigente fragmentos={fragmentos} asistido={aviso === null}/>
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 p-4">

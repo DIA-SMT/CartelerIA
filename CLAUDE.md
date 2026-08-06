@@ -106,6 +106,20 @@ Todavía no hay una suite general ni configuración de ESLint.
   - `/api/fabrica` propone y jamás escribe: no llama a ninguna RPC de
     articulado. Los hallazgos con cita que no se verifica contra los fragmentos
     (`lib/norma-citas.ts`) se descartan antes de guardarse.
+  - **La salida hacia IA externa se decide documento por documento**
+    (migración 26). Antes un solo fragmento restringido bloqueaba la consulta
+    entera y, como la búsqueda recorre los 15 documentos vigentes, habilitar uno
+    no servía de nada. Ahora el modelo recibe solo los fragmentos habilitados y
+    los demás se muestran en pantalla. **Las citas se verifican contra
+    `saneadosHabilitados`, no contra todos**: si no, una cita inventada que
+    coincidiera con un fragmento retenido pasaría por verificada. El precio de
+    filtrar es el falso negativo, así que la respuesta trae `visto` por
+    fragmento y `FragmentosVigente` lo dice: un "sin hallazgos" que no aclara
+    qué se miró es peor que no responder.
+    Habilitar es un acto: `habilitar_documento_ia_externa` exige administrador
+    humano y fundamento, queda en `auditoria_eventos`, y tiene dos barreras que
+    no dependen de quién llame — nada `interno` y nada en estado `proyecto` sale,
+    aunque se lo pida. Apagar siempre se puede, sin barreras.
   - La exportación para elevar es fail-closed (`evaluarElevacion`): un artículo
     sin aprobar o un diagnóstico grave sin atender la bloquean y se dice cuál.
     La versión de trabajo siempre está disponible y va marcada como borrador.
@@ -216,10 +230,17 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   la instancia el 2026-08-06): 29 comprobaciones, incluidos los cinco RPC del
   bloque 3, la columna `origen`, los 33 artículos sembrados, y que `service_role`
   reciba `42501` al intentar insertar, reescribir o borrar una observación.
-  **La 25 está pendiente de aplicación**: reemplaza `crear_articulo` por una
-  versión de cinco argumentos con motivo obligatorio y borra la sobrecarga de
-  cuatro. Sin ella, el botón "Artículo nuevo" avisa que falta. El detalle de las
-  reglas está arriba, en Arquitectura.
+  **Las 25 y 26 están pendientes de aplicación**: la 25 reemplaza
+  `crear_articulo` por una versión de cinco argumentos con motivo obligatorio y
+  borra la sobrecarga de cuatro; la 26 agrega
+  `habilitar_documento_ia_externa` y `fragmentos_documento`. Sin ellas, los
+  botones avisan cuál falta. El detalle de las reglas está arriba, en
+  Arquitectura.
+- **El `ocr_doubtful` de la máquina no es confiable en los dos sentidos.**
+  `doc-02` (Decreto 0609/18) figura con OCR limpio y su texto indexado dice
+  "TÍCULO 1*.-" y "hacla la Via Pública". La métrica de confianza del OCR no
+  sirve como prueba de que el texto esté bien: por eso `human_reviewed` es una
+  aserción de una persona y se pide leer los fragmentos antes de marcarla.
   Al probar un RPC por PostgREST, ojo: si los nombres de los argumentos no
   coinciden exactos, devuelve `PGRST202` —el mismo código que si la función no
   existiera—. Verificar la firma antes de concluir que falta algo.
