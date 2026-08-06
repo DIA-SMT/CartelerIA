@@ -1,7 +1,24 @@
 import type { UrbanDocument } from "./documents.ts";
 
+/**
+ * Estado legal del documento dentro del corpus (migración 20).
+ *
+ * Es lo que separa la normativa que se puede citar de la que todavía no. El
+ * asistente normativo solo recupera `vigente`; el borrador de la nueva
+ * ordenanza entra como `proyecto` y nunca aparece en una respuesta.
+ */
+export type EstadoLegalDocumento = "vigente" | "derogada" | "proyecto";
+
 export type CorpusDocument = UrbanDocument & {
   sourcePath: string;
+  /** Ausente = `vigente`, que es lo que corresponde a todo el corpus anterior. */
+  estadoLegal?: EstadoLegalDocumento;
+  /**
+   * true si el documento es el borrador que siembra el articulado de un
+   * proyecto. Solo puede haber uno por proyecto y su corte debe ser por
+   * artículo, no por ventana de caracteres.
+   */
+  siembraArticulado?: boolean;
 };
 
 /**
@@ -22,4 +39,8 @@ export const internalDocuments: CorpusDocument[] = [
   { id: "doc-13", title: "Relevamiento Estevez Neme", category: "Relevamiento", description: "Antecedentes y registro visual del relevamiento individual FOT 30.", date: "2025-06-09", audience: "interno", humanReviewed: false, externalAiAllowed: false, pdfUrl: null, sourcePath: "private/docs/relevamiento-estevez-neme.pdf" },
   { id: "doc-14", title: "Relevamiento Gálvez", category: "Relevamiento", description: "Documentación administrativa y fotográfica del cartel identificado.", date: "2025-06-11", audience: "interno", humanReviewed: false, externalAiAllowed: false, pdfUrl: null, sourcePath: "private/docs/relevamiento-galvez.pdf" },
   { id: "doc-15", title: "Relevamiento Giganto Comunicaciones", category: "Relevamiento", description: "Expediente visual asociado a soportes de Giganto Comunicaciones SRL.", date: "2025-06-13", audience: "interno", humanReviewed: false, externalAiAllowed: false, pdfUrl: null, sourcePath: "private/docs/relevamiento-giganto.pdf" },
+  // Borrador de la nueva ordenanza. Entra al corpus como `proyecto`, así que el
+  // asistente normativo no lo cita nunca, y siembra el articulado de la Fábrica
+  // Normativa. Es el único documento del catálogo en formato Word.
+  { id: "doc-16", title: "Proyecto de Ordenanza · Régimen Integral de Publicidad Exterior", category: "Normativa", description: "Borrador recibido de la nueva ordenanza de publicidad exterior y gestión digital de soportes.", date: "2026-08-06", audience: "interno", humanReviewed: false, externalAiAllowed: false, pdfUrl: null, sourcePath: "private/docs/ordenanza-proyecto.docx", estadoLegal: "proyecto", siembraArticulado: true },
 ];

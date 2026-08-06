@@ -20,6 +20,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import nextEnv from "@next/env";
 import { corpusDocuments } from "../data/document-corpus.ts";
+import {
+  cortarPorArticulo,
+  fragmentarArticulo,
+  type CorteArticulado,
+} from "../lib/articulado.ts";
 import { embedTexts } from "../lib/embeddings.ts";
 
 const DRY = process.argv.includes("--dry");
@@ -126,6 +131,45 @@ async function loadOcrPages(
 }
 
 // ----------------------------------------------------------------------------
+// Extracción de párrafos desde .docx
+// ----------------------------------------------------------------------------
+/**
+ * Un `.docx` es un ZIP con `word/document.xml` adentro. Se leen los `<w:p>` y,
+ * dentro de cada uno, sus `<w:t>`.
+ *
+ * Ninguna de las cuatro trampas de pdfjs aplica acá: no hay buffer que se
+ * transfiera, no hay build legacy, no aparecen corridas de letras sueltas y no
+ * existe el caso del escaneo. El texto de Word es texto, no una reconstrucción.
+ *
+ * A cambio, la información que sí importa conservar es el salto de párrafo: es
+ * lo que permite saber dónde termina el encabezado de un artículo, y es
+ * confiable porque lo escribió un editor de texto y no un extractor.
+ */
+async function extractDocxParagraphs(filePath: string): Promise<string[]> {
+  const require = createRequire(import.meta.url);
+  const AdmZip = require("adm-zip") as typeof import("adm-zip");
+  const zip = new AdmZip(filePath);
+  const entry = zip.getEntry("word/document.xml");
+  if (!entry) throw new Error("el .docx no contiene word/document.xml");
+  const xml = entry.getData().toString("utf8");
+
+  return Array.from(xml.matchAll(/<w:p[ >][\s\S]*?<\/w:p>/g))
+    .map((match) => {
+      const texto = Array.from(match[0].matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g))
+        .map((item) => item[1])
+        .join("");
+      return texto
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .trim();
+    })
+    .filter(Boolean);
+}
+
+// ----------------------------------------------------------------------------
 // Limpieza + chunking con seguimiento de sección (artículo / anexo)
 // ----------------------------------------------------------------------------
 function clean(text: string): string {
@@ -176,6 +220,30 @@ function buildChunks(pages: string[]): { chunks: Chunk[]; totalChars: number } {
   return { chunks, totalChars };
 }
 
+/**
+ * Fragmentos a partir del corte por artículo.
+ *
+ * Cada fragmento conserva el artículo en `seccion`, incluso cuando un artículo
+ * largo se parte en varios: la cita sigue siendo el artículo entero. `pagina`
+ * queda en 1 porque un `.docx` no tiene paginado que sirva para citar.
+ */
+function buildChunksDesdeArticulos(corte: CorteArticulado): { chunks: Chunk[]; totalChars: number } {
+  const chunks: Chunk[] = [];
+  let totalChars = 0;
+  for (const articulo of corte.articulos) {
+    for (const parte of fragmentarArticulo(articulo, TARGET_CHARS)) {
+      totalChars += parte.contenido.length;
+      chunks.push({
+        pagina: 1,
+        seccion: parte.seccion,
+        contenido: parte.contenido,
+        orden: chunks.length,
+      });
+    }
+  }
+  return { chunks, totalChars };
+}
+
 function canonicalChunkManifest(chunks: Chunk[]): string {
   return chunks.map((chunk) => {
     const section = chunk.seccion ?? "";
@@ -205,25 +273,49 @@ async function main() {
   for (const doc of corpusDocuments) {
     const filePath = path.join(process.cwd(), doc.sourcePath);
 
+    const esDocx = doc.sourcePath.toLowerCase().endsWith(".docx");
     let pages: string[];
+    let parrafos: string[] = [];
     let sourcePdfHash = "";
     let ocrInfo: { confianza: number | null; dudosa: boolean } | null = null;
     try {
       const buffer = await readFile(filePath);
       sourcePdfHash = createHash("sha256").update(buffer).digest("hex");
-      const ocr = await loadOcrPages(doc, sourcePdfHash);
-      if (ocr) {
-        pages = ocr.pages;
-        ocrInfo = { confianza: ocr.confianza, dudosa: ocr.dudosa };
+      if (esDocx) {
+        parrafos = await extractDocxParagraphs(filePath);
+        // El .docx no tiene paginado util: se trata como una sola pagina y la
+        // unidad de cita pasa a ser el articulo, que es lo que corresponde.
+        pages = [parrafos.join("\n")];
       } else {
-        pages = await extractPages(buffer);
+        const ocr = await loadOcrPages(doc, sourcePdfHash);
+        if (ocr) {
+          pages = ocr.pages;
+          ocrInfo = { confianza: ocr.confianza, dudosa: ocr.dudosa };
+        } else {
+          pages = await extractPages(buffer);
+        }
       }
     } catch (error) {
       console.log(`✗ ${doc.id} ${doc.title} — error al leer: ${(error as Error).message}`);
       continue;
     }
 
-    const { chunks, totalChars } = buildChunks(pages);
+    // Un texto normativo se corta por articulo, no por ventana de caracteres:
+    // la unidad de cita de una ordenanza es el articulo y `seccion` pesa A en
+    // el indice lexico. Si no hay estructura reconocible, se cae al corte por
+    // ventanas y NO se siembra articulado.
+    let corte: CorteArticulado | null = null;
+    if (esDocx) {
+      corte = cortarPorArticulo(parrafos);
+      for (const aviso of corte.avisos) console.log(`  ⚠ ${doc.id}: ${aviso}`);
+      if (!corte.estructurado) {
+        console.log(`  ⚠ ${doc.id}: sin estructura de artículos — se indexa por ventanas y no se siembra articulado`);
+      }
+    }
+
+    const { chunks, totalChars } = corte?.estructurado
+      ? buildChunksDesdeArticulos(corte)
+      : buildChunks(pages);
     if (totalChars < MIN_TEXT_CHARS) {
       console.log(`↷ ${doc.id} ${doc.title} — escaneado/sin texto (${totalChars} chars, ${pages.length} pág.) — SALTEADO (corré scripts/ocr-docs.ts)`);
       skippedScan += 1;
@@ -267,6 +359,9 @@ async function main() {
       audience: doc.audience,
       ocr_confidence: ocrConfidence,
       ocr_doubtful: ocrDoubtful,
+      // Sin estado declarado, el documento es normativa vigente: es lo que
+      // corresponde a todo el corpus anterior al proyecto de ordenanza.
+      estado_legal: doc.estadoLegal ?? "vigente",
     };
     const sampleSections = Array.from(new Set(chunks.map((c) => c.seccion).filter(Boolean))).slice(0, 4);
     const ocrTag = ocrInfo ? ` · OCR ${ocrInfo.confianza ?? "?"}%${ocrInfo.dudosa ? " ⚠ dudoso" : ""}` : "";
@@ -356,6 +451,43 @@ async function main() {
     }
     console.log(`    ingestado atómicamente (${chunks.length} chunks embebidos)`);
     ingested += 1;
+
+    // Siembra del articulado. Solo para el borrador que da origen al proyecto y
+    // solo si el corte reconoció una estructura de artículos: inventar una
+    // numeración sería peor que no sembrar nada.
+    if (doc.siembraArticulado && corte?.estructurado) {
+      const { data: proyectoId, error: proyectoError } = await supabase!
+        .rpc("crear_proyecto_norma", {
+          p_titulo: doc.title,
+          p_objeto: doc.description,
+          p_documento_origen_id: doc.id,
+        });
+      if (proyectoError || typeof proyectoId !== "string") {
+        throw new Error(
+          `alta del proyecto ${doc.id}: ${proyectoError?.message ?? "respuesta inválida"}`,
+        );
+      }
+
+      const articulos = corte.articulos.map((articulo) => ({
+        numero: articulo.numero,
+        sumilla: articulo.sumilla,
+        texto: articulo.texto,
+      }));
+      const { data: sembrados, error: siembraError } = await supabase!
+        .rpc("sembrar_articulado", {
+          p_proyecto_id: proyectoId,
+          p_articulos: articulos,
+        });
+      if (siembraError) {
+        // La RPC falla a propósito si el proyecto ya tiene artículos: no pisa
+        // trabajo hecho. Se avisa con claridad en vez de dejarlo pasar.
+        console.log(`    ⚠ articulado NO sembrado: ${siembraError.message}`);
+      } else {
+        console.log(`    articulado sembrado: ${sembrados} artículos en estado propuesto`);
+      }
+    } else if (doc.siembraArticulado && !corte?.estructurado) {
+      console.log("    ⚠ articulado NO sembrado: el borrador no tiene estructura de artículos reconocible");
+    }
   }
 
   console.log(`\nResumen: ${DRY ? "(dry-run) " : ""}${ingested} ingestados, ${skippedUnchanged} sin cambios, ${skippedScan} escaneados salteados, ${totalChunks} chunks totales.\n`);

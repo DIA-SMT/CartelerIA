@@ -731,6 +731,59 @@ test("el corte por artículo no inventa numeración", async () => {
   assert.ok(partes.every((parte) => parte.contenido.length <= 600));
 });
 
+test("la siembra del articulado no pisa trabajo hecho ni inventa aprobaciones", async () => {
+  const [sql, script, { internalDocuments }] = await Promise.all([
+    source("supabase/migrations/20260806_21_fabrica_normativa.sql"),
+    source("scripts/ingest-docs.ts"),
+    import("../data/internal-documents.ts"),
+  ]);
+
+  // El borrador entra como proyecto, nunca como vigente.
+  const borrador = internalDocuments.find((doc) => doc.siembraArticulado);
+  assert.ok(borrador, "falta el borrador que siembra el articulado");
+  assert.equal(borrador.estadoLegal, "proyecto");
+  assert.equal(borrador.audience, "interno");
+  assert.equal(borrador.externalAiAllowed, false);
+  // Y es el único: dos borradores sembrando el mismo proyecto es ambigüedad.
+  assert.equal(internalDocuments.filter((doc) => doc.siembraArticulado).length, 1);
+
+  // El script propaga el estado legal, con vigente como omisión.
+  assert.match(script, /estado_legal: doc\.estadoLegal \?\? "vigente"/);
+
+  // Reingerir un borrador corregido no puede pisar lo ya editado.
+  assert.match(
+    sql,
+    /if v_existentes > 0 then\s*\n\s*raise exception 'El proyecto ya tiene % articulos: la siembra no pisa trabajo hecho'/i,
+  );
+
+  // Nada nace aprobado: la siembra solo escribe `propuesto`.
+  const siembra = sql.slice(
+    sql.indexOf("create or replace function public.sembrar_articulado"),
+    sql.indexOf("revoke all on function public.crear_proyecto_norma"),
+  );
+  assert.ok(siembra.length > 0, "no se pudo aislar sembrar_articulado");
+  assert.match(siembra, /'propuesto',\s*\n\s*'borrador_recibido'/);
+  assert.doesNotMatch(siembra, /'aprobado'/, "la siembra no puede aprobar nada");
+  // Y deja la versión 1 con el texto recibido: el historial arranca ahí.
+  assert.match(siembra, /insert into public\.norma_articulo_version/);
+  assert.match(siembra, /'Texto del borrador recibido'/);
+
+  // El historial es inmutable y texto_original tiene su propia protección.
+  assert.match(
+    sql,
+    /create trigger trg_norma_articulo_version_inmutable\s*\n\s*before update or delete on public\.norma_articulo_version/i,
+  );
+  assert.match(sql, /raise exception 'El texto original del borrador es inmutable'/i);
+  assert.match(
+    sql,
+    /revoke insert, update, delete on public\.norma_articulo_version\s*\n\s*from anon, authenticated, service_role/i,
+  );
+
+  // Sin estructura reconocible no se siembra: inventar numeración es peor.
+  assert.match(script, /doc\.siembraArticulado && corte\?\.estructurado/);
+  assert.match(script, /articulado NO sembrado/);
+});
+
 test("las migraciones declaradas coinciden con los archivos reales", async () => {
   const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
   const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))
