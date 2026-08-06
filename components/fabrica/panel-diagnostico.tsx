@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, HelpCircle, Loader2, MapPin, Play, Scale, 
 import type { AnalyzedCartel } from "@/data/territorial";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  MOTIVO_ASISTENTE,
   MOTIVO_MIN_LENGTH,
   atenderDiagnostico,
   confirmarParametro,
@@ -29,12 +30,6 @@ const SEVERIDAD_COLORS: Record<string, string> = {
   alta: "#dc2626",
   media: "#f59e0b",
   baja: "#64748b",
-};
-
-const MOTIVO_ASISTENTE: Record<string, string> = {
-  asistencia_deshabilitada: "La asistencia por IA externa está deshabilitada en este entorno.",
-  fuente_restringida: "La normativa recuperada no está habilitada para salir a un servicio externo. Se muestran los fragmentos para leerlos acá.",
-  pii_detectada: "El texto contiene identificadores personales, así que no se envía a un servicio externo.",
 };
 
 /** Parámetros numéricos y su unidad. Las zonas se cargan aparte. */

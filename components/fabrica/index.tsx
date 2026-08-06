@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, FileText, History, Loader2, RefreshCw, Save, Table2 } from "lucide-react";
+import { AlertTriangle, FileText, History, Loader2, PenLine, RefreshCw, Save, Table2 } from "lucide-react";
 import type { AnalyzedCartel } from "@/data/territorial";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -23,6 +23,7 @@ import { ConfirmDialog } from "../confirm-dialog";
 import { toast } from "../toaster";
 import { ArticuladoCompleto } from "./articulado-completo";
 import { HistorialArticulo } from "./historial-articulo";
+import { LienzoArticulo } from "./lienzo-articulo";
 import { ObservacionesArticulo } from "./observaciones-articulo";
 import { PanelDiagnostico } from "./panel-diagnostico";
 
@@ -109,6 +110,7 @@ export default function Fabrica({
   const [cambio, setCambio] = useState<CambioPendiente | null>(null);
   const [historialDe, setHistorialDe] = useState<ArticuloNorma | null>(null);
   const [verArticulado, setVerArticulado] = useState(false);
+  const [lienzoAbierto, setLienzoAbierto] = useState(false);
   const [exportando, setExportando] = useState(false);
   const refreshSequence = useRef(0);
   const botonActivoRef = useRef<HTMLButtonElement>(null);
@@ -316,6 +318,17 @@ export default function Fabrica({
           <i style={{ background: ESTADO_ARTICULO_COLORS.aprobado }}/>
           {aprobados} de {vigentes} aprobados
         </span>
+        {proyecto && puedeEscribir && (
+          <button
+            type="button"
+            onClick={() => setLienzoAbierto(true)}
+            title="Escribir un artículo nuevo partiendo de una idea en lenguaje llano"
+            className="primary-button compact"
+          >
+            <PenLine size={13}/>
+            Artículo nuevo
+          </button>
+        )}
         <button
           type="button"
           onClick={refresh}
@@ -541,6 +554,19 @@ export default function Fabrica({
 
       {historialDe && (
         <HistorialArticulo articulo={historialDe} onClose={() => setHistorialDe(null)}/>
+      )}
+
+      {lienzoAbierto && proyecto && (
+        <LienzoArticulo
+          proyectoId={proyecto.id}
+          onClose={() => setLienzoAbierto(false)}
+          onCreado={(articuloId) => {
+            // Se abre el artículo recién creado: quedarse en la lista después
+            // de escribirlo obligaría a buscarlo entre treinta y cuatro.
+            if (articuloId) seleccionar(articuloId);
+            void refresh();
+          }}
+        />
       )}
 
       {verArticulado && proyecto && (

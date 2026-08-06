@@ -1223,6 +1223,64 @@ test("el documento impreso no se contradice sobre si es oficial", async () => {
   assert.match(exportador, /enlace\.download = `\$\{nombreDocumento\(input\.oficial\)\}\.docx`;/);
 });
 
+test("un articulo nuevo guarda que se pidio y quien lo escribio", async () => {
+  const sql = await source("supabase/migrations/20260806_25_articulo_nuevo_con_motivo.sql");
+  const lienzo = await source("components/fabrica/lienzo-articulo.tsx");
+  const repo = await source("lib/fabrica-repository.ts");
+  const ruta = await source("app/api/fabrica/route.ts");
+
+  // La sobrecarga vieja se borra: `create or replace` con distinta cantidad de
+  // argumentos deja dos funciones vivas y PostgREST elige por nombre de
+  // argumento, así que la de cuatro seguiría creando artículos sin motivo.
+  assert.match(sql, /drop function if exists public\.crear_articulo\(uuid, text, text, text\);/);
+  assert.match(sql, /create or replace function public\.crear_articulo\(\s*p_proyecto_id uuid,\s*p_texto text,\s*p_sumilla text,\s*p_origen text,\s*p_motivo text\s*\)/);
+
+  // El motivo es obligatorio y es lo que se graba en la versión 1. Antes era la
+  // constante 'Redaccion inicial', que no dice nada.
+  assert.match(sql, /char_length\(btrim\(coalesce\(p_motivo, ''\)\)\) < 12/);
+  assert.match(
+    sql,
+    /insert into public\.norma_articulo_version[\s\S]{0,400}v_rol, btrim\(p_motivo\)/,
+    "la versión 1 tiene que llevar el motivo de la persona",
+  );
+  assert.doesNotMatch(sql, /'Redaccion inicial'/);
+
+  // Un artículo nuevo nunca puede declararse como recibido en el borrador: eso
+  // lo volvería intocable por el trigger de `texto_original`.
+  assert.match(sql, /p_origen not in \('redactado', 'asistente'\)/);
+
+  // El lienzo declara `asistente` SOLO si el texto lo escribió la máquina.
+  assert.match(lienzo, /origen: vieneDelAsistente \? "asistente" : "redactado"/);
+  assert.match(lienzo, /setVieneDelAsistente\(true\);/);
+  assert.match(
+    lienzo,
+    /motivo: idea\.trim\(\)/,
+    "la idea en criollo es el motivo de la versión: es el rastro de la autoría",
+  );
+
+  // Y sigue sin escribir nada por su cuenta: la ruta propone y la persona crea.
+  assert.doesNotMatch(ruta, /crear_articulo|guardar_articulo|cambiar_estado_articulo/);
+  assert.match(repo, /accion: "proponer_articulo", idea/);
+
+  // Que el asistente pida definiciones no es un error y no se muestra como tal.
+  assert.match(lienzo, /if \(!propuesta\.suficiente\) \{/);
+  assert.match(lienzo, /El asistente necesita que definas esto primero/);
+  assert.doesNotMatch(
+    lienzo,
+    /setError\(propuesta\.falta/,
+    "pedir una definición no es una falla del asistente",
+  );
+
+  // Sin IA el lienzo sigue creando artículos a mano: se degrada la asistencia,
+  // no la herramienta.
+  assert.match(lienzo, /MOTIVO_ASISTENTE\[propuesta\.motivo \?\? ""\]/);
+  assert.match(lienzo, /Podés escribir el artículo vos mismo/);
+
+  // El texto tipeado no se pierde por un clic afuera ni por Escape.
+  assert.match(lienzo, /if \(hayTrabajo\) \{ setConfirmarSalida\(true\); return; \}/);
+  assert.match(lienzo, /if \(confirmDialogIsOpen\(\)\) return;/);
+});
+
 test("el articulo abierto vive en la URL y sobrevive a la ida y vuelta", async () => {
   const fabrica = await source("components/fabrica/index.tsx");
   const dashboard = await source("components/dashboard.tsx");

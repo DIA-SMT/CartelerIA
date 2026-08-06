@@ -173,6 +173,7 @@ const ERRORES: { match: RegExp; message: string }[] = [
   { match: /exige un rol operativo/i, message: "Tu rol no permite escribir el articulado." },
   { match: /rol consulta no modifica/i, message: "El rol consulta puede observar, pero no modificar el articulado." },
   { match: /demasiado corto/i, message: "El texto del artículo es demasiado corto." },
+  { match: /de donde sale/i, message: `Contá de dónde sale el artículo (mínimo ${MOTIVO_MIN_LENGTH} caracteres).` },
 ];
 
 function traducir(mensaje: string, porDefecto: string): string {
@@ -411,6 +412,19 @@ export interface RespuestaAsistente {
 }
 
 /**
+ * Por qué el asistente no intervino, en castellano.
+ *
+ * Vive acá y no en un componente porque explica el campo `motivo` del contrato
+ * de la ruta: las dos pantallas que lo consumen tienen que decir lo mismo.
+ * Ninguno de los tres casos es una falla: son decisiones de política.
+ */
+export const MOTIVO_ASISTENTE: Record<string, string> = {
+  asistencia_deshabilitada: "La asistencia por IA externa está deshabilitada en este entorno.",
+  fuente_restringida: "La normativa recuperada no está habilitada para salir a un servicio externo. Se muestran los fragmentos para leerlos acá.",
+  pii_detectada: "El texto contiene identificadores personales, así que no se envía a un servicio externo.",
+};
+
+/**
  * Diagnóstico contra la normativa vigente.
  *
  * Devuelve también los fragmentos recuperados cuando la asistencia está
@@ -585,19 +599,121 @@ export async function loadObservacionesDelProyecto(
   return { ok: true, data: observaciones, error: null };
 }
 
+/**
+ * Crea un artículo.
+ *
+ * `motivo` es de dónde sale el artículo dicho por la persona. Cuando el texto
+ * lo propuso el asistente, acá va la idea en lenguaje llano que se le dio: es
+ * lo único que después permite distinguir qué pidió una persona de qué escribió
+ * la máquina.
+ *
+ * Devuelve el id para poder abrir el artículo recién creado sin buscarlo.
+ */
 export async function crearArticulo(input: {
   proyectoId: string;
   texto: string;
   sumilla: string | null;
-  origen?: "redactado" | "asistente";
-}): Promise<ResultadoEscritura> {
-  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
-  const { error } = await supabase.rpc("crear_articulo", {
+  origen: "redactado" | "asistente";
+  motivo: string;
+}): Promise<ResultadoEscritura & { articuloId: string | null }> {
+  if (!supabase) return { ok: false, error: "Supabase no está configurado.", articuloId: null };
+  const { data, error } = await supabase.rpc("crear_articulo", {
     p_proyecto_id: input.proyectoId,
     p_texto: input.texto,
     p_sumilla: input.sumilla,
-    p_origen: input.origen ?? "redactado",
+    p_origen: input.origen,
+    p_motivo: input.motivo,
   });
-  if (error) return { ok: false, error: traducir(error.message, "No se pudo crear el artículo.") };
-  return { ok: true, error: null };
+  if (error) {
+    // PostgREST devuelve PGRST202 tanto si la función no existe como si la
+    // firma no coincide. Para esta RPC, que acaba de cambiar de firma, lo
+    // segundo significa una sola cosa concreta y conviene decirla.
+    const faltaMigracion = error.code === "PGRST202";
+    return {
+      ok: false,
+      error: faltaMigracion
+        ? "Falta aplicar la migración 25 en el SQL Editor."
+        : traducir(error.message, "No se pudo crear el artículo."),
+      articuloId: null,
+    };
+  }
+  return { ok: true, error: null, articuloId: typeof data === "string" ? data : null };
+}
+
+export interface PropuestaArticulo {
+  ok: boolean;
+  /** false cuando la IA externa no intervino: hay que redactar a mano. */
+  asistido: boolean;
+  motivo: string | null;
+  /** false cuando el asistente pide definiciones en vez de rellenar. */
+  suficiente: boolean;
+  falta: string | null;
+  sumilla: string | null;
+  texto: string;
+  fragmentos: { titulo: string; seccion: string | null; contenido: string }[];
+  error: string | null;
+}
+
+/**
+ * Convierte una idea en lenguaje llano en un artículo con forma jurídica.
+ *
+ * El asistente PROPONE: la respuesta vuelve al navegador y no toca la base. El
+ * artículo lo crea una persona al aceptarlo, y puede editarlo antes.
+ *
+ * Que devuelva `suficiente: false` no es una falla: es el asistente pidiendo
+ * las definiciones que le faltan en vez de inventar un plazo o una medida. Un
+ * artículo verosímil con un vacío adentro es peor que ninguno.
+ */
+export async function proponerArticulo(idea: string): Promise<PropuestaArticulo> {
+  const vacio = {
+    ok: false, asistido: false, motivo: null, suficiente: false,
+    falta: null, sumilla: null, texto: "", fragmentos: [], error: "",
+  };
+  if (!supabase) return { ...vacio, error: "Supabase no está configurado." };
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) return { ...vacio, error: "Tu sesión no está vigente." };
+
+  let respuesta: Response;
+  try {
+    respuesta = await fetch("/api/fabrica", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ accion: "proponer_articulo", idea }),
+    });
+  } catch {
+    return { ...vacio, error: "No se pudo contactar al servidor." };
+  }
+
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = await respuesta.json() as Record<string, unknown>;
+  } catch {
+    // Se resuelve por el status.
+  }
+  if (!respuesta.ok) {
+    return {
+      ...vacio,
+      error: respuesta.status === 429
+        ? "Alcanzaste el límite de consultas al asistente. Probá en un rato."
+        : "El asistente no pudo redactar la propuesta.",
+    };
+  }
+
+  const fragmentos = Array.isArray(payload.fragmentos)
+    ? payload.fragmentos.filter((item): item is { titulo: string; seccion: string | null; contenido: string } =>
+        Boolean(item) && typeof item === "object" && typeof (item as { titulo?: unknown }).titulo === "string")
+    : [];
+
+  return {
+    ok: true,
+    asistido: payload.asistido === true,
+    motivo: typeof payload.motivo === "string" ? payload.motivo : null,
+    suficiente: payload.suficiente === true,
+    falta: typeof payload.falta === "string" ? payload.falta : null,
+    sumilla: typeof payload.sumilla === "string" ? payload.sumilla : null,
+    texto: typeof payload.texto === "string" ? payload.texto : "",
+    fragmentos,
+    error: null,
+  };
 }

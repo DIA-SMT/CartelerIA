@@ -116,6 +116,17 @@ Todavía no hay una suite general ni configuración de ESLint.
     escribe una opinión, no un acto administrativo. Insert-only: nadie edita ni
     borra, tampoco la propia — se agrega otra. El administrador la marca
     atendida con fundamento y el texto original queda intacto.
+  - El lienzo (`lienzo-articulo.tsx`) va de una idea en lenguaje llano a un
+    artículo. Esa idea **es** el motivo de la versión 1 (migración 25): sin eso
+    un artículo de origen `asistente` queda sin rastro de qué pidió una persona.
+    `origen` se declara `asistente` solo si el texto lo escribió la máquina; si
+    lo escribiste vos, dice `redactado`. Sin IA el lienzo igual crea artículos a
+    mano: se degrada la asistencia, no la herramienta.
+  - El artículo abierto vive en el hash (`#fabrica?articulo=<id>`), igual que
+    las pestañas de Configuración, y se escribe con `replaceState` — asignar
+    `location.hash` scrollea a la sección y saca el foco del editor. Un id que
+    no existe se limpia **recién** con `loadPhase === "ready"`: antes
+    descartaría una selección válida solo por llegar primero.
 - **Motion, detalle a saber**: el token `DEFAULT` (250ms) de
   `transitionDuration` **no tiene clase utilitaria** — ni `duration` ni
   `duration-DEFAULT` se generan. Los overlays usan `duration-200`; `duration-fast`
@@ -204,8 +215,11 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 - Fábrica Normativa (migraciones 20 a 24, todas aplicadas y verificadas contra
   la instancia el 2026-08-06): 29 comprobaciones, incluidos los cinco RPC del
   bloque 3, la columna `origen`, los 33 artículos sembrados, y que `service_role`
-  reciba `42501` al intentar insertar, reescribir o borrar una observación. El
-  detalle de las reglas está arriba, en Arquitectura.
+  reciba `42501` al intentar insertar, reescribir o borrar una observación.
+  **La 25 está pendiente de aplicación**: reemplaza `crear_articulo` por una
+  versión de cinco argumentos con motivo obligatorio y borra la sobrecarga de
+  cuatro. Sin ella, el botón "Artículo nuevo" avisa que falta. El detalle de las
+  reglas está arriba, en Arquitectura.
   Al probar un RPC por PostgREST, ojo: si los nombres de los argumentos no
   coinciden exactos, devuelve `PGRST202` —el mismo código que si la función no
   existiera—. Verificar la firma antes de concluir que falta algo.
