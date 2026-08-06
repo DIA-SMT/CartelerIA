@@ -43,6 +43,34 @@ const SIGUIENTES: Record<EstadoArticulo, EstadoArticulo[]> = {
 };
 
 /**
+ * Lee el artículo abierto del hash: `#fabrica?articulo=<uuid>`.
+ *
+ * Mismo mecanismo que las pestañas de Configuración, y por la misma razón: si
+ * el artículo no está en la URL, cualquier ida y vuelta —recargar, ir al mapa a
+ * ver los carteles que no cumplen, mandarle el enlace a alguien— te devuelve a
+ * la lista y hay que buscarlo de nuevo entre treinta y tres.
+ */
+function articuloDelHash(): string | null {
+  if (typeof window === "undefined") return null;
+  const hash = window.location.hash;
+  if (!hash.startsWith("#fabrica")) return null;
+  const separador = hash.indexOf("?");
+  if (separador === -1) return null;
+  return new URLSearchParams(hash.slice(separador + 1)).get("articulo");
+}
+
+/**
+ * `replaceState` y no `location.hash`: asignar el hash volvería a scrollear a la
+ * sección y el foco saltaría del editor. Es el mismo cuidado que en las
+ * pestañas de Configuración.
+ */
+function escribirHash(articuloId: string | null) {
+  const destino = articuloId ? `#fabrica?articulo=${articuloId}` : "#fabrica";
+  if (window.location.hash === destino) return;
+  window.history.replaceState(null, "", destino);
+}
+
+/**
  * Fábrica Normativa: la mesa donde se escribe la nueva ordenanza.
  *
  * La persona es la autora y el sistema asiste. De ahí que nada se sobrescriba
@@ -65,7 +93,10 @@ export default function Fabrica({
 
   const [proyecto, setProyecto] = useState<ProyectoNorma | null>(null);
   const [articulos, setArticulos] = useState<ArticuloNorma[]>([]);
-  const [seleccionId, setSeleccionId] = useState<string | null>(null);
+  // Arranca con lo que diga la URL, incluso antes de saber si ese artículo
+  // existe: los artículos tardan en llegar y perder la intención mientras tanto
+  // es justamente el bug que se está arreglando.
+  const [seleccionId, setSeleccionId] = useState<string | null>(articuloDelHash);
   const [loadPhase, setLoadPhase] = useState<LoadPhase>("idle");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dataOwnerId, setDataOwnerId] = useState<string | null>(null);
@@ -80,6 +111,7 @@ export default function Fabrica({
   const [verArticulado, setVerArticulado] = useState(false);
   const [exportando, setExportando] = useState(false);
   const refreshSequence = useRef(0);
+  const botonActivoRef = useRef<HTMLButtonElement>(null);
 
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
@@ -121,7 +153,32 @@ export default function Fabrica({
     return () => { refreshSequence.current += 1; };
   }, [refresh]);
 
+  /** Único camino para abrir un artículo: estado y URL se mueven juntos. */
+  const seleccionar = useCallback((articuloId: string | null) => {
+    setSeleccionId(articuloId);
+    escribirHash(articuloId);
+  }, []);
+
+  // La URL también manda desde afuera: el botón de atrás del navegador, un
+  // enlace pegado, o el ítem del menú que vuelve a `#fabrica` pelado.
+  useEffect(() => {
+    const sincronizar = () => setSeleccionId(articuloDelHash());
+    window.addEventListener("hashchange", sincronizar);
+    return () => window.removeEventListener("hashchange", sincronizar);
+  }, []);
+
   const seleccionado = articulos.find((articulo) => articulo.id === seleccionId) ?? null;
+
+  // Un id que no existe —artículo borrado, enlace viejo, dedazo en la URL— se
+  // limpia recién cuando el articulado terminó de cargar. Hacerlo antes
+  // descartaría una selección válida solo por llegar primero.
+  useEffect(() => {
+    if (loadPhase !== "ready" || seleccionId === null || articulos.length === 0) return;
+    if (!articulos.some((articulo) => articulo.id === seleccionId)) {
+      setSeleccionId(null);
+      escribirHash(null);
+    }
+  }, [loadPhase, seleccionId, articulos]);
 
   // Abrir un artículo carga su texto vigente en el editor y limpia el motivo:
   // arrastrar el motivo del artículo anterior sería asentar un fundamento que
@@ -133,9 +190,27 @@ export default function Fabrica({
     setFormError(null);
   }, [seleccionado?.id, seleccionado?.texto, seleccionado?.sumilla]);
 
+  // La lista tiene treinta y tres artículos y scroll propio: si el que vino en
+  // la URL es el 28, sin esto se restaura seleccionado pero fuera de pantalla y
+  // parece que no pasó nada. `nearest` no hace nada si el ítem ya se ve, así
+  // que también sirve al saltar desde los faltantes del articulado completo.
+  useEffect(() => {
+    botonActivoRef.current?.scrollIntoView({ block: "nearest" });
+  }, [seleccionado?.id]);
+
   const ownsData = dataOwnerId === auth.user?.id;
   const sucio = Boolean(seleccionado)
     && (texto !== (seleccionado?.texto ?? "") || sumilla !== (seleccionado?.sumilla ?? ""));
+
+  // Ahora que la selección vuelve sola, un texto sin guardar sería peor: el
+  // artículo reaparece y la redacción no, y desde afuera se lee como que el
+  // sistema se comió el trabajo en vez de que nunca se guardó.
+  useEffect(() => {
+    if (!sucio) return;
+    const avisar = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", avisar);
+    return () => window.removeEventListener("beforeunload", avisar);
+  }, [sucio]);
 
   const guardar = async () => {
     if (!seleccionado || guardando) return;
@@ -307,7 +382,8 @@ export default function Fabrica({
                   <li key={articulo.id}>
                     <button
                       type="button"
-                      onClick={() => setSeleccionId(articulo.id)}
+                      ref={activo ? botonActivoRef : undefined}
+                      onClick={() => seleccionar(articulo.id)}
                       aria-current={activo ? "true" : undefined}
                       className={`w-full rounded-xl px-2.5 py-2 text-left transition duration-fast ${
                         activo ? "bg-municipal-50" : "hover:bg-slate-50"
@@ -472,7 +548,7 @@ export default function Fabrica({
           proyecto={proyecto}
           articulos={articulos}
           onClose={() => setVerArticulado(false)}
-          onIrAlArticulo={(articuloId) => setSeleccionId(articuloId)}
+          onIrAlArticulo={seleccionar}
         />
       )}
     </section>

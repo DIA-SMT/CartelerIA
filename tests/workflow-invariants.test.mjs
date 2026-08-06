@@ -1223,6 +1223,59 @@ test("el documento impreso no se contradice sobre si es oficial", async () => {
   assert.match(exportador, /enlace\.download = `\$\{nombreDocumento\(input\.oficial\)\}\.docx`;/);
 });
 
+test("el articulo abierto vive en la URL y sobrevive a la ida y vuelta", async () => {
+  const fabrica = await source("components/fabrica/index.tsx");
+  const dashboard = await source("components/dashboard.tsx");
+  const sidebar = await source("components/app-sidebar.tsx");
+
+  // La selección está en el hash, con el mismo formato que las pestañas de
+  // Configuración.
+  assert.match(fabrica, /#fabrica\?articulo=\$\{articuloId\}/);
+  assert.match(fabrica, /new URLSearchParams\(hash\.slice\(separador \+ 1\)\)\.get\("articulo"\)/);
+  assert.match(
+    fabrica,
+    /useState<string \| null>\(articuloDelHash\)/,
+    "el estado inicial tiene que salir de la URL, no de null",
+  );
+
+  // `replaceState` y no `location.hash`: asignar el hash scrollea a la sección
+  // y saca el foco del editor en cada tecla.
+  assert.match(fabrica, /window\.history\.replaceState\(null, "", destino\)/);
+  // Ojo con el `===` de la comparación: solo se prohíbe la asignación.
+  assert.doesNotMatch(
+    fabrica,
+    /window\.location\.hash\s*=[^=]/,
+    "la Fábrica no debe asignar el hash: usa replaceState",
+  );
+
+  // Un solo camino para abrir un artículo, para que estado y URL no se separen.
+  assert.match(fabrica, /onClick=\{\(\) => seleccionar\(articulo\.id\)\}/);
+  assert.match(fabrica, /onIrAlArticulo=\{seleccionar\}/);
+  assert.doesNotMatch(
+    fabrica,
+    /onClick=\{\(\) => setSeleccionId\(/,
+    "abrir un artículo tiene que pasar por seleccionar(), que también escribe la URL",
+  );
+
+  // Limpiar un id inexistente recién con el articulado cargado: hacerlo antes
+  // descartaría una selección válida solo por llegar primero.
+  assert.match(
+    fabrica,
+    /if \(loadPhase !== "ready" \|\| seleccionId === null \|\| articulos\.length === 0\) return;/,
+  );
+
+  // La sección se abre por prefijo. Si esto pasara a comparación exacta, un
+  // enlace con artículo dejaría de abrir la Fábrica.
+  assert.match(dashboard, /hash\.startsWith\("#fabrica"\)/);
+  assert.match(sidebar, /hash\.startsWith\("#fabrica"\)/);
+  assert.doesNotMatch(dashboard, /hash === "#fabrica"/);
+  assert.doesNotMatch(sidebar, /hash === "#fabrica"/);
+
+  // Y el texto sin guardar avisa antes de perderse: ahora que el artículo
+  // vuelve solo, una redacción que no vuelve se leería como dato comido.
+  assert.match(fabrica, /window\.addEventListener\("beforeunload", avisar\)/);
+});
+
 test("una observacion no se edita ni se borra, ni siquiera la propia", async () => {
   const sql = await source("supabase/migrations/20260806_24_observaciones_articulo.sql");
 
