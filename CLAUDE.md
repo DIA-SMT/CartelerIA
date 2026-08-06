@@ -83,9 +83,15 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 - Migraciones idempotentes en `supabase/migrations/` (correrlas a mano en el SQL
   Editor; no hay CLI vinculado). `schema.sql` + seeds para setup desde cero.
 - Seguridad (migración 11, aplicada y verificada): lectura de `carteles` exige sesión; escritura exige
-  rol operativo via `tiene_rol`; `anon` no accede al registro administrativo y
-  las cuentas nuevas nacen con rol `consulta`.
+  rol operativo via `tiene_rol`; `anon` no accede al registro administrativo.
   No crear policies `to anon` de escritura ni defaults de rol altos.
+- **Las cuentas nuevas nacen con rol `consulta` (migración 18).** Ojo con esta:
+  la 10 ya lo decía y el repo la reflejaba, pero la instancia real conservó la
+  versión de la migración 07 —que insertaba `'administrador'`— hasta el
+  2026-08-06. Se descubrió recién cuando el trigger de la 16 rechazó un alta.
+  **Leer el archivo del repo no prueba nada sobre la base**: las migraciones se
+  corren a mano y una puede quedar a medio aplicar sin dejar rastro. Ante una
+  duda sobre una función, consultar `pg_proc.prosrc` en la instancia.
 - Flujo oficial (migración 12, aplicada y verificada): estados y vínculos cambian únicamente mediante
   RPC auditados; los roles operativos solicitan y el administrador resuelve con
   fundamento. No reintroducir `update({ estado })` directo ni borrado físico de

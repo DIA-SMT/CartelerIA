@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../", import.meta.url);
@@ -344,6 +344,46 @@ test("la evidencia solo se entrega por la ruta que la audita", async () => {
   // Si algo falla, no se entrega ninguna URL.
   assert.match(route, /if \(!url\) return response\(\{ error: "sign_failed" \}, 503\)/);
   assert.match(client, /throw new Error\("No se pudo autorizar el acceso a la evidencia\."\)/);
+});
+
+test("ninguna cuenta nueva nace con rol privilegiado", async () => {
+  // La migración 07 creaba cuentas como `administrador`. La 10 lo corrigió en
+  // el repositorio, pero la instancia real siguió con la versión vieja durante
+  // meses sin que nada lo avisara: se descubrió recién cuando el trigger de la
+  // migración 16 rechazó un alta. Esta invariante fija que la ÚLTIMA definición
+  // de handle_new_user asigne el rol mínimo.
+  const migraciones = (await readdir(new URL("../supabase/migrations/", import.meta.url)))
+    .filter((archivo) => archivo.endsWith(".sql"))
+    .sort();
+
+  let ultimaDefinicion = null;
+  for (const archivo of migraciones) {
+    const sql = await source(`supabase/migrations/${archivo}`);
+    const bloque = sql.match(
+      /create or replace function public\.handle_new_user\(\)[\s\S]*?\n\$\$;/i,
+    );
+    if (bloque) ultimaDefinicion = { archivo, cuerpo: bloque[0] };
+  }
+
+  assert.ok(ultimaDefinicion, "ninguna migración define handle_new_user");
+  assert.match(
+    ultimaDefinicion.cuerpo,
+    /'consulta'/,
+    `${ultimaDefinicion.archivo} debe asignar el rol consulta`,
+  );
+  assert.doesNotMatch(
+    ultimaDefinicion.cuerpo,
+    /'(administrador|coordinador|inspector)'/,
+    `${ultimaDefinicion.archivo} no puede crear cuentas con rol privilegiado`,
+  );
+
+  // La migración 18 además lo verifica contra la base al aplicarse, porque leer
+  // el repositorio no prueba nada sobre la instancia.
+  const correccion = await source(
+    "supabase/migrations/20260806_18_corregir_alta_de_cuentas.sql",
+  );
+  assert.match(correccion, /select p\.prosrc/i);
+  assert.match(correccion, /raise exception 'handle_new_user seguiria creando cuentas/i);
 });
 
 test("los indicadores se calculan en PostgreSQL y no inventan ceros", async () => {

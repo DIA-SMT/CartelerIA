@@ -177,6 +177,31 @@ Decisiones que conviene conocer antes de leer los números en una presentación:
   datos simulados. Se eliminó en este tramo en lugar de revivirlo para
   indicadores.
 
+## Hallazgo del 2026-08-06: el alta creaba administradores
+
+Al aplicar la migración 16, el trigger `proteger_rol_perfiles` empezó a
+rechazar la creación de cuentas con el mensaje "Un perfil nuevo solo puede nacer
+con rol consulta". La causa no era el trigger: la función `handle_new_user` de
+la instancia seguía siendo la de la **migración 07**, que insertaba
+`'administrador'`.
+
+La migración 10 la había corregido a `'consulta'`, y tanto `CLAUDE.md` como este
+documento lo daban por hecho desde entonces. En la base viva nunca se aplicó.
+Durante ese período, **toda cuenta creada desde el Dashboard nació con el rol
+máximo**, sin ninguna señal.
+
+Corregido por la migración 18, que reafirma la definición correcta y falla si el
+cuerpo de la función volviera a asignar un rol privilegiado.
+
+Dos conclusiones que conviene no olvidar:
+
+- Verificar una función leyendo el archivo del repositorio no prueba nada sobre
+  la instancia. Las migraciones se corren a mano y una puede quedar sin aplicar
+  sin dejar rastro. Para afirmar algo de la base, consultarla.
+- La guarda de la migración 16 hizo exactamente lo que debía: convirtió un
+  desvío silencioso de meses en un error visible. Un fallo ruidoso es el
+  resultado buscado, no un efecto colateral.
+
 ## Propósito
 
 CartelerIA será una herramienta oficial para tomar decisiones administrativas
