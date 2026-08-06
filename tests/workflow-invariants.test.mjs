@@ -547,9 +547,9 @@ test("el sidebar no ofrece gestión sin sesión con rol", async () => {
     source("components/header.tsx"),
   ]);
 
-  // Gestión exige canRead; Administración exige además el rol administrador.
+  // El área de trabajo exige canRead; Administración exige además el rol.
   assert.match(sidebar, /const isAdmin = auth\.canRead && auth\.role === "administrador"/);
-  assert.match(sidebar, /\.\.\.\(auth\.canRead\s*\n?\s*\?\s*\[\{\s*\n?\s*titulo: "Gestión"/);
+  assert.match(sidebar, /\.\.\.\(auth\.canRead\s*\n?\s*\?\s*\[\{\s*\n?\s*titulo: "Área de trabajo"/);
   assert.match(sidebar, /\.\.\.\(isAdmin\s*\n?\s*\?\s*\[\{\s*\n?\s*titulo: "Administración"/);
 
   // Un ítem administrativo no puede quedar en el grupo base.
@@ -577,6 +577,57 @@ test("el sidebar no ofrece gestión sin sesión con rol", async () => {
   assert.match(sidebar, /useDismissible\(onClose/);
   // Solo transform y opacity.
   assert.doesNotMatch(sidebar, /transition-\[?(width|left|box-shadow)/);
+});
+
+test("el menú y la página cuentan la misma historia", async () => {
+  const [sidebar, dashboard] = await Promise.all([
+    source("components/app-sidebar.tsx"),
+    source("components/dashboard.tsx"),
+  ]);
+
+  // Orden del menú, tal como lo lista NAVEGACION.
+  const bloqueNav = sidebar.slice(
+    sidebar.indexOf("const NAVEGACION"),
+    sidebar.indexOf("];", sidebar.indexOf("const NAVEGACION")),
+  );
+  const menu = [...bloqueNav.matchAll(/href: "(#[a-z]+)"/g)].map((m) => m[1]);
+
+  // Orden en que el dashboard monta cada sección.
+  const posicion = (marca) => {
+    const indice = dashboard.indexOf(marca);
+    assert.ok(indice > 0, `no se encontró ${marca} en el dashboard`);
+    return indice;
+  };
+  const pagina = [
+    ["#inicio", posicion("<Hero/>")],
+    ["#mapa", posicion("<MapPreview")],
+    ["#carteles", posicion("<CartelLibrary")],
+    ["#normativa", posicion('id="normativa"')],
+    ["#documentos", posicion("<PdfLibrary")],
+    ["#corredores", posicion("<CorridorsSection/>")],
+  ].sort((a, b) => a[1] - b[1]).map(([href]) => href);
+
+  assert.deepEqual(
+    menu,
+    pagina,
+    "el orden del menú dejó de coincidir con el de la página",
+  );
+
+  // El bloque de trabajo va después de todo lo consultivo.
+  assert.ok(
+    posicion("<IndicadoresGestion/>") > posicion("<CorridorsSection/>"),
+    "las secciones de trabajo deben ir después del contenido consultivo",
+  );
+  assert.ok(
+    posicion("<ExpedientesRegistro/>") > posicion("<CorridorsSection/>")
+    && posicion("<ApprovalInbox/>") > posicion("<CorridorsSection/>"),
+  );
+
+  // Configuración salió del scroll: se muestra en lugar de la página.
+  assert.match(dashboard, /mostrarConfiguracion \? \(/);
+  assert.match(dashboard, /<Configuracion onVolver=/);
+  // Y solo si además del hash hay rol administrador.
+  assert.match(dashboard, /const mostrarConfiguracion = enConfiguracion && isAdmin/);
 });
 
 test("las migraciones declaradas coinciden con los archivos reales", async () => {

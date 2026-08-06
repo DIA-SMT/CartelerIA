@@ -12,6 +12,7 @@ import {
   Map as MapIcon,
   Menu,
   Route,
+  Scale,
   Settings,
   Signpost,
   X,
@@ -71,13 +72,27 @@ type SidebarGroup = {
   items: SidebarItem[];
 };
 
+/**
+ * El orden de esta lista es el mismo en el que aparecen las secciones al
+ * scrollear. No es cosmético: si el menú y la página discrepan, hacer clic en
+ * un ítem "salta" secciones y desorienta.
+ */
 const NAVEGACION: SidebarItem[] = [
   { href: "#inicio", label: "Inicio", icon: Home },
   { href: "#mapa", label: "Mapa", icon: MapIcon },
   { href: "#carteles", label: "Carteles", icon: Signpost },
+  { href: "#normativa", label: "Normativa", icon: Scale },
   { href: "#documentos", label: "Documentos", icon: Library },
   { href: "#corredores", label: "Corredores", icon: Route },
 ];
+
+/** Secciones que el marcador de posición mira al scrollear. */
+const SECCIONES_OBSERVABLES = new Set([
+  ...NAVEGACION.map((item) => item.href),
+  "#indicadores",
+  "#expedientes",
+  "#aprobaciones",
+]);
 
 /**
  * Único punto de navegación de la aplicación.
@@ -97,10 +112,62 @@ export function AppSidebar() {
   const [open, setOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [montado, setMontado] = useState(false);
+  const [activo, setActivo] = useState("#inicio");
   const toggleRef = useRef<HTMLButtonElement>(null);
 
   // El portal solo existe en el navegador.
   useEffect(() => setMontado(true), []);
+
+  // Sección actual mientras se scrollea. Se calcula acá, en el componente que
+  // está siempre montado, para que al abrir el cajón la marca ya esté puesta y
+  // no aparezca un parpadeo.
+  //
+  // Es una lectura de posiciones, no un IntersectionObserver: hay menos de diez
+  // secciones y así el criterio queda explícito —la última cuyo borde superior
+  // pasó por debajo de la barra— en vez de depender de umbrales de visibilidad
+  // que se comportan raro con secciones muy altas como el mapa.
+  useEffect(() => {
+    const OFFSET = 96; // 72px de barra + aire
+    let pendiente = false;
+
+    const recalcular = () => {
+      pendiente = false;
+      if (window.location.hash.startsWith("#configuracion")) {
+        setActivo("#configuracion");
+        return;
+      }
+      // `target: es5` no deja iterar un NodeList directamente.
+      const secciones = Array.from(document.querySelectorAll<HTMLElement>("[id]"))
+        .filter((elemento) => SECCIONES_OBSERVABLES.has(`#${elemento.id}`));
+
+      let actual = "#inicio";
+      secciones.forEach((elemento) => {
+        if (elemento.getBoundingClientRect().top <= OFFSET) actual = `#${elemento.id}`;
+      });
+
+      // Al final de la página gana la última sección, aunque su borde no haya
+      // llegado a cruzar la barra: si no, nunca se marca.
+      const ultima = secciones[secciones.length - 1];
+      if (ultima && window.innerHeight + window.scrollY >= document.body.scrollHeight - 4) {
+        actual = `#${ultima.id}`;
+      }
+      setActivo(actual);
+    };
+
+    const alScrollear = () => {
+      if (pendiente) return;
+      pendiente = true;
+      window.setTimeout(recalcular, 120);
+    };
+
+    recalcular();
+    window.addEventListener("scroll", alScrollear, { passive: true });
+    window.addEventListener("hashchange", recalcular);
+    return () => {
+      window.removeEventListener("scroll", alScrollear);
+      window.removeEventListener("hashchange", recalcular);
+    };
+  }, []);
 
   // Contador de aprobaciones pendientes: lo publica la bandeja al refrescar.
   // Vive acá y en ningún otro lado: antes lo escuchaba el header.
@@ -118,9 +185,12 @@ export function AppSidebar() {
   const isAdmin = auth.canRead && auth.role === "administrador";
   const grupos: SidebarGroup[] = [
     { titulo: "Navegación", items: NAVEGACION },
+    // Gestión y Administración también siguen el orden de la página. La
+    // excepción es Configuración, que no está en el scroll: es una pantalla
+    // aparte y va última, como corresponde a una herramienta.
     ...(auth.canRead
       ? [{
-          titulo: "Gestión",
+          titulo: "Área de trabajo",
           items: [
             { href: "#indicadores", label: "Indicadores", icon: Gauge },
             { href: "#expedientes", label: "Expedientes", icon: FolderOpen },
@@ -157,6 +227,7 @@ export function AppSidebar() {
         <SidebarDrawer
           grupos={grupos}
           rol={auth.canRead ? auth.role : null}
+          activo={activo}
           onClose={() => setOpen(false)}
         />,
         document.body,
@@ -168,10 +239,12 @@ export function AppSidebar() {
 function SidebarDrawer({
   grupos,
   rol,
+  activo,
   onClose,
 }: {
   grupos: SidebarGroup[];
   rol: AppRole | null;
+  activo: string;
   onClose: () => void;
 }) {
   // 200ms: el mismo valor que la clase `duration-200` de abajo, para que el
@@ -183,21 +256,13 @@ function SidebarDrawer({
   // Scroll lock apilado, foco inicial, trampa de Tab y restitución del foco al
   // cerrar. Antes el header resolvía todo esto a mano; ya no.
   useModalShell(panelRef);
-  const [activo, setActivo] = useState<string>(() =>
-    typeof window === "undefined" ? "#inicio" : window.location.hash || "#inicio",
-  );
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
-    const onHash = () => setActivo(window.location.hash || "#inicio");
     window.addEventListener("keydown", onKey);
-    window.addEventListener("hashchange", onHash);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("hashchange", onHash);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [close]);
 
   return (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Database, FileLock2, ScrollText, ShieldCheck, Users } from "lucide-react";
+import { ArrowLeft, Database, FileLock2, ScrollText, ShieldCheck, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { TabAuditoria } from "./tab-auditoria";
@@ -37,6 +37,10 @@ function tabDelHash(): TabKey {
 /**
  * Administración del sistema: identidades, permisos, auditoría y estado.
  *
+ * No vive en el scroll de la página: es una herramienta y reemplaza el
+ * contenido, con su propia salida. Cruzarse con la tabla de usuarios mientras
+ * se busca el mapa no le sirve a nadie.
+ *
  * Se monta solo para el rol administrador, y el dashboard la carga con
  * `dynamic()` para que no entre en el bundle inicial: es la sección más pesada
  * de la aplicación y la ve una sola persona.
@@ -44,7 +48,7 @@ function tabDelHash(): TabKey {
  * La pestaña vive en la URL para que sea enlazable: se puede mandar
  * `#configuracion?tab=auditoria` en un correo y abre donde corresponde.
  */
-export default function Configuracion() {
+export default function Configuracion({ onVolver }: { onVolver: () => void }) {
   const auth = useAuth();
   const isAdmin = auth.canRead && auth.role === "administrador";
   const [tab, setTab] = useState<TabKey>("usuarios");
@@ -84,7 +88,16 @@ export default function Configuracion() {
   if (!isAdmin) return null;
 
   return (
-    <section id="configuracion" className="section-block">
+    <section id="configuracion" className="section-block !mt-8">
+      <button
+        type="button"
+        onClick={onVolver}
+        className="secondary-button compact mb-5"
+      >
+        <ArrowLeft size={14}/>
+        Volver al visualizador
+      </button>
+
       <header className="max-w-2xl">
         <span className="micro-label">Administración del sistema</span>
         <h2 className="mt-1 font-display text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
