@@ -1028,6 +1028,69 @@ test("un cartel sin superficie no cumple ni incumple: no es evaluable", async ()
   );
 });
 
+test("el asistente propone pero nunca guarda", async () => {
+  const [route, sql] = await Promise.all([
+    source("app/api/fabrica/route.ts"),
+    source("supabase/migrations/20260806_23_diagnostico_normativo.sql"),
+  ]);
+
+  // La ruta no tiene ninguna vía para escribir el articulado.
+  for (const escritura of ["guardar_articulo", "crear_articulo", "cambiar_estado_articulo", "confirmar_parametro"]) {
+    assert.doesNotMatch(
+      route,
+      new RegExp(`rpc\\("${escritura}"`),
+      `la ruta del asistente no puede llamar a ${escritura}`,
+    );
+  }
+  // La propuesta vuelve al navegador, no a la base.
+  assert.match(route, /asistido: true,\s*\n\s*suficiente: true/);
+
+  // Y aunque quisiera, la RPC que confirma parámetros excluye a service_role:
+  // pide una persona con rol operativo.
+  assert.match(sql, /Confirmar un parametro exige un rol operativo/);
+  assert.match(sql, /select a\.actor_id, a\.actor_rol into v_actor, v_rol from public\.actor_fabrica\(\)/);
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function public\.confirmar_parametro\([^)]*\) to service_role/i,
+  );
+
+  // Un parámetro necesita cita verificable EN el artículo.
+  assert.match(sql, /position\(btrim\(p_cita\) in v_texto\) = 0/);
+  assert.match(sql, /La cita no aparece textualmente en el articulo/);
+
+  // Si la idea no alcanza, el asistente lo dice en vez de rellenar.
+  assert.match(route, /suficiente: false/);
+  assert.match(route, /NO rellenás/);
+  // Y nunca inventa números que no estén en el contexto.
+  assert.match(route, /No inventás números de artículo, de ordenanza, plazos, montos ni medidas/);
+  // Una lista vacía de hallazgos es válida y frecuente.
+  assert.match(route, /Devolver una lista vacía es una respuesta VÁLIDA y FRECUENTE/);
+
+  // Misma política de IA externa que /api/normativa: nada sale del entorno sin
+  // habilitación explícita del documento.
+  assert.match(route, /ENABLE_EXTERNAL_NORMATIVA_AI/);
+  assert.match(route, /!fragmento\.external_ai_allowed/);
+  assert.match(route, /hasPotentialPii\(consulta, contexto\)/);
+  // El contexto sale SIEMPRE de la normativa vigente.
+  assert.match(route, /p_estados: \["vigente"\]/);
+
+  // Saneado una sola vez: lo que ve el modelo es contra lo que se verifica.
+  assert.match(route, /const saneados = fragmentos\.map/);
+  assert.match(route, /verificarHallazgos\(\s*\n?\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*\n?\s*saneados,?\s*\n?\s*\)/);
+
+  // Defensas de toda ruta nueva, con cuota propia.
+  assert.match(route, /rateLimit\(`fabrica:/);
+  assert.match(route, /consumir_cuota_fabrica/);
+  assert.doesNotMatch(route, /consumir_cuota_api|consumir_cuota_evidencia/);
+  assert.match(route, /AbortSignal\.timeout\(LLM_TIMEOUT_MS\)/);
+  assert.match(route, /"Cache-Control": "no-store"/);
+  assert.doesNotMatch(route, /error:\s*\w*[Ee]rror\.message/);
+
+  // Un diagnóstico se atiende, no se borra.
+  assert.match(sql, /Un diagnostico no se borra: se atiende con fundamento/);
+  assert.match(sql, /El contenido de un diagnostico es inmutable/);
+});
+
 test("las migraciones declaradas coinciden con los archivos reales", async () => {
   const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
   const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))
