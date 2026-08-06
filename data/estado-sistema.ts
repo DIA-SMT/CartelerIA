@@ -96,4 +96,5 @@ export const MIGRACIONES_DECLARADAS: MigracionDeclarada[] = [
   { numero: 17, archivo: "20260806_17_indicadores_gestion.sql", resumen: "Indicadores de gestión" },
   { numero: 18, archivo: "20260806_18_corregir_alta_de_cuentas.sql", resumen: "El alta deja de crear administradores" },
   { numero: 19, archivo: "20260806_19_bitacora_y_corpus.sql", resumen: "Bitácora unificada y resumen del corpus" },
+  { numero: 20, archivo: "20260806_20_fabrica_normativa.sql", resumen: "Corpus por estado legal y articulado en obra" },
 ];

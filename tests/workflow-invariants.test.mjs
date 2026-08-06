@@ -630,6 +630,44 @@ test("el menú y la página cuentan la misma historia", async () => {
   assert.match(dashboard, /const mostrarConfiguracion = enConfiguracion && isAdmin/);
 });
 
+test("el asistente normativo nunca cita un proyecto sin sancionar", async () => {
+  const [sql, route, lexicalSql] = await Promise.all([
+    source("supabase/migrations/20260806_20_fabrica_normativa.sql"),
+    source("app/api/normativa/route.ts"),
+    source("supabase/migrations/20260731_15_busqueda_lexica_serverless.sql"),
+  ]);
+
+  // El corpus distingue estados legales y solo admite los tres previstos.
+  assert.match(sql, /add column if not exists estado_legal text not null default 'vigente'/i);
+  assert.match(sql, /check \(estado_legal in \('vigente', 'derogada', 'proyecto'\)\)/i);
+
+  // La RPC exige el estado: sin valor por omisión permisivo. Si alguien agrega
+  // una ruta y se olvida del parámetro, falla en vez de devolver de más.
+  assert.match(
+    sql,
+    /create function public\.buscar_rag_chunks_lexico\(\s*\n\s*p_query text,\s*\n\s*p_match_count integer,\s*\n\s*p_estados text\[\]\s*\n\)/i,
+  );
+  assert.doesNotMatch(sql, /p_estados text\[\]\s+default/i, "p_estados no puede tener default");
+  // Sin estados válidos no devuelve nada.
+  assert.match(sql, /where cardinality\(s\.permitidos\) > 0\s*\n\s*and d\.estado_legal = any\(s\.permitidos\)/i);
+  // La versión vieja de dos parámetros se elimina, para que no quede una puerta
+  // sin filtro colgada del esquema.
+  assert.match(sql, /drop function if exists public\.buscar_rag_chunks_lexico\(text, integer\);/i);
+
+  // La ruta pide explícitamente vigente...
+  assert.match(route, /p_estados: \["vigente"\]/);
+  // ...y además lo revalida en el contrato, por si la RPC cambiara.
+  assert.match(route, /row\.estado_legal === "vigente"/);
+  assert.doesNotMatch(route, /p_estados: \[[^\]]*"proyecto"/);
+
+  // La normalización de la consulta sigue siendo la misma que alimenta el
+  // índice: si divergieran, ninguna búsqueda con tildes encontraría nada.
+  assert.match(sql, /public\.normalizar_texto_rag\(/);
+  assert.match(lexicalSql, /create or replace function public\.normalizar_texto_rag/i);
+  // Y la consulta sigue siendo OR entre lexemas, no exigencia de todos.
+  assert.match(sql, /' \| '/);
+});
+
 test("las migraciones declaradas coinciden con los archivos reales", async () => {
   const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
   const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))
