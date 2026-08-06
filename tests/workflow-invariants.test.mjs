@@ -632,7 +632,7 @@ test("el menú y la página cuentan la misma historia", async () => {
 
 test("el asistente normativo nunca cita un proyecto sin sancionar", async () => {
   const [sql, route, lexicalSql] = await Promise.all([
-    source("supabase/migrations/20260806_20_fabrica_normativa.sql"),
+    source("supabase/migrations/20260806_20_corpus_estado_legal.sql"),
     source("app/api/normativa/route.ts"),
     source("supabase/migrations/20260731_15_busqueda_lexica_serverless.sql"),
   ]);
