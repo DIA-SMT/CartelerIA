@@ -201,13 +201,14 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   roadmap, cada uno con `procedencia` y `suficiente`. El cálculo va en
   PostgreSQL: no replicarlo en el cliente ni traer el registro para contar. Un
   indicador sin datos suficientes se muestra "Sin datos", nunca como cero.
-- Fábrica Normativa (migraciones 20 a 24). Estado de aplicación:
-  20, 22 y 23 aplicadas y verificadas; **21 hay que volver a correrla** —los RPC
-  del bloque 3 (`actor_fabrica`, `guardar_articulo`, `crear_articulo`,
-  `cambiar_estado_articulo`, `reordenar_articulos`), la columna `origen` de
-  `norma_articulo_version` y la versión idempotente de `crear_proyecto_norma` se
-  agregaron después de que Lucas la aplicara; **24 pendiente**. Las dos son
-  idempotentes. El detalle de las reglas está arriba, en Arquitectura.
+- Fábrica Normativa (migraciones 20 a 24, todas aplicadas y verificadas contra
+  la instancia el 2026-08-06): 29 comprobaciones, incluidos los cinco RPC del
+  bloque 3, la columna `origen`, los 33 artículos sembrados, y que `service_role`
+  reciba `42501` al intentar insertar, reescribir o borrar una observación. El
+  detalle de las reglas está arriba, en Arquitectura.
+  Al probar un RPC por PostgREST, ojo: si los nombres de los argumentos no
+  coinciden exactos, devuelve `PGRST202` —el mismo código que si la función no
+  existiera—. Verificar la firma antes de concluir que falta algo.
 - Plan free: se pausa a los ~7 días sin actividad (el subdominio deja de
   resolver → parece error de DNS). Lo evita `.github/workflows/supabase-keepalive.yml`
   (ping diario; los `schedule` solo corren desde `main`; secrets `SUPABASE_URL`

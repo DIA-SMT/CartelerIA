@@ -237,7 +237,11 @@ Decisiones que conviene conocer:
 
 Se agregó `#fabrica`, la mesa donde se escribe la nueva ordenanza de cartelería
 artículo por artículo, con tres apoyos permanentes: el borrador recibido, la
-normativa vigente y los carteles relevados. Migraciones 20 a 24.
+normativa vigente y los carteles relevados. Migraciones 20 a 24, **aplicadas y
+verificadas contra la instancia el 2026-08-06**: 29 comprobaciones en vivo, que
+incluyen los cinco RPC de edición, los 33 artículos sembrados, el borrador como
+único documento en estado `proyecto`, y que `service_role` reciba `42501` al
+intentar insertar, reescribir o borrar una observación.
 
 La regla que gobierna el módulo es una sola: **la persona es la autora y el
 sistema asiste**. Todo lo demás sale de ahí, y se sostiene en PostgreSQL porque
