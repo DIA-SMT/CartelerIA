@@ -338,9 +338,9 @@ create policy norma_articulo_version_select on public.norma_articulo_version
 -- La escritura no pasa por policies: va exclusivamente por RPC auditadas, igual
 -- que el resto del flujo administrativo.
 revoke insert, update, delete on public.norma_proyecto
-  from anon, authenticated;
+  from anon, authenticated, service_role;
 revoke insert, update, delete on public.norma_articulo
-  from anon, authenticated;
+  from anon, authenticated, service_role;
 revoke insert, update, delete on public.norma_articulo_version
   from anon, authenticated, service_role;
 
@@ -379,5 +379,144 @@ drop trigger if exists trg_norma_articulo_texto_original on public.norma_articul
 create trigger trg_norma_articulo_texto_original
   before update on public.norma_articulo
   for each row execute function public.proteger_texto_original_articulo();
+
+-- ----------------------------------------------------------------------------
+-- 4. Alta del proyecto y siembra del articulado
+-- ----------------------------------------------------------------------------
+-- Las corre el script de ingesta con service_role. Sembrar articulos en estado
+-- `propuesto` no es una aprobacion: nada nace aprobado y ninguna de estas dos
+-- funciones puede poner un articulo en `aprobado`.
+create or replace function public.crear_proyecto_norma(
+  p_titulo text,
+  p_objeto text,
+  p_documento_origen_id text
+)
+returns uuid
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'El alta de un proyecto la realiza el script de ingesta'
+      using errcode = '42501';
+  end if;
+  if char_length(btrim(coalesce(p_titulo, ''))) < 4 then
+    raise exception 'El proyecto necesita un titulo'
+      using errcode = '22023';
+  end if;
+
+  insert into public.norma_proyecto (titulo, objeto, documento_origen_id)
+  values (btrim(p_titulo), nullif(btrim(coalesce(p_objeto, '')), ''), p_documento_origen_id)
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+-- Siembra el articulado a partir del corte por articulo del borrador.
+--
+-- Falla si el proyecto ya tiene articulos. Es deliberado y es la decision mas
+-- importante de esta funcion: si manana llega un borrador corregido y alguien
+-- lo reingiere, actualizar en silencio pisaria el trabajo de quien ya edito un
+-- articulo, y esa perdida no se recupera. Que falle y avise obliga a decidir a
+-- una persona.
+create or replace function public.sembrar_articulado(
+  p_proyecto_id uuid,
+  p_articulos jsonb
+)
+returns integer
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_existentes integer;
+  v_insertados integer := 0;
+  v_item jsonb;
+  v_articulo_id uuid;
+  v_orden integer := 0;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'La siembra del articulado la realiza el script de ingesta'
+      using errcode = '42501';
+  end if;
+  if p_proyecto_id is null then
+    raise exception 'El proyecto es obligatorio'
+      using errcode = '22023';
+  end if;
+  if jsonb_typeof(p_articulos) <> 'array' or jsonb_array_length(p_articulos) = 0 then
+    raise exception 'No hay articulos que sembrar'
+      using errcode = '22023';
+  end if;
+
+  select count(*) into v_existentes
+  from public.norma_articulo a
+  where a.proyecto_id = p_proyecto_id;
+  if v_existentes > 0 then
+    raise exception 'El proyecto ya tiene % articulos: la siembra no pisa trabajo hecho', v_existentes
+      using errcode = '23505';
+  end if;
+
+  for v_item in select * from jsonb_array_elements(p_articulos) loop
+    v_orden := v_orden + 1;
+
+    insert into public.norma_articulo (
+      proyecto_id,
+      numero,
+      orden,
+      sumilla,
+      texto,
+      texto_original,
+      estado,
+      origen
+    ) values (
+      p_proyecto_id,
+      nullif(v_item->>'numero', '')::integer,
+      v_orden,
+      nullif(btrim(coalesce(v_item->>'sumilla', '')), ''),
+      coalesce(v_item->>'texto', ''),
+      coalesce(v_item->>'texto', ''),
+      'propuesto',
+      'borrador_recibido'
+    )
+    returning id into v_articulo_id;
+
+    -- Version 1: el texto tal como llego. El historial arranca en el borrador,
+    -- no en la primera edicion.
+    insert into public.norma_articulo_version (
+      articulo_id,
+      version,
+      texto,
+      sumilla,
+      motivo
+    ) values (
+      v_articulo_id,
+      1,
+      coalesce(v_item->>'texto', ''),
+      nullif(btrim(coalesce(v_item->>'sumilla', '')), ''),
+      'Texto del borrador recibido'
+    );
+
+    v_insertados := v_insertados + 1;
+  end loop;
+
+  return v_insertados;
+end;
+$$;
+
+revoke all on function public.crear_proyecto_norma(text, text, text)
+  from public, anon, authenticated;
+revoke all on function public.sembrar_articulado(uuid, jsonb)
+  from public, anon, authenticated;
+grant execute on function public.crear_proyecto_norma(text, text, text) to service_role;
+grant execute on function public.sembrar_articulado(uuid, jsonb) to service_role;
+
+comment on function public.sembrar_articulado(uuid, jsonb) is
+  'Siembra el articulado del borrador. Falla si el proyecto ya tiene articulos: no pisa trabajo hecho.';
 
 commit;

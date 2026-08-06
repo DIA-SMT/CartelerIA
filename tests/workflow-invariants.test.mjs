@@ -668,6 +668,69 @@ test("el asistente normativo nunca cita un proyecto sin sancionar", async () => 
   assert.match(sql, /' \| '/);
 });
 
+test("el corte por artículo no inventa numeración", async () => {
+  const { cortarPorArticulo, fragmentarArticulo } = await import("../lib/articulado.ts");
+
+  // Estructura real del borrador municipal: guion largo y sumilla.
+  const corte = cortarPorArticulo([
+    "PROYECTO DE ORDENANZA",
+    "TÍTULO I — DISPOSICIONES GENERALES",
+    "Artículo 1.— Objeto y ámbito de aplicación",
+    "La presente Ordenanza regula la publicidad exterior del ejido municipal.",
+    "Alcanza a toda publicidad propia o de terceros.",
+    "Artículo 2.— Definiciones",
+    "A los fines de esta Ordenanza se entiende por anuncio publicitario todo mensaje.",
+  ]);
+
+  assert.equal(corte.estructurado, true);
+  assert.equal(corte.articulos.length, 2);
+  assert.equal(corte.titulos.length, 1);
+  assert.equal(corte.articulos[0].numero, 1);
+  assert.equal(corte.articulos[0].sumilla, "Objeto y ámbito de aplicación");
+  assert.equal(corte.articulos[0].seccion, "Artículo 1");
+  // El encabezado no queda dentro del cuerpo.
+  assert.doesNotMatch(corte.articulos[0].texto, /^Artículo 1/);
+  // Los párrafos siguientes se acumulan en el artículo abierto.
+  assert.match(corte.articulos[0].texto, /Alcanza a toda publicidad/);
+  assert.deepEqual(corte.avisos, []);
+
+  // Un texto sin estructura NO siembra artículos: inventar una numeración es
+  // peor que no tenerla.
+  const plano = cortarPorArticulo([
+    "Informe de relevamiento de cartelería del corredor norte.",
+    "Se detectaron soportes sin identificación visible.",
+  ]);
+  assert.equal(plano.estructurado, false);
+  assert.equal(plano.articulos.length, 0);
+  assert.ok(plano.avisos.length > 0, "un texto sin estructura tiene que avisar");
+
+  // Los huecos de numeración se informan, no se corrigen.
+  const conHueco = cortarPorArticulo([
+    "Artículo 1.— Primero",
+    "Cuerpo del primero, con longitud suficiente para no dar aviso de vacío.",
+    "Artículo 3.— Tercero",
+    "Cuerpo del tercero, con longitud suficiente para no dar aviso de vacío.",
+  ]);
+  assert.equal(conHueco.articulos.length, 2);
+  assert.ok(
+    conHueco.avisos.some((aviso) => /Faltan los artículos 2/.test(aviso)),
+    "un hueco de numeración tiene que avisarse",
+  );
+  assert.deepEqual(conHueco.articulos.map((a) => a.numero), [1, 3]);
+
+  // Un artículo largo se parte, pero todos sus pedazos citan el mismo artículo.
+  const largo = {
+    numero: 7,
+    sumilla: "Condiciones técnicas",
+    texto: "Oración de prueba con longitud suficiente. ".repeat(80),
+    seccion: "Artículo 7",
+  };
+  const partes = fragmentarArticulo(largo, 600);
+  assert.ok(partes.length > 1, "un artículo largo debe partirse");
+  assert.ok(partes.every((parte) => parte.seccion === "Artículo 7"));
+  assert.ok(partes.every((parte) => parte.contenido.length <= 600));
+});
+
 test("las migraciones declaradas coinciden con los archivos reales", async () => {
   const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
   const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))
