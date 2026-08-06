@@ -834,6 +834,43 @@ test("guardar un articulo versiona y nunca sobrescribe", async () => {
   assert.doesNotMatch(ui, /crearArticulo\(/);
 });
 
+test("un fallo de carga se ve como error, nunca como carga eterna", async () => {
+  // Todas estas pantallas usan el mismo patrón anti-carrera: no se muestran los
+  // datos hasta que `dataOwnerId` coincide con la sesión. El riesgo es sutil: si
+  // una salida temprana por error olvida marcar el dueño, `ownsData` queda en
+  // false y el esqueleto tapa el mensaje de error para siempre. Pasó una vez en
+  // la Fábrica y desde afuera parecía que la pantalla nunca terminaba de cargar.
+  const pantallas = [
+    "components/fabrica/index.tsx",
+    "components/indicadores-gestion.tsx",
+    "components/configuracion/tab-auditoria.tsx",
+    "components/configuracion/tab-seguridad.tsx",
+    "components/configuracion/tab-corpus.tsx",
+    "components/configuracion/tab-usuarios.tsx",
+  ];
+
+  for (const ruta of pantallas) {
+    const codigo = await source(ruta);
+    const inicio = codigo.indexOf("const refresh = useCallback");
+    assert.ok(inicio > 0, `${ruta}: no se encontró el refresh`);
+    const fin = codigo.indexOf("useEffect(() => {", inicio);
+    const refresh = codigo.slice(inicio, fin > inicio ? fin : undefined);
+
+    const marcaDueño = refresh.indexOf("setDataOwnerId(auth.user?.id");
+    assert.ok(marcaDueño > 0, `${ruta}: el refresh no marca el dueño de los datos`);
+
+    // Si hay salidas tempranas después de cargar, el dueño ya tiene que estar
+    // marcado antes de la primera.
+    const primerErrorPhase = refresh.indexOf('setLoadPhase("error")');
+    if (primerErrorPhase > 0) {
+      assert.ok(
+        marcaDueño < primerErrorPhase,
+        `${ruta}: marca el dueño después de declarar el error, así el esqueleto tapa el mensaje`,
+      );
+    }
+  }
+});
+
 test("las migraciones declaradas coinciden con los archivos reales", async () => {
   const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
   const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))

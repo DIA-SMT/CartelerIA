@@ -68,9 +68,17 @@ export default function Fabrica({ onVolver }: { onVolver: () => void }) {
     const sequence = ++refreshSequence.current;
     setLoadPhase("loading");
     setDataOwnerId(null);
+
     const proyectoResult = await loadProyectoActivo();
     if (sequence !== refreshSequence.current) return;
+    // El dueño se marca ANTES de cualquier salida: si no, un fallo de carga
+    // dejaba `ownsData` en false y la pantalla mostraba el esqueleto para
+    // siempre, sin decir nunca que algo había fallado.
+    setDataOwnerId(auth.user?.id ?? null);
+
     if (!proyectoResult.ok) {
+      setProyecto(null);
+      setArticulos([]);
       setLoadError(proyectoResult.error);
       setLoadPhase("error");
       return;
@@ -78,13 +86,13 @@ export default function Fabrica({ onVolver }: { onVolver: () => void }) {
     if (!proyectoResult.data) {
       setProyecto(null);
       setArticulos([]);
+      setLoadError(null);
       setLoadPhase("ready");
-      setDataOwnerId(auth.user?.id ?? null);
       return;
     }
+
     const articulosResult = await loadArticulos(proyectoResult.data.id);
     if (sequence !== refreshSequence.current) return;
-    setDataOwnerId(auth.user?.id ?? null);
     setProyecto(proyectoResult.data);
     setArticulos(articulosResult.data);
     setLoadError(articulosResult.ok ? null : articulosResult.error);
@@ -180,8 +188,11 @@ export default function Fabrica({ onVolver }: { onVolver: () => void }) {
           </span>
         </div>
         <p className="mt-2 text-tiny leading-5 text-slate-500">
-          {proyecto?.titulo ?? "Sin proyecto cargado"}. Cada guardado crea una versión nueva:
-          el texto anterior nunca se pierde. La redacción es de la persona; el sistema asiste.
+          {proyecto
+            ? `${proyecto.titulo}. `
+            : ""}
+          Cada guardado crea una versión nueva: el texto anterior nunca se pierde. La
+          redacción es de la persona; el sistema asiste.
         </p>
       </header>
 
@@ -207,14 +218,21 @@ export default function Fabrica({ onVolver }: { onVolver: () => void }) {
         <div role="alert" className="mt-5 empty-state border-red-200 bg-red-50">
           <span><AlertTriangle size={22}/></span>
           <h3>No se pudo cargar el articulado</h3>
-          <p>{loadError} Reintentá o revisá tu sesión.</p>
+          <p>
+            {loadError} Si las tablas todavía no existen, falta aplicar la migración 21 en
+            el SQL Editor.
+          </p>
           <button type="button" onClick={refresh} className="secondary-button compact">Reintentar</button>
         </div>
       ) : !proyecto ? (
         <div className="mt-5 empty-state">
           <span><FileText size={22}/></span>
           <h3>Todavía no hay proyecto cargado</h3>
-          <p>El borrador entra por script: <span className="font-mono">npm run ingest:docs</span>.</p>
+          <p>
+            El borrador entra por script, no desde acá. Con las migraciones 20 y 21
+            aplicadas, corré <span className="font-mono">npm run ingest:docs</span> y el
+            articulado queda sembrado.
+          </p>
         </div>
       ) : (
         <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
