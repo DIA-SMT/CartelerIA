@@ -99,8 +99,14 @@ export function TabCorpus() {
           : `${resumen.habilitadosIaExterna} documento(s) habilitados para IA externa. Revisá que corresponda antes de una publicación.`}
       </p>
 
+      <p className="flex items-start gap-1.5 text-micro leading-4 text-slate-500">
+        <FileSearch size={12} className="mt-0.5 shrink-0"/>
+        Hacé clic en el nombre de un documento para leer su texto indexado —el que vería
+        un modelo, no el del PDF— y decidir si puede salir del municipio.
+      </p>
+
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-        <table className="w-full min-w-[820px] text-left text-tiny">
+        <table className="w-full min-w-[760px] text-left text-tiny">
           <thead className="bg-slate-50">
             <tr className="micro-label">
               <th className="px-3 py-2.5">Documento</th>
@@ -108,18 +114,30 @@ export function TabCorpus() {
               <th className="px-3 py-2.5">Huella del PDF</th>
               <th className="px-3 py-2.5">Huella del texto</th>
               <th className="px-3 py-2.5">Estado</th>
-              <th className="px-3 py-2.5"><span className="sr-only">Revisar</span></th>
             </tr>
           </thead>
           <tbody>
             {resumen.items.map((documento) => (
               <tr key={documento.id} className="border-t border-slate-100 align-top">
                 <td className="px-3 py-2">
-                  <b className="block text-ink">{documento.titulo}</b>
-                  <span className="text-micro text-slate-400">
-                    {documento.categoria}
-                    {documento.paginas ? ` · ${documento.paginas} pág.` : ""}
-                  </span>
+                  {/* El disparador es el nombre del documento y no un botón en
+                      la última columna: la tabla scrollea horizontal y una
+                      acción que hay que ir a buscar arrastrando no existe. */}
+                  <button
+                    type="button"
+                    onClick={() => setRevisando(documento)}
+                    title="Leer el texto indexado y decidir si puede salir del municipio"
+                    className="group text-left"
+                  >
+                    <b className="flex items-center gap-1 text-municipal-700 underline decoration-municipal-200 underline-offset-2 group-hover:decoration-municipal-500">
+                      {documento.titulo}
+                      <FileSearch size={12} className="shrink-0 opacity-60"/>
+                    </b>
+                    <span className="block text-micro text-slate-400">
+                      {documento.categoria}
+                      {documento.paginas ? ` · ${documento.paginas} pág.` : ""}
+                    </span>
+                  </button>
                 </td>
                 <td className="px-3 py-2 text-center font-bold text-slate-600">{documento.chunks}</td>
                 <td className="px-3 py-2 font-mono text-micro text-slate-500">{huella(documento.hashPdf)}</td>
@@ -147,17 +165,6 @@ export function TabCorpus() {
                       </span>
                     )}
                   </div>
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    onClick={() => setRevisando(documento)}
-                    title="Leer el texto indexado y decidir si sale del municipio"
-                    className="secondary-button compact"
-                  >
-                    <FileSearch size={13}/>
-                    Revisar
-                  </button>
                 </td>
               </tr>
             ))}
