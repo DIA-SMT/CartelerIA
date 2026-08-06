@@ -184,6 +184,220 @@ test("el corpus RAG queda privado, trazable, atómico y apto para serverless", a
   }
 });
 
+test("la migración 16 gobierna los roles y cierra la lectura consultiva", async () => {
+  const sql = await source(
+    "supabase/migrations/20260806_16_gobernanza_identidades.sql",
+  );
+
+  // 1. Fundamento obligatorio y suficiente para cambiar un rol.
+  assert.match(
+    sql,
+    /char_length\(btrim\(coalesce\(p_fundamento,\s*''\)\)\)\s*<\s*12/i,
+    "asignar_rol debe exigir un fundamento de al menos 12 caracteres",
+  );
+
+  // 2. Nadie cambia su propio rol: lo valida la RPC y lo revalida el trigger.
+  assert.match(sql, /if p_user_id = auth\.uid\(\) then\s*\n\s*raise exception 'Nadie puede cambiar su propio rol'/i);
+  assert.match(sql, /if old\.user_id = auth\.uid\(\) then\s*\n\s*raise exception 'Nadie puede cambiar su propio rol'/i);
+
+  // 3. La instancia no puede quedarse sin administradores.
+  assert.match(sql, /raise exception 'La instancia no puede quedarse sin administradores'/i);
+  assert.match(
+    sql,
+    /where p\.rol = 'administrador'::public\.app_rol\s*\n\s*and p\.user_id <> p_user_id/i,
+    "la guarda debe contar administradores distintos del afectado",
+  );
+
+  // 4. Un UPDATE directo de `rol` falla: revoke + trigger con marcador de sesión.
+  //    El revoke alcanza a service_role y el trigger cubre INSERT, para que
+  //    borrar el perfil y volver a insertarlo no sea un ascenso silencioso.
+  assert.match(
+    sql,
+    /revoke insert, update, delete on public\.perfiles from anon, authenticated, service_role/i,
+  );
+  assert.match(
+    sql,
+    /create trigger trg_perfiles_proteger_rol\s*\n\s*before insert or update on public\.perfiles/i,
+  );
+  assert.match(sql, /Un perfil nuevo solo puede nacer con rol consulta/i);
+  // La guarda del último administrador se serializa: dos degradaciones
+  // concurrentes dejarían la instancia sin ninguno.
+  assert.match(sql, /pg_advisory_xact_lock\(hashtext\('public\.asignar_rol'\)\)/i);
+  assert.match(sql, /current_setting\('app\.asignacion_rol',\s*true\)/i);
+  assert.match(sql, /perform set_config\('app\.asignacion_rol',\s*p_user_id::text,\s*true\)/i);
+  // Ni service_role puede mover un rol sin pasar por la RPC auditada.
+  assert.match(
+    sql,
+    /coalesce\(auth\.role\(\),\s*''\)\s*=\s*'service_role'[\s\S]{0,400}El rol solo puede cambiarlo un administrador autenticado/i,
+  );
+  // El historial de roles es inmutable e insert-only.
+  assert.match(
+    sql,
+    /create trigger trg_perfiles_historial_inmutable\s*\n\s*before update or delete on public\.perfiles_historial/i,
+  );
+  assert.match(
+    sql,
+    /revoke insert, update, delete on public\.perfiles_historial\s*\n\s*from anon, authenticated, service_role/i,
+  );
+  assert.match(sql, /revoke truncate on table\s*\n\s*public\.perfiles,\s*\n\s*public\.perfiles_historial/i);
+
+  // 5. El rol `consulta` pierde empresa, CUIT y padrón en las tres tablas que
+  //    los guardan. Las vistas no pueden reintroducir las columnas.
+  for (const tabla of ["carteles", "inspecciones", "expedientes"]) {
+    assert.match(
+      sql,
+      new RegExp(`create view public\\.${tabla}_consulta`, "i"),
+      `falta la vista consultiva de ${tabla}`,
+    );
+  }
+  const vistas = sql.slice(
+    sql.indexOf("drop view if exists public.carteles_consulta"),
+    sql.indexOf("-- Las tablas base quedan reservadas"),
+  );
+  assert.ok(vistas.length > 0, "no se pudo aislar el bloque de vistas consultivas");
+  for (const columna of ["empresa", "cuit", "padron_cisi"]) {
+    assert.doesNotMatch(
+      vistas,
+      new RegExp(`\\.${columna}\\b`),
+      `la vista consultiva no puede exponer ${columna}`,
+    );
+  }
+  for (const tabla of ["carteles", "inspecciones", "expedientes"]) {
+    assert.doesNotMatch(
+      sql,
+      new RegExp(
+        `create policy ${tabla}_(?:authenticated_read|select) on public\\.${tabla}[\\s\\S]{0,320}'consulta'`,
+        "i",
+      ),
+      `la tabla base de ${tabla} no puede seguir abierta al rol consulta`,
+    );
+  }
+
+  // 6. La evidencia no se entrega si no se pudo auditar: la ruta se resuelve y
+  //    el acceso se registra en la misma transacción, y la lectura directa del
+  //    bucket queda revocada.
+  assert.match(sql, /create or replace function public\.autorizar_lectura_evidencia/i);
+  const autorizacion = sql.slice(
+    sql.indexOf("create or replace function public.autorizar_lectura_evidencia"),
+    sql.indexOf("revoke all on function public.autorizar_lectura_evidencia"),
+  );
+  assert.match(
+    autorizacion,
+    /perform public\.registrar_acceso_sensible\([\s\S]{0,200}\)[\s\S]{0,200}return query/i,
+    "el registro de acceso debe ocurrir antes de devolver las rutas",
+  );
+  // La lectura del bucket queda acotada al objeto propio. No se dropea del todo
+  // porque un INSERT con RETURNING también pasa por las policies de SELECT y el
+  // upload de evidencia dejaría de funcionar; lo que se cierra es la rama que
+  // permitía firmar evidencia ajena sin pasar por la ruta auditada.
+  for (const policy of ["inspeccion_fotos_read", "expediente_docs_read"]) {
+    assert.match(sql, new RegExp(`drop policy if exists ${policy} on storage\\.objects`, "i"));
+    assert.match(
+      sql,
+      new RegExp(`create policy ${policy} on storage\\.objects[\\s\\S]{0,220}owner_id = auth\\.uid\\(\\)::text`, "i"),
+      `${policy} debe quedar acotada al objeto propio`,
+    );
+  }
+  assert.doesNotMatch(
+    sql,
+    /create policy \w+_read on storage\.objects[\s\S]{0,400}exists\s*\(\s*\n?\s*select 1/i,
+    "la lectura del bucket no puede volver a alcanzar evidencia ajena",
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.autorizar_lectura_evidencia\(text, uuid\[\], uuid, text\)\s*\n\s*to service_role/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function public\.autorizar_lectura_evidencia\([\s\S]{0,60}\)\s*\n?\s*to (?:anon|authenticated)/i,
+  );
+  assert.match(
+    sql,
+    /create trigger trg_acceso_datos_sensibles_inmutable\s*\n\s*before update or delete on public\.acceso_datos_sensibles/i,
+  );
+});
+
+test("la evidencia solo se entrega por la ruta que la audita", async () => {
+  const [route, client, inspectionRepo, expedienteRepo] = await Promise.all([
+    source("app/api/evidence/access/route.ts"),
+    source("lib/evidence-access.ts"),
+    source("lib/inspection-repository.ts"),
+    source("lib/expediente-repository.ts"),
+  ]);
+
+  // El navegador ya no firma evidencia: la lectura del bucket está revocada.
+  for (const repo of [inspectionRepo, expedienteRepo]) {
+    assert.doesNotMatch(repo, /createSignedUrls/);
+    assert.match(repo, /requestEvidenceUrls\(/);
+  }
+
+  // La ruta replica las defensas de /api/ask y /api/normativa.
+  assert.match(route, /rateLimit\(/);
+  assert.match(route, /consumir_cuota_evidencia/);
+  assert.match(route, /autorizar_lectura_evidencia/);
+  assert.match(route, /"Cache-Control": "no-store"/);
+  assert.match(route, /timeoutMs: DB_TIMEOUT_MS/);
+  assert.match(route, /if \(!token\) return response\(\{ error: "unauthorized" \}, 401\)/);
+  // Nunca devuelve el detalle del error al cliente.
+  assert.doesNotMatch(route, /error:\s*\w*[Ee]rror\.message/);
+  assert.match(route, /console\.error\(/);
+  // Si algo falla, no se entrega ninguna URL.
+  assert.match(route, /if \(!url\) return response\(\{ error: "sign_failed" \}, 503\)/);
+  assert.match(client, /throw new Error\("No se pudo autorizar el acceso a la evidencia\."\)/);
+});
+
+test("los indicadores se calculan en PostgreSQL y no inventan ceros", async () => {
+  const [sql, repo, ui] = await Promise.all([
+    source("supabase/migrations/20260806_17_indicadores_gestion.sql"),
+    source("lib/indicadores-repository.ts"),
+    source("components/indicadores-gestion.tsx"),
+  ]);
+
+  assert.match(
+    sql,
+    /create or replace function public\.indicadores_gestion\(\s*\n\s*p_desde date/i,
+  );
+  // El rol consulta no puede segmentar por empresa: el filtro reconstruye la
+  // razón social aunque el campo nunca se muestre.
+  assert.match(
+    sql,
+    /v_empresa is not null and v_rol = 'consulta'::public\.app_rol[\s\S]{0,160}raise exception/i,
+  );
+  // Solo agregados: ninguna razón social, CUIT ni padrón sale del RPC.
+  const salida = sql.slice(sql.indexOf("select jsonb_build_object("), sql.indexOf("into v_resultado"));
+  assert.ok(salida.length > 0, "no se pudo aislar la construcción del resultado");
+  for (const columna of ["u.empresa", "u.cuit", "u.padron_cisi", "c.empresa", "c.cuit"]) {
+    assert.doesNotMatch(
+      salida,
+      new RegExp(columna.replace(".", "\\.")),
+      `el resultado no puede incluir ${columna}`,
+    );
+  }
+  // Los siete indicadores del roadmap, cada uno con procedencia declarada.
+  for (const clave of [
+    "cobertura_territorial",
+    "inspecciones_completadas",
+    "tasa_regularizacion",
+    "demora_primera_inspeccion",
+    "demora_resolucion",
+    "antiguedad_backlog",
+    "calidad_datos",
+  ]) {
+    assert.match(sql, new RegExp(`'clave',\\s*'${clave}'`), `falta el indicador ${clave}`);
+  }
+  assert.equal((sql.match(/'procedencia',/g) ?? []).length, 7);
+  // Un denominador en cero se declara insuficiente, no se divide.
+  assert.equal((sql.match(/nullif\((?:cobertura|inspecciones_resumen|regularizacion|calidad)\./g) ?? []).length, 4);
+  assert.match(sql, /'suficiente', cobertura\.registrados > 0/);
+
+  // El cliente valida el contrato y muestra la insuficiencia como tal.
+  assert.match(repo, /PROCEDENCIAS\.includes\(raw\.procedencia as Procedencia\)/);
+  assert.match(repo, /contrato inesperado/);
+  assert.match(ui, /if \(!indicador\.suficiente \|\| indicador\.valor === null\) return "Sin datos"/);
+  // El cálculo no se replica en el navegador.
+  assert.doesNotMatch(ui, /loadCarteles|loadInspections|loadExpedientes/);
+});
+
 test("la interfaz no vuelve a ofrecer atajos administrativos inseguros", async () => {
   const [form, header, keepalive, inspectionRepo, expedienteRepo, proposalGenerator] =
     await Promise.all([

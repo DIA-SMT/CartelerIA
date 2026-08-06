@@ -57,14 +57,16 @@ export function linkAdministrativeCarteles(
         administrative: {
           recordId: record.id,
           linkStatus: record.territorialLinkStatus ?? "sin_vinculo",
-          empresa: record.empresa,
-          cuit: record.cuit,
+          // Los campos fiscales se omiten cuando la sesión no los recibió: así
+          // el mapa nunca los transporta en una sesión consultiva.
+          ...(record.empresa ? { empresa: record.empresa } : {}),
+          ...(record.cuit ? { cuit: record.cuit } : {}),
+          ...(record.padronCisi ? { padronCisi: record.padronCisi } : {}),
           tipoCartel: record.tipoCartel,
           dimensiones: record.dimensiones,
           superficieM2: record.superficieM2,
           domicilio: record.domicilio,
           numero: record.numero,
-          padronCisi: record.padronCisi,
           estado: record.estado,
           locationEdited: record.locationEdited,
         },

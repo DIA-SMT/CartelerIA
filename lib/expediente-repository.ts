@@ -4,7 +4,8 @@ import {
   isExpedienteState,
   type ExpedienteState,
 } from "@/data/expedientes";
-import type { AppRole } from "@/hooks/use-auth";
+import { fiscalSource, type AppRole } from "./roles";
+import { requestEvidenceUrls } from "./evidence-access";
 import {
   abandonEvidenceUpload,
   finalizeEvidence,
@@ -12,7 +13,6 @@ import {
 } from "./evidence-finalizer";
 
 const DOC_BUCKET = "expediente-docs";
-const SIGNED_URL_TTL_SECONDS = 3600;
 const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
 
 export interface ExpedienteRecord {
@@ -20,6 +20,7 @@ export interface ExpedienteRecord {
   numero: string | null;
   cartelId: string;
   estado: ExpedienteState;
+  /** null también cuando el rol no puede verla: existe y no se entregó. */
   empresa: string | null;
   direccion: string | null;
   observaciones: string | null;
@@ -58,12 +59,13 @@ export interface ExpedienteDraft {
   observaciones: string | null;
 }
 
+// `empresa` es opcional: la vista `expedientes_consulta` no la trae.
 type ExpedienteRow = {
   id: string;
   numero: string | null;
   cartel_id: string;
   estado: string;
-  empresa: string | null;
+  empresa?: string | null;
   direccion: string | null;
   observaciones: string | null;
   created_at: string;
@@ -81,7 +83,7 @@ function fromRow(row: ExpedienteRow): ExpedienteRecord {
     numero: row.numero,
     cartelId: row.cartel_id,
     estado: toState(row.estado),
-    empresa: row.empresa,
+    empresa: row.empresa ?? null,
     direccion: row.direccion,
     observaciones: row.observaciones,
     createdAt: row.created_at,
@@ -90,11 +92,14 @@ function fromRow(row: ExpedienteRow): ExpedienteRecord {
   };
 }
 
-/** Todos los expedientes (para el registro/export). Requiere sesión (RLS). */
-export async function loadExpedientes(): Promise<ExpedienteRecord[]> {
+/**
+ * Todos los expedientes (para el registro/export). Requiere sesión (RLS).
+ * La fuente depende del rol (ver lib/roles.ts).
+ */
+export async function loadExpedientes(role: AppRole | null): Promise<ExpedienteRecord[]> {
   if (!supabase) throw new Error("Supabase no está configurado.");
   const { data, error } = await supabase
-    .from("expedientes")
+    .from(fiscalSource("expedientes", role))
     .select("*")
     .order("created_at", { ascending: false });
   if (error || !data) throw new Error("No se pudieron cargar los expedientes.");
@@ -102,10 +107,13 @@ export async function loadExpedientes(): Promise<ExpedienteRecord[]> {
 }
 
 /** Devuelve el expediente del cartel (1 por cartel) o null si no existe. */
-export async function loadExpedienteByCartel(cartelId: string): Promise<ExpedienteRecord | null> {
+export async function loadExpedienteByCartel(
+  cartelId: string,
+  role: AppRole | null,
+): Promise<ExpedienteRecord | null> {
   if (!supabase) throw new Error("Supabase no está configurado.");
   const { data, error } = await supabase
-    .from("expedientes")
+    .from(fiscalSource("expedientes", role))
     .select("*")
     .eq("cartel_id", cartelId)
     .maybeSingle();
@@ -186,17 +194,8 @@ export async function loadExpedienteDocumentos(expedienteId: string): Promise<Ex
   }[];
   if (rows.length === 0) return [];
 
-  const { data: signed, error: signedError } = await supabase.storage
-    .from(DOC_BUCKET)
-    .createSignedUrls(rows.map((row) => row.storage_path), SIGNED_URL_TTL_SECONDS);
-  if (
-    signedError
-    || !signed
-    || signed.some((item) => !item.signedUrl)
-  ) {
-    throw new Error("No se pudieron autorizar las URLs de los documentos.");
-  }
-  const urlByPath = new Map((signed ?? []).map((item) => [item.path, item.signedUrl]));
+  // La firma la hace el servidor después de registrar el acceso (migración 16).
+  const urlById = await requestEvidenceUrls("expediente_documento", rows.map((row) => row.id));
 
   return rows.map((row) => ({
     id: row.id,
@@ -207,7 +206,7 @@ export async function loadExpedienteDocumentos(expedienteId: string): Promise<Ex
     byteSize: row.byte_size,
     mimeType: row.mime_type,
     uploadedBy: row.created_by,
-    url: urlByPath.get(row.storage_path) ?? null,
+    url: urlById.get(row.id) ?? null,
     createdAt: row.created_at,
   }));
 }

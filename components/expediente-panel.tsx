@@ -43,6 +43,7 @@ import {
 } from "@/lib/expediente-repository";
 import { loadInspectionsByCartel, type InspectionRecord } from "@/lib/inspection-repository";
 import { printExpedienteDossier } from "@/lib/expediente-report";
+import { RestrictedByRole } from "./restricted-badge";
 import { StateChangeApprovals } from "./state-change-approvals";
 
 type Props = {
@@ -105,8 +106,8 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate
     setRequestsLoadError(null);
     try {
       const [exp, insp] = await Promise.all([
-        loadExpedienteByCartel(cartelId),
-        loadInspectionsByCartel(cartelId),
+        loadExpedienteByCartel(cartelId, auth.role),
+        loadInspectionsByCartel(cartelId, auth.role),
       ]);
       if (sequence !== refreshSequence.current) return;
       setExpediente(exp);
@@ -141,7 +142,7 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate
     } finally {
       if (sequence === refreshSequence.current) setLoading(false);
     }
-  }, [cartelId, canRead]);
+  }, [cartelId, canRead, auth.role]);
 
   useEffect(() => {
     void refresh();
@@ -187,6 +188,7 @@ export function ExpedientePanel({ cartelId, cartelName, prefill, auth, canMutate
               requestsLoadError={requestsLoadError}
               documentos={documentos}
               canManage={canManage}
+              canSeeFiscal={auth.canSeeFiscal}
               isAdmin={canMutate && auth.role === "administrador"}
               busy={busy}
               setBusy={setBusy}
@@ -256,11 +258,11 @@ function NewExpediente({ cartelName, cartelId, prefill, canManage, busy, setBusy
 // ----------------------------------------------------------------------------
 // Vista del expediente
 // ----------------------------------------------------------------------------
-function ExpedienteView({ expediente, cartelName, inspecciones, historial, requests, requestsLoadError, documentos, canManage, isAdmin, busy, setBusy, onChanged }: {
+function ExpedienteView({ expediente, cartelName, inspecciones, historial, requests, requestsLoadError, documentos, canManage, canSeeFiscal, isAdmin, busy, setBusy, onChanged }: {
   expediente: ExpedienteRecord; cartelName: string; inspecciones: InspectionRecord[];
   historial: ExpedienteHistoryEntry[]; requests: StateChangeRequest[]; documentos: ExpedienteDocumento[];
   requestsLoadError: string | null;
-  canManage: boolean; isAdmin: boolean; busy: boolean; setBusy: (v: boolean) => void; onChanged: () => Promise<void>;
+  canManage: boolean; canSeeFiscal: boolean; isAdmin: boolean; busy: boolean; setBusy: (v: boolean) => void; onChanged: () => Promise<void>;
 }) {
   const config = getExpedienteState(expediente.estado);
   const [obs, setObs] = useState(expediente.observaciones ?? "");
@@ -322,7 +324,9 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, reque
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-slate-600">
         <span><b className="text-slate-400">Cartel:</b> {cartelName}</span>
-        {expediente.empresa && <span><b className="text-slate-400">Empresa:</b> {expediente.empresa}</span>}
+        {canSeeFiscal
+          ? expediente.empresa && <span><b className="text-slate-400">Empresa:</b> {expediente.empresa}</span>
+          : <span className="flex items-center gap-1"><b className="text-slate-400">Empresa:</b> <RestrictedByRole/></span>}
         {expediente.direccion && <span className="col-span-2"><b className="text-slate-400">Dirección:</b> {expediente.direccion}</span>}
         <span><b className="text-slate-400">Apertura:</b> {new Date(expediente.createdAt).toLocaleDateString("es-AR")}</span>
         {expediente.cerradoEn && <span><b className="text-slate-400">Cierre:</b> {new Date(expediente.cerradoEn).toLocaleDateString("es-AR")}</span>}
@@ -330,7 +334,7 @@ function ExpedienteView({ expediente, cartelName, inspecciones, historial, reque
     </div>
 
     {/* Exportar PDF (dossier imprimible) */}
-    <button type="button" onClick={() => printExpedienteDossier({ expediente, cartelName, inspecciones, historial, requests, documentos })} className="secondary-button compact w-full justify-center"><Printer size={12}/>Exportar PDF (dossier)</button>
+    <button type="button" onClick={() => printExpedienteDossier({ expediente, cartelName, inspecciones, historial, requests, documentos, includeFiscalData: canSeeFiscal })} className="secondary-button compact w-full justify-center"><Printer size={12}/>Exportar PDF (dossier)</button>
 
     {/* Transiciones */}
     <StateChangeApprovals requests={requests} isAdmin={isAdmin} loadError={requestsLoadError} onResolve={resolveRequest}/>

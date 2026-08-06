@@ -10,6 +10,8 @@ import { CorridorsSection } from "./corridors-section";
 import { Header } from "./header";
 import { Hero } from "./hero";
 import { ExpedientesRegistro } from "./expedientes-registro";
+import { IndicadoresGestion } from "./indicadores-gestion";
+import { UsuariosAdmin } from "./usuarios-admin";
 import { MapPreview } from "./map-preview";
 import { NormativaAsk } from "./normativa-ask";
 import { PdfLibrary } from "./pdf-library";
@@ -55,10 +57,13 @@ export function Dashboard() {
           <MapPreview carteles={territorial.filteredCarteles} allCarteles={territorial.carteles} corridors={territorial.corridors} allowedPlaces={territorial.allowedPlaces} filters={territorial.filters} onFilters={territorial.setFilters} loading={territorial.loading} error={territorial.error} onRetry={territorial.retry} administrativeSource={territorial.administrativeSource} linkedCount={territorial.linkedCount} selected={selectedCartel} onSelect={selectCartel}/>
         </div>
       </div>
-      {/* Bloque de gestión contiguo: bandeja de aprobaciones + registro de
-          expedientes. Ambos se ocultan sin la sesión/rol correspondiente. */}
+      {/* Bloque de gestión contiguo: bandeja de aprobaciones, registro de
+          expedientes y padrón de usuarios. Todos se ocultan sin la sesión/rol
+          correspondiente. */}
+      <IndicadoresGestion/>
       <ApprovalInbox/>
       <ExpedientesRegistro/>
+      <UsuariosAdmin/>
       <CartelLibrary carteles={territorial.filteredCarteles} onLocate={locateCartel}/>
       <div id="normativa" data-tour="normativa" className="section-block pb-0"><NormativaAsk onOpenDocument={openDocumentById}/></div>
       <PdfLibrary onOpen={(document) => openDocument(document)}/>

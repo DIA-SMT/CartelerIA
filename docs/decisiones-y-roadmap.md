@@ -53,6 +53,130 @@ CartelerIA. No describe necesariamente el estado actual de implementación.
 - La inspección visual de la fuente primaria corrigió Ordenanza 4828/2014 a
   Ordenanza 4728/2014; catálogo, PDF y metadatos live quedaron sincronizados.
 
+## Estado de implementación al 2026-08-06 (paquete E)
+
+La migración 16 (`20260806_16_gobernanza_identidades.sql`) está escrita,
+verificada con `tsc`, `npm run test:workflow` y `next build`, y **queda
+pendiente de aplicación manual por Lucas en el SQL Editor de Supabase**. Hasta
+que se aplique, la interfaz nueva no tiene contraparte en la base: el panel de
+usuarios no podrá listar perfiles y la evidencia se seguirá sirviendo solo si
+las policies viejas siguen vigentes.
+
+Su alcance:
+
+- **Gobernanza de roles.** Cambiar un rol dejó de ser un `update` a mano. La RPC
+  `asignar_rol` exige administrador autenticado (excluye `service_role`),
+  fundamento de al menos 12 caracteres, prohíbe el auto-cambio y prohíbe dejar
+  la instancia sin administradores; es no-op silencioso si el rol no cambia y
+  escribe `perfiles_historial` en la misma transacción. `perfiles` queda con
+  `revoke` de escritura y un trigger que rechaza todo UPDATE de `rol` que no
+  provenga de la RPC. La recuperación ante una instancia sin administradores
+  exige una migración deliberada: no se dejó atajo silencioso.
+- **Privacidad consultiva.** El rol `consulta` ya no lee las tablas base de
+  `carteles`, `inspecciones` ni `expedientes`, sino vistas sin empresa, CUIT ni
+  padrón (y sin las identidades de los agentes que solicitaron o aprobaron
+  vínculos). Del lado cliente, la fuente se elige por rol, el campo restringido
+  se muestra como "Restringido por rol" y no como vacío, y se cerraron las tres
+  vías indirectas: el ranking por empresa de "Preguntale al mapa", el campo
+  `empresa` de todo listado de resultados y la exportación XLSX/dossier de
+  expedientes.
+- **Auditoría de lectura.** `acceso_datos_sensibles` registra quién consultó
+  datos fiscales o evidencia. La evidencia se autoriza en el servidor:
+  `app/api/evidence/access` verifica sesión y rol, y la RPC resuelve las rutas y
+  escribe la auditoría en una sola transacción, de modo que un fallo de registro
+  deshace la entrega. La lectura directa de los buckets quedó revocada.
+- **Panel de usuarios.** Sección `#usuarios`, solo administrador: padrón con
+  nombre, email, rol y último cambio, cambio de rol con fundamento obligatorio
+  confirmado en diálogo propio, e historial inmutable por cuenta.
+
+### Antes de aplicar la 16, en el SQL Editor
+
+Las vistas consultivas corren con los privilegios de su dueño (no
+`security_invoker`) para poder leer la tabla base que la nueva policy le cierra
+al rol `consulta`, y llevan su propia guarda de rol adentro. Eso depende de dos
+supuestos que conviene confirmar en la instancia real:
+
+```sql
+select relname, relrowsecurity, relforcerowsecurity, pg_get_userbyid(relowner) as owner
+from pg_class
+where relname in ('carteles','inspecciones','expedientes','perfiles');
+```
+
+Si `relforcerowsecurity` fuera `true` en alguna, o el owner no fuera `postgres`,
+las vistas devolverían cero filas **a todos los roles** y el mapa quedaría vacío.
+Hoy no hay ningún `force row level security` en el repo, así que lo esperable es
+`false` y `postgres` en las cuatro.
+
+Después de aplicar:
+
+- Si `carteles_consulta` respondiera 404, es la caché de esquema de PostgREST:
+  `notify pgrst, 'reload schema';`.
+- El Advisor de Supabase va a marcar las tres vistas nuevas como
+  `security_definer_view` (lint 0010). Es exactamente lo que la migración busca:
+  sin eso, la vista no podría leer la tabla base para el rol `consulta`.
+- **Probar una carga real de fotografía y de documento.** La migración acota la
+  lectura del bucket al objeto propio en lugar de revocarla del todo, porque un
+  `INSERT` con `RETURNING` también pasa por las policies de `SELECT` y sin
+  ninguna el upload falla. Ni el typecheck, ni el build, ni los tests detectan
+  esa rotura: se vería recién al intentar subir evidencia.
+
+Decisiones tomadas al implementar, que el plan no fijaba:
+
+- Las columnas físicas nuevas usan `created_at`, como las cuatro tablas de
+  historial ya existentes; los nombres en español (`creado_en`,
+  `rol_cambiado_en`) quedan como contrato de las RPC, no del esquema.
+- Las vistas consultivas omiten además `vinculo_solicitado_por` y
+  `vinculo_aprobado_por`: son identidades de agentes municipales y ningún
+  componente cliente las usaba.
+- `expediente_documentos` e `inspeccion_fotos` conservan sus policies: no tienen
+  datos personales en columnas y su binario se cierra por Storage. Queda
+  anotado que `descripcion`, `nota` y `fundamento` son texto libre donde una
+  persona podría tipear un CUIT; cerrarlos exigiría revisar contenido, no
+  permisos.
+- `/api/ask` seguía sin autenticación y devolviendo el intent crudo del
+  intérprete local. Se lo dejó en pie pero ahora revalida con los permisos
+  mínimos: nunca devuelve un intent que filtre o agrupe por empresa.
+
+## Estado de implementación al 2026-08-06 (paquete F)
+
+La migración 17 (`20260806_17_indicadores_gestion.sql`) está escrita y **también
+queda pendiente de aplicación manual**, después de la 16. Agrega
+`indicadores_gestion(p_desde, p_hasta, p_zona, p_empresa, p_estado, p_inspector)`
+y `zonas_disponibles()`, y no crea ninguna tabla: solo lee.
+
+Los siete indicadores se calculan en PostgreSQL y viajan como un único `jsonb`
+donde cada uno declara procedencia, si tiene datos suficientes, numerador,
+denominador y un detalle en prosa. La sección `#indicadores` del dashboard los
+muestra sin recalcular nada.
+
+Decisiones que conviene conocer antes de leer los números en una presentación:
+
+- **Cobertura territorial.** El universo territorial vive en los GeoJSON
+  servidos, no en PostgreSQL, así que la base no puede dividir por él sin
+  inventarlo. El indicador informa los vínculos ratificados por un administrador
+  sobre el registro administrativo, declarado como dato administrativo oficial.
+  La comparación contra la capa territorial completa sigue siendo una lectura
+  del mapa, no de este indicador.
+- **Inspecciones completadas.** Depende de `programada_para` e
+  `inspeccionada_en`, que hoy la aplicación nunca escribe: el alta de inspección
+  no pide fecha. Mientras siga así, el indicador se muestra explícitamente como
+  "sin datos" y aclara cuántas inspecciones hay cargadas y cuántas tienen
+  resultado. No se lo maquilló con un 0%: si aparece un porcentaje, es porque
+  alguien empezó a programar inspecciones con fecha.
+- **Tasa de regularización.** Se mide sobre `inspeccion_historial`, no sobre el
+  estado vigente: un cartel ya regularizado dejó de figurar como observado, así
+  que contarlo por estado actual daría siempre cero.
+- **Tiempos.** Se reportan como mediana, no promedio, para que un caso viejo no
+  arrastre el número. La demora hasta la primera inspección se mide desde el
+  alta del registro, que es el hecho que el sistema puede fechar con certeza.
+- **Ventana temporal.** Filtra por fecha de alta del registro administrativo.
+- **Permisos.** La segmentación por empresa está cerrada para el rol `consulta`:
+  un filtro por razón social la reconstruye aunque el campo nunca se muestre. El
+  RPC rechaza el parámetro en vez de ignorarlo en silencio.
+- `components/zone-ranking.tsx` seguía sin importarse desde ningún lado y con
+  datos simulados. Se eliminó en este tramo en lugar de revivirlo para
+  indicadores.
+
 ## Propósito
 
 CartelerIA será una herramienta oficial para tomar decisiones administrativas
@@ -148,6 +272,10 @@ la cartelería urbana.
 
 ## Indicadores de éxito
 
+Los siete están implementados en la migración 17 y en la sección
+`#indicadores`. Ver "Estado de implementación al 2026-08-06 (paquete F)" para
+las salvedades de cada uno.
+
 Los indicadores principales serán:
 
 1. Cobertura territorial:
@@ -182,6 +310,11 @@ período, respetando los permisos de acceso.
 - [x] Reingerir y verificar el corpus RAG con contrato atómico v1.
 - [ ] Ratificar manualmente los 13 vínculos heredados después de aplicar la
   migración 13.
+- [ ] **Aplicar la migración 16 en el SQL Editor.** Está escrita y verificada
+  contra `tsc`, tests y build, pero no se puede probar sin correrla: no hay CLI
+  vinculado. Después de aplicarla conviene revisar cuántas cuentas quedaron con
+  rol `administrador` desde el panel `#usuarios`: el UPDATE masivo de la
+  migración 07 nunca se revirtió en datos.
 - [ ] Crear auditoría de las respuestas normativas; la auditoría operativa ya
   está cubierta por la migración 12.
 - [ ] Implementar revisión/aprobación administrativa versionada del corpus y de
@@ -204,6 +337,15 @@ período, respetando los permisos de acceso.
 
 ### Prioridad media
 
+- Poner cuota a `registrar_acceso_sensible`. Está otorgada a `authenticated` y
+  acepta `recurso_id` como texto libre: una cuenta municipal podría inflar la
+  tabla insert-only atribuyéndose accesos que nunca ocurrieron. Los accesos a
+  evidencia sí pasan por `consumir_cuota_evidencia`; la vía directa de datos
+  fiscales, no.
+- Unificar el cliente `service_role`: `lib/supabase-admin.ts` existe y lo usa la
+  ruta de evidencia, pero `finalize`, `cleanup` y `normativa` todavía lo
+  instancian inline. No se refactorizaron en este tramo por ser código de
+  seguridad ya verificado que no se puede ejercitar sin la base viva.
 - Dividir componentes con exceso de estado local.
 - Completar accesibilidad de diálogos y navegación por teclado.
 - Retirar código sin uso.

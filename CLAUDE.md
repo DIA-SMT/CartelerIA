@@ -28,10 +28,26 @@ Todavía no hay una suite general ni configuración de ESLint.
 - **Sesión**: `AuthProvider` único montado en `app/layout.tsx`
   (`components/auth-provider.tsx`). `hooks/use-auth.ts` es solo re-export para
   compatibilidad. No instanciar estado de auth en componentes.
-- **Registro administrativo privado**: `loadCarteles()` solo se ejecuta con
+- **Registro administrativo privado**: `loadCarteles(role)` solo se ejecuta con
   sesión y no tiene fallback estático. No importar `data/carteles.json` desde
   módulos cliente: contiene empresa, CUIT y padrón y terminaría en el bundle
   público. Sin sesión, el mapa usa únicamente las capas territoriales.
+- **Permiso fiscal por rol** (`lib/roles.ts`, única fuente): `canSeeFiscalData`
+  y `fiscalSource(tabla, rol)` deciden si se lee la tabla base o la vista
+  `*_consulta` sin empresa/CUIT/padrón. El rol `consulta` no las ve por ninguna
+  vía: tampoco puede filtrar ni agrupar por `empresa`/`empresaInspeccion` (los
+  campos llevan `fiscal: true` y `parseQueryIntent` los corta), y las
+  exportaciones XLSX/dossier reciben `includeFiscalData`. Un dato restringido se
+  muestra con `<RestrictedByRole/>`, nunca vacío: el usuario debe distinguir
+  "no hay dato" de "no tenés acceso".
+- **Evidencia**: el navegador no firma URLs. `lib/evidence-access.ts` pide a
+  `app/api/evidence/access` que autorice el lote; la RPC
+  `autorizar_lectura_evidencia` resuelve rutas y registra el acceso en la MISMA
+  transacción, así que si la auditoría falla no hay URL. La lectura directa de
+  los buckets quedó revocada (las policies de INSERT siguen: el flujo
+  reservar→upload→finalize depende de ellas). Cliente admin compartido en
+  `lib/supabase-admin.ts` (las tres rutas anteriores todavía lo instancian
+  inline: deuda conocida).
 - **APIs** (`app/api/ask`, `app/api/normativa`): llaman a OpenRouter. Toda API
   nueva debe replicar sus defensas: rate limit por IP (`lib/rate-limit.ts`),
   límite de longitud del input, `AbortSignal.timeout`, y nunca filtrar
@@ -85,6 +101,22 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   usa full-text search privado en PostgreSQL y superó los cinco probes del
   verificador. `@huggingface/transformers` queda solo en dependencias de
   desarrollo para ingesta offline; no volver a importarlo desde rutas Next.
+- Gobernanza de identidades (migración 16, **escrita y pendiente de aplicación
+  manual por Lucas**): los roles solo se cambian con la RPC `asignar_rol`
+  (administrador humano, fundamento ≥12 caracteres, prohibido el auto-cambio,
+  prohibido quedarse sin administradores, historial inmutable en
+  `perfiles_historial`). `revoke` sobre `perfiles` + trigger
+  `proteger_rol_perfiles` cierran el UPDATE directo, incluso a `service_role`.
+  El rol `consulta` lee vistas `carteles_consulta`/`inspecciones_consulta`/
+  `expedientes_consulta` sin datos personales ni tributarios. Las lecturas
+  sensibles se registran en `acceso_datos_sensibles` (insert-only, solo
+  administrador la lee). No reintroducir `update public.perfiles set rol = ...`
+  a mano en el SQL Editor: el trigger lo rechaza y es a propósito. Tampoco
+  borrar y reinsertar el perfil: un perfil nuevo solo nace con rol `consulta`.
+- La lectura de los buckets quedó acotada al objeto propio, no revocada del
+  todo: un `INSERT` con `RETURNING` también pasa por las policies de `SELECT` y
+  sin ninguna se rompe la carga de evidencia. Si alguna vez se endurece más,
+  probar un upload real — no lo cubren tsc, build ni tests.
 - `service_role` es una identidad técnica: puede ejecutar mantenimiento
   autorizado, pero nunca debe registrarse ni interpretarse como aprobación
   legal. Las aprobaciones exigen un administrador humano y fundamento.
@@ -97,6 +129,11 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 - `data/carteles.json` y los `seed*.sql` contienen datos personales: se guardan
   bajo `private/`, fuera de Git y Vercel. Los scripts que los procesan deben
   mantener esas rutas privadas.
+- Indicadores (migración 17, **escrita y pendiente de aplicación manual**):
+  `indicadores_gestion(...)` devuelve un `jsonb` con los 7 indicadores del
+  roadmap, cada uno con `procedencia` y `suficiente`. El cálculo va en
+  PostgreSQL: no replicarlo en el cliente ni traer el registro para contar. Un
+  indicador sin datos suficientes se muestra "Sin datos", nunca como cero.
 - Plan free: se pausa a los ~7 días sin actividad (el subdominio deja de
   resolver → parece error de DNS). Lo evita `.github/workflows/supabase-keepalive.yml`
   (ping diario; los `schedule` solo corren desde `main`; secrets `SUPABASE_URL`

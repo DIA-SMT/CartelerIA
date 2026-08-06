@@ -35,9 +35,13 @@ export function Header() {
   // Las secciones de gestión entran a la nav según el rol de la sesión.
   const navigation: NavItem[] = [
     ...baseNavigation,
+    ...(auth.canRead ? [{ href: "#indicadores", label: "Indicadores" }] : []),
     ...(auth.canRead ? [{ href: "#expedientes", label: "Expedientes" }] : []),
     ...(auth.canRead && auth.role === "administrador"
       ? [{ href: "#aprobaciones", label: "Aprobaciones", badge: pendingApprovals }]
+      : []),
+    ...(auth.canRead && auth.role === "administrador"
+      ? [{ href: "#usuarios", label: "Usuarios" }]
       : []),
   ];
 

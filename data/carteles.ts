@@ -8,15 +8,20 @@ export interface CartelRecord {
   territorialFeatureId?: string | null;
   proposedTerritorialFeatureId?: string | null;
   territorialLinkStatus?: TerritorialLinkStatus;
-  empresa: string;
-  cuit: string;
+  /**
+   * Datos personales y tributarios. Llegan en `null` a las sesiones sin
+   * permiso fiscal: la vista `carteles_consulta` directamente no los tiene.
+   * `null` significa "existe y no lo podés ver", no "el registro está vacío".
+   */
+  empresa: string | null;
+  cuit: string | null;
   tipoCartel: string;
   dimensiones: string;
   superficieM2: number | null;
   domicilio: string;
   numero: string;
   googleMapsUrl: string;
-  padronCisi: string;
+  padronCisi: string | null;
   estado: CartelStatus;
   latitud: number | null;
   longitud: number | null;

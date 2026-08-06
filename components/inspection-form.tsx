@@ -181,8 +181,10 @@ export function InspectionForm({ cartelId, cartelName, prefill, auth, onClose, o
         tipoSoporte: tipoSoporte || null,
         anchoM: anchoNum,
         altoM: altoNum,
-        empresa: empresa.trim() || null,
-        cuit: cuit.trim() || null,
+        // Sin permiso fiscal los campos nunca llegaron: enviarlos vacíos
+        // borraría la razón social y el CUIT del registro.
+        empresa: auth.canSeeFiscal ? empresa.trim() || null : undefined,
+        cuit: auth.canSeeFiscal ? cuit.trim() || null : undefined,
         observaciones: observaciones.trim() || null,
       });
       if (!ok) {

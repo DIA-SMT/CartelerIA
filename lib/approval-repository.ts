@@ -205,6 +205,12 @@ type CartelContextRow = {
   numero: string | null;
 };
 
+/**
+ * Enriquece la cola global con empresa y dirección. Lee las tablas base, que
+ * desde la migración 16 solo alcanzan los roles operativos: es correcto porque
+ * la cola global es exclusiva del administrador. Si alguna vez se abriera a
+ * `consulta`, esta función tiene que pasar por `fiscalSource`.
+ */
 async function enrichContexts(
   requests: StateChangeRequest[],
 ): Promise<LoadResult<StateChangeRequest[]>> {

@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { loadExpedientes, type ExpedienteRecord } from "@/lib/expediente-repository";
 import { loadInspections } from "@/lib/inspection-repository";
 import { exportExpedientesXlsx } from "@/lib/expediente-report";
+import { RestrictedByRole } from "@/components/restricted-badge";
 
 export function ExpedientesRegistro() {
   const auth = useAuth();
@@ -33,7 +34,10 @@ export function ExpedientesRegistro() {
     setError(null);
     setDataOwnerId(null);
     try {
-      const [exps, insps] = await Promise.all([loadExpedientes(), loadInspections()]);
+      const [exps, insps] = await Promise.all([
+        loadExpedientes(auth.role),
+        loadInspections(auth.role),
+      ]);
       if (sequence !== refreshSequence.current) return;
       const counts = new Map<string, number>();
       for (const insp of insps) counts.set(insp.cartelId, (counts.get(insp.cartelId) ?? 0) + 1);
@@ -50,7 +54,7 @@ export function ExpedientesRegistro() {
     } finally {
       if (sequence === refreshSequence.current) setLoading(false);
     }
-  }, [canRead, auth.user?.id]);
+  }, [canRead, auth.user?.id, auth.role]);
 
   useEffect(() => {
     void refresh();
@@ -60,7 +64,10 @@ export function ExpedientesRegistro() {
   }, [refresh]);
 
   const exportar = () => {
-    void exportExpedientesXlsx(expedientes.map((e) => ({ expediente: e, inspecciones: conteos.get(e.cartelId) ?? 0 })));
+    void exportExpedientesXlsx(
+      expedientes.map((e) => ({ expediente: e, inspecciones: conteos.get(e.cartelId) ?? 0 })),
+      auth.canSeeFiscal,
+    );
   };
   const ownsData = dataOwnerId === auth.user?.id;
 
@@ -106,7 +113,7 @@ export function ExpedientesRegistro() {
             const s = getExpedienteState(e.estado);
             return <tr key={e.id} className="border-t border-slate-100">
               <td className="px-3 py-2 font-bold text-ink">{e.numero}</td>
-              <td className="px-3 py-2 text-slate-600">{e.empresa || "—"}</td>
+              <td className="px-3 py-2 text-slate-600">{auth.canSeeFiscal ? e.empresa || "—" : <RestrictedByRole/>}</td>
               <td className="max-w-[220px] truncate px-3 py-2 text-slate-500">{e.direccion || "—"}</td>
               <td className="px-3 py-2"><span className="badge-soft"><i style={{ background: s.color }}/>{s.label}</span></td>
               <td className="px-3 py-2 text-slate-500">{new Date(e.createdAt).toLocaleDateString("es-AR")}</td>

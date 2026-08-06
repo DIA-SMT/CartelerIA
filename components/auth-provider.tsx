@@ -3,12 +3,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import {
+  APP_ROLES,
+  OPERATIVE_ROLES,
+  canSeeFiscalData,
+  type AppRole,
+} from "@/lib/roles";
 
-export type AppRole = "administrador" | "coordinador" | "inspector" | "consulta";
-
-/** Roles con permiso de escritura sobre inspecciones (coincide con la RLS). */
-const OPERATIVE_ROLES: AppRole[] = ["administrador", "coordinador", "inspector"];
-const APP_ROLES: AppRole[] = [...OPERATIVE_ROLES, "consulta"];
+export type { AppRole };
 
 export interface AuthState {
   /** Si Supabase no está configurado, la autenticación no está disponible. */
@@ -21,6 +23,11 @@ export interface AuthState {
   canRead: boolean;
   /** true si el rol permite crear/editar inspecciones. */
   canInspect: boolean;
+  /**
+   * true si el rol puede ver empresa, CUIT y padrón. Con false, la sesión pide
+   * las vistas consultivas: el dato no viaja al navegador.
+   */
+  canSeeFiscal: boolean;
   error: string | null;
   retryRole: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<boolean>;
@@ -144,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     roleError,
     canRead: Boolean(user) && role !== null && roleError === null,
     canInspect: Boolean(user) && role !== null && OPERATIVE_ROLES.includes(role),
+    canSeeFiscal: Boolean(user) && roleError === null && canSeeFiscalData(role),
     error,
     retryRole,
     signIn,

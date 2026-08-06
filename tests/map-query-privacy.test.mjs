@@ -43,6 +43,10 @@ async function loadMapQueryModule() {
   return module.exports;
 }
 
+/** Permisos con los que se valida un intent (migración 16 / lib/roles.ts). */
+const OPERATIVO = { canSeeFiscalData: true };
+const CONSULTIVO = { canSeeFiscalData: false };
+
 test("el parser acepta solo campos propios y datasets explícitamente válidos", async () => {
   const { isQueryField, parseQueryIntent } = await loadMapQueryModule();
 
@@ -51,14 +55,14 @@ test("el parser acepta solo campos propios y datasets explícitamente válidos",
   assert.equal(isQueryField("__proto__"), false);
 
   assert.equal(
-    parseQueryIntent({ operation: "count", dataset: "administracion" }),
+    parseQueryIntent({ operation: "count", dataset: "administracion" }, OPERATIVO),
     null,
   );
-  assert.equal(parseQueryIntent({ operation: "count", dataset: null }), null);
+  assert.equal(parseQueryIntent({ operation: "count", dataset: null }, OPERATIVO), null);
 
   const inheritedDataset = Object.create({ dataset: "administracion" });
   inheritedDataset.operation = "count";
-  assert.equal(parseQueryIntent(inheritedDataset)?.dataset, "carteles");
+  assert.equal(parseQueryIntent(inheritedDataset, OPERATIVO)?.dataset, "carteles");
 });
 
 test("el parser aplica una matriz estricta entre operador y tipo de campo", async () => {
@@ -69,7 +73,7 @@ test("el parser aplica una matriz estricta entre operador y tipo de campo", asyn
       field: "analysisStatus",
       op: "eq",
       value: "dentro_corredor",
-    }),
+    }, OPERATIVO),
     { field: "analysisStatus", op: "eq", value: "dentro_corredor" },
   );
   assert.equal(
@@ -77,7 +81,7 @@ test("el parser aplica una matriz estricta entre operador y tipo de campo", asyn
       field: "analysisStatus",
       op: "contains",
       value: "corredor",
-    }),
+    }, OPERATIVO),
     null,
   );
   assert.equal(
@@ -85,7 +89,7 @@ test("el parser aplica una matriz estricta entre operador y tipo de campo", asyn
       field: "distanceToCorridorM",
       op: "eq",
       value: "50",
-    }),
+    }, OPERATIVO),
     null,
   );
   assert.equal(
@@ -93,7 +97,7 @@ test("el parser aplica una matriz estricta entre operador y tipo de campo", asyn
       field: "distanceToCorridorM",
       op: "in",
       value: ["50"],
-    }),
+    }, OPERATIVO),
     null,
   );
   assert.deepEqual(
@@ -101,7 +105,7 @@ test("el parser aplica una matriz estricta entre operador y tipo de campo", asyn
       field: "distanceToCorridorM",
       op: "lte",
       value: 50,
-    }),
+    }, OPERATIVO),
     { field: "distanceToCorridorM", op: "lte", value: 50 },
   );
   assert.deepEqual(
@@ -109,7 +113,7 @@ test("el parser aplica una matriz estricta entre operador y tipo de campo", asyn
       field: "empresaInspeccion",
       op: "contains",
       value: "ejemplo",
-    }),
+    }, OPERATIVO),
     { field: "empresaInspeccion", op: "contains", value: "ejemplo" },
   );
 
@@ -118,7 +122,7 @@ test("el parser aplica una matriz estricta entre operador y tipo de campo", asyn
       operation: "aggregate",
       dataset: "inspecciones",
       aggregate: { groupBy: "empresaInspeccion", top: 1.5 },
-    }),
+    }, OPERATIVO),
     null,
   );
   assert.equal(
@@ -126,16 +130,108 @@ test("el parser aplica una matriz estricta entre operador y tipo de campo", asyn
       operation: "aggregate",
       dataset: "inspecciones",
       aggregate: { groupBy: "empresaInspeccion", top: 101 },
-    }),
+    }, OPERATIVO),
     null,
   );
   assert.equal(
     parseQueryIntent({
       operation: "count",
       aggregate: { groupBy: "analysisStatus", top: 5 },
-    }),
+    }, OPERATIVO),
     null,
   );
+});
+
+test("una sesión de rol consulta no obtiene empresa ni CUIT por ninguna vía", async () => {
+  const { isFiscalField, parsePredicate, parseQueryIntent } = await loadMapQueryModule();
+
+  // 1. El catálogo marca como fiscales los dos campos que nombran a la empresa.
+  assert.equal(isFiscalField("empresa"), true);
+  assert.equal(isFiscalField("empresaInspeccion"), true);
+  assert.equal(isFiscalField("analysisStatus"), false);
+
+  // 2. Filtrar por razón social: rechazado, incluso anidado en un AND.
+  assert.equal(
+    parsePredicate({ field: "empresaInspeccion", op: "contains", value: "ejemplo" }, CONSULTIVO),
+    null,
+  );
+  assert.equal(
+    parsePredicate({
+      op: "and",
+      clauses: [
+        { field: "estadoInspeccion", op: "eq", value: "con_observaciones" },
+        { field: "empresaInspeccion", op: "contains", value: "ejemplo" },
+      ],
+    }, CONSULTIVO),
+    null,
+  );
+
+  // 3. Rankear por empresa: rechazado. Es la vía por la que "¿qué empresa tiene
+  //    más observaciones?" reconstruye la razón social sin mostrar el campo.
+  const ranking = {
+    operation: "aggregate",
+    dataset: "inspecciones",
+    aggregate: { groupBy: "empresaInspeccion", top: 5 },
+    applyToMap: false,
+    unsupported: [],
+    explanation: "",
+  };
+  assert.notEqual(parseQueryIntent(ranking, OPERATIVO), null);
+  assert.equal(parseQueryIntent(ranking, CONSULTIVO), null);
+
+  // 4. Las consultas territoriales siguen funcionando para el rol consulta.
+  assert.notEqual(
+    parseQueryIntent({
+      operation: "count",
+      predicate: { field: "analysisStatus", op: "eq", value: "dentro_corredor" },
+      applyToMap: false,
+      unsupported: [],
+      explanation: "",
+    }, CONSULTIVO),
+    null,
+  );
+});
+
+test("la fuente de datos, el mapa y las exportaciones respetan el permiso fiscal", async () => {
+  const [roles, cartelRepo, inspectionRepo, expedienteRepo, linker, ai, report, registro] =
+    await Promise.all([
+      source("lib/roles.ts"),
+      source("lib/cartel-repository.ts"),
+      source("lib/inspection-repository.ts"),
+      source("lib/expediente-repository.ts"),
+      source("lib/territorial-cartel-linker.ts"),
+      source("lib/map-query-ai.ts"),
+      source("lib/expediente-report.ts"),
+      source("components/expedientes-registro.tsx"),
+    ]);
+
+  // El rol elige la fuente: tabla base solo para roles operativos.
+  assert.match(roles, /return canSeeFiscalData\(role\) \? table : `\$\{table\}_consulta`/);
+  assert.doesNotMatch(roles, /"consulta"[^\n]*OPERATIVE_ROLES/);
+
+  // Ningún repositorio de datos fiscales consulta la tabla base a secas.
+  for (const [name, code] of [
+    ["carteles", cartelRepo],
+    ["inspecciones", inspectionRepo],
+    ["expedientes", expedienteRepo],
+  ]) {
+    assert.match(code, new RegExp(`fiscalSource\\("${name}", role\\)`));
+  }
+  assert.doesNotMatch(cartelRepo, /\.from\("carteles"\)\s*\n?\s*\.select\("\*"\)/);
+
+  // El mapa no transporta los campos fiscales si la sesión no los recibió.
+  assert.match(linker, /\.\.\.\(record\.empresa \? \{ empresa: record\.empresa \} : \{\}\)/);
+  assert.match(linker, /\.\.\.\(record\.cuit \? \{ cuit: record\.cuit \} : \{\}\)/);
+  assert.match(linker, /\.\.\.\(record\.padronCisi \? \{ padronCisi: record\.padronCisi \} : \{\}\)/);
+
+  // La interpretación local se revalida siempre bajo los permisos de la sesión.
+  assert.match(ai, /parseQueryIntent\(raw, permissions\)/);
+
+  // Un informe exportado sobrevive a la sesión: no puede llevar razón social si
+  // la interfaz se la oculta al rol.
+  assert.match(report, /includeFiscalData/);
+  assert.match(report, /includeFiscalData \? expediente\.empresa \|\| "" : RESTRICTED_BY_ROLE_LABEL/);
+  assert.match(registro, /exportExpedientesXlsx\([\s\S]{0,200}auth\.canSeeFiscal/);
 });
 
 test("la política externa detecta PII explícita sin bloquear referencias normativas", () => {
