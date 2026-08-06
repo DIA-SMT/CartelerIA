@@ -85,6 +85,37 @@ Todavía no hay una suite general ni configuración de ESLint.
   En Seguridad, cada dato declara su origen (consultado en vivo, verificado a
   mano con fecha, o declarado en el repositorio). No presentar como comprobado
   lo que no se pudo consultar.
+- **Fábrica Normativa** (`components/fabrica/`, sección `#fabrica`, migraciones
+  20 a 24): mesa de redacción de la nueva ordenanza. Regla que gobierna todo el
+  módulo: **la persona es la autora y el sistema asiste**, y eso se sostiene en
+  PostgreSQL, no en la interfaz.
+  - Nada se sobrescribe: `guardar_articulo` agrega una fila a
+    `norma_articulo_version` con motivo obligatorio, y `texto_original` del
+    borrador recibido es inmutable por trigger. No reintroducir un `update`
+    directo sobre `norma_articulo.texto`.
+  - El borrador (`doc-16`) tiene `estado_legal = 'proyecto'` y **nunca** es
+    citable por el asistente normativo: `buscar_rag_chunks_lexico` exige
+    `p_estados` explícito y no tiene default permisivo. Ojo:
+    `sincronizar_documento_rag` escribe una lista fija de columnas y se come
+    `estado_legal`; por eso existe `fijar_estado_legal_documento` (migración 22).
+  - `norma_parametro` solo acepta un valor con cita **textual** del artículo
+    (se valida con `position(cita in texto)`); un parámetro sin confirmar hace
+    fallar la simulación en vez de asumir. `lib/norma-simulador.ts` es
+    determinístico y no llama a ningún modelo: un dato faltante da
+    `no_evaluable`, nunca `cumple`.
+  - `/api/fabrica` propone y jamás escribe: no llama a ninguna RPC de
+    articulado. Los hallazgos con cita que no se verifica contra los fragmentos
+    (`lib/norma-citas.ts`) se descartan antes de guardarse.
+  - La exportación para elevar es fail-closed (`evaluarElevacion`): un artículo
+    sin aprobar o un diagnóstico grave sin atender la bloquean y se dice cuál.
+    La versión de trabajo siempre está disponible y va marcada como borrador.
+    Word se genera en el cliente con `docx` en import diferido; el PDF sale de
+    `@media print`. Ni `docx` ni `write-excel-file` deben entrar al bundle
+    inicial.
+  - `norma_observacion` es el único lugar donde el rol `consulta` escribe, y
+    escribe una opinión, no un acto administrativo. Insert-only: nadie edita ni
+    borra, tampoco la propia — se agrega otra. El administrador la marca
+    atendida con fundamento y el texto original queda intacto.
 - **Motion, detalle a saber**: el token `DEFAULT` (250ms) de
   `transitionDuration` **no tiene clase utilitaria** — ni `duration` ni
   `duration-DEFAULT` se generan. Los overlays usan `duration-200`; `duration-fast`
@@ -137,8 +168,8 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   usa full-text search privado en PostgreSQL y superó los cinco probes del
   verificador. `@huggingface/transformers` queda solo en dependencias de
   desarrollo para ingesta offline; no volver a importarlo desde rutas Next.
-- Gobernanza de identidades (migración 16, **escrita y pendiente de aplicación
-  manual por Lucas**): los roles solo se cambian con la RPC `asignar_rol`
+- Gobernanza de identidades (migración 16, aplicada y verificada): los roles
+  solo se cambian con la RPC `asignar_rol`
   (administrador humano, fundamento ≥12 caracteres, prohibido el auto-cambio,
   prohibido quedarse sin administradores, historial inmutable en
   `perfiles_historial`). `revoke` sobre `perfiles` + trigger
@@ -165,11 +196,18 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 - `data/carteles.json` y los `seed*.sql` contienen datos personales: se guardan
   bajo `private/`, fuera de Git y Vercel. Los scripts que los procesan deben
   mantener esas rutas privadas.
-- Indicadores (migración 17, **escrita y pendiente de aplicación manual**):
+- Indicadores (migración 17, aplicada y verificada):
   `indicadores_gestion(...)` devuelve un `jsonb` con los 7 indicadores del
   roadmap, cada uno con `procedencia` y `suficiente`. El cálculo va en
   PostgreSQL: no replicarlo en el cliente ni traer el registro para contar. Un
   indicador sin datos suficientes se muestra "Sin datos", nunca como cero.
+- Fábrica Normativa (migraciones 20 a 24). Estado de aplicación:
+  20, 22 y 23 aplicadas y verificadas; **21 hay que volver a correrla** —los RPC
+  del bloque 3 (`actor_fabrica`, `guardar_articulo`, `crear_articulo`,
+  `cambiar_estado_articulo`, `reordenar_articulos`), la columna `origen` de
+  `norma_articulo_version` y la versión idempotente de `crear_proyecto_norma` se
+  agregaron después de que Lucas la aplicara; **24 pendiente**. Las dos son
+  idempotentes. El detalle de las reglas está arriba, en Arquitectura.
 - Plan free: se pausa a los ~7 días sin actividad (el subdominio deja de
   resolver → parece error de DNS). Lo evita `.github/workflows/supabase-keepalive.yml`
   (ping diario; los `schedule` solo corren desde `main`; secrets `SUPABASE_URL`

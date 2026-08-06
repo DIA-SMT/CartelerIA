@@ -100,4 +100,5 @@ export const MIGRACIONES_DECLARADAS: MigracionDeclarada[] = [
   { numero: 21, archivo: "20260806_21_fabrica_normativa.sql", resumen: "Articulado de la ordenanza en construcción" },
   { numero: 22, archivo: "20260806_22_estado_legal_efectivo.sql", resumen: "El estado legal del corpus se aplica de verdad" },
   { numero: 23, archivo: "20260806_23_diagnostico_normativo.sql", resumen: "Parámetros confirmados y diagnósticos del articulado" },
+  { numero: 24, archivo: "20260806_24_observaciones_articulo.sql", resumen: "Observaciones de las áreas por artículo" },
 ];

@@ -1,14 +1,7 @@
 "use client";
 
 import { Check, Minus } from "lucide-react";
-import { APP_ROLES, PERMISSION_MATRIX, rolTienePermiso, type AppRole } from "@/lib/roles";
-
-const ROLE_LABELS: Record<AppRole, string> = {
-  administrador: "Administrador",
-  coordinador: "Coordinador",
-  inspector: "Inspector",
-  consulta: "Consulta",
-};
+import { APP_ROLES, PERMISSION_MATRIX, ROLE_LABELS, rolTienePermiso } from "@/lib/roles";
 
 /**
  * Matriz de permisos.

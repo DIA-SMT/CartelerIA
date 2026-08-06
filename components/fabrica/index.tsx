@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, FileText, History, Loader2, RefreshCw, Save } from "lucide-react";
+import { AlertTriangle, FileText, History, Loader2, RefreshCw, Save, Table2 } from "lucide-react";
 import type { AnalyzedCartel } from "@/data/territorial";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -12,15 +12,18 @@ import {
   cambiarEstadoArticulo,
   guardarArticulo,
   loadArticulos,
+  loadObservacionesDelProyecto,
   loadProyectoActivo,
   type ArticuloNorma,
   type EstadoArticulo,
   type ProyectoNorma,
 } from "@/lib/fabrica-repository";
+import { agruparObservaciones, exportarObservacionesXlsx } from "@/lib/norma-export";
 import { ConfirmDialog } from "../confirm-dialog";
 import { toast } from "../toaster";
 import { ArticuladoCompleto } from "./articulado-completo";
 import { HistorialArticulo } from "./historial-articulo";
+import { ObservacionesArticulo } from "./observaciones-articulo";
 import { PanelDiagnostico } from "./panel-diagnostico";
 
 type LoadPhase = "idle" | "loading" | "ready" | "error";
@@ -75,6 +78,7 @@ export default function Fabrica({
   const [cambio, setCambio] = useState<CambioPendiente | null>(null);
   const [historialDe, setHistorialDe] = useState<ArticuloNorma | null>(null);
   const [verArticulado, setVerArticulado] = useState(false);
+  const [exportando, setExportando] = useState(false);
   const refreshSequence = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -176,6 +180,29 @@ export default function Fabrica({
     await refresh();
   };
 
+  const exportarObservaciones = async () => {
+    if (!proyecto || exportando) return;
+    setExportando(true);
+    try {
+      const resultado = await loadObservacionesDelProyecto(proyecto.id);
+      if (!resultado.ok) {
+        toast(resultado.error ?? "No se pudieron cargar las observaciones.", "error");
+        return;
+      }
+      const filas = agruparObservaciones(articulos, resultado.data);
+      if (filas.length === 0) {
+        toast("Todavía no hay observaciones para exportar.", "error");
+        return;
+      }
+      await exportarObservacionesXlsx(filas);
+      toast(`Planilla generada con ${filas.length} observaciones.`);
+    } catch {
+      toast("No se pudo generar la planilla.", "error");
+    } finally {
+      setExportando(false);
+    }
+  };
+
   if (!auth.canRead) return null;
 
   const aprobados = articulos.filter((articulo) => articulo.estado === "aprobado").length;
@@ -224,14 +251,26 @@ export default function Fabrica({
           Actualizar
         </button>
         {proyecto && articulos.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setVerArticulado(true)}
-            className="secondary-button compact"
-          >
-            <FileText size={13}/>
-            Ver articulado completo
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => setVerArticulado(true)}
+              className="secondary-button compact"
+            >
+              <FileText size={13}/>
+              Ver articulado completo
+            </button>
+            <button
+              type="button"
+              onClick={exportarObservaciones}
+              disabled={exportando}
+              title="Descargar todas las observaciones agrupadas por artículo"
+              className="secondary-button compact disabled:opacity-50"
+            >
+              {exportando ? <Loader2 size={13} className="animate-spin"/> : <Table2 size={13}/>}
+              Observaciones en Excel
+            </button>
+          </>
         )}
       </div>
 
@@ -405,6 +444,8 @@ export default function Fabrica({
                 carteles={carteles}
                 onVerEnMapa={onVerEnMapa}
               />
+
+              <ObservacionesArticulo articulo={seleccionado}/>
             </div>
           )}
         </div>

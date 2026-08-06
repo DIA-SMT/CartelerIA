@@ -233,6 +233,68 @@ Decisiones que conviene conocer:
 - La lista de migraciones de esa pantalla tiene un test que la compara con los
   archivos reales de `supabase/migrations/`, para que no se desactualice sola.
 
+## Estado de implementación al 2026-08-06 (Fábrica Normativa)
+
+Se agregó `#fabrica`, la mesa donde se escribe la nueva ordenanza de cartelería
+artículo por artículo, con tres apoyos permanentes: el borrador recibido, la
+normativa vigente y los carteles relevados. Migraciones 20 a 24.
+
+La regla que gobierna el módulo es una sola: **la persona es la autora y el
+sistema asiste**. Todo lo demás sale de ahí, y se sostiene en PostgreSQL porque
+una invariante que solo vive en la interfaz no es una invariante.
+
+Las cinco decisiones que no se negocian:
+
+1. **Nada se sobrescribe.** Guardar un artículo agrega una versión con motivo
+   obligatorio. El texto del borrador recibido es inmutable por trigger, para
+   poder mostrar siempre qué se cambió y contra qué.
+2. **El proyecto no se cita como si fuera derecho vigente.** El borrador entró
+   al corpus con `estado_legal = 'proyecto'` y la búsqueda exige estados
+   explícitos, sin default permisivo. Un asistente que responde una consulta
+   municipal citando un texto sin sancionar es peor que uno que no responde.
+3. **Un número sin cita textual no existe.** `norma_parametro` valida que la
+   cita aparezca literal en el artículo, y la simulación falla —no asume— si
+   falta un parámetro confirmado. Un cartel sin el dato queda `no_evaluable`:
+   no cumple ni incumple, falta información.
+4. **El asistente propone y nunca guarda.** `/api/fabrica` no llama a ninguna
+   RPC de articulado, y los hallazgos cuya cita no se verifica contra los
+   fragmentos recuperados se descartan antes de llegar a la base.
+5. **Elevar es fail-closed.** Un artículo sin aprobar o un diagnóstico grave sin
+   atender bloquean el documento oficial, y se dice cuál. La versión de trabajo
+   siempre está disponible, marcada como borrador en cada página.
+
+Otras decisiones que conviene conocer:
+
+- **`estado_legal` se perdía en silencio.** `sincronizar_documento_rag` escribe
+  una lista fija de columnas y se comía el campo, así que el borrador quedaba
+  como `vigente` y era citable. Se corrigió con la migración 22 en vez de
+  reescribir una función de 200 líneas ya verificada. Vale como recordatorio: el
+  agujero no estaba en lo que se escribió, sino en lo que una función vieja no
+  sabía copiar.
+- **La siembra del articulado se desacopló de la ingesta.** Estaba atada a que
+  el documento cambiara, así que "sin cambios" la salteaba para siempre. Ahora
+  falla y avisa si el proyecto ya tiene artículos, en vez de pisar trabajo hecho.
+- **El Word se genera en el navegador** con `docx` en import diferido, igual que
+  el XLSX de expedientes; el PDF sale de `@media print`. Meter un navegador
+  headless en una función serverless sería la dependencia más pesada y frágil
+  del proyecto para conseguir lo mismo. El PDF es la pieza menos verificable de
+  acá: conviene mirarlo a ojo antes de usarlo en serio.
+- **Las observaciones de las áreas son el único lugar donde el rol `consulta`
+  escribe**, y escribe una opinión, no un acto administrativo. Es justamente la
+  razón de que el rol exista. Insert-only: nadie edita ni borra, tampoco la
+  propia —se agrega otra—, porque una opinión reescrita después no sirve como
+  antecedente de nada, y estas observaciones son exactamente eso: el antecedente
+  de por qué el articulado terminó como terminó.
+- **Queda abierto** si un diagnóstico grave sobre un artículo *descartado*
+  debería bloquear la elevación. Hoy no bloquea, porque ese artículo no va en el
+  documento. Es discutible y conviene decidirlo con criterio jurídico, no
+  técnico.
+- **Pendiente de decisión de Lucas**: habilitar IA externa
+  (`ENABLE_EXTERNAL_NORMATIVA_AI=true` más marcar documentos como revisados por
+  humano y habilitados para salida externa). Hasta entonces el asistente de la
+  Fábrica se niega a redactar, por diseño, y muestra los fragmentos de la
+  vigente para leerlos en pantalla.
+
 ## Propósito
 
 CartelerIA será una herramienta oficial para tomar decisiones administrativas

@@ -120,6 +120,106 @@ export function pieDelDocumento(proyecto: string, oficial: boolean): string {
   ].join("\n");
 }
 
+// ----------------------------------------------------------------------------
+// Observaciones de las áreas
+// ----------------------------------------------------------------------------
+export interface ObservacionExportable {
+  articuloId: string;
+  texto: string;
+  autorNombre: string | null;
+  autorRol: string | null;
+  creadoEn: string;
+  atendidoEn: string | null;
+  fundamento: string | null;
+}
+
+export interface FilaObservacion {
+  articulo: string;
+  sumilla: string;
+  observacion: string;
+  autor: string;
+  rol: string;
+  fecha: string;
+  estado: string;
+  fundamento: string;
+}
+
+/**
+ * Agrupa las observaciones por artículo, en el orden del articulado.
+ *
+ * Las de artículos descartados también salen: alguien opinó sobre ese texto y
+ * el descarte no borra la opinión. Se marcan como tales para que se entienda
+ * por qué el artículo no aparece en el documento.
+ */
+export function agruparObservaciones(
+  articulos: ArticuloNorma[],
+  observaciones: ObservacionExportable[],
+): FilaObservacion[] {
+  const ordenados = articulos.slice().sort((a, b) => a.orden - b.orden);
+  const ensamblado = ensamblarArticulado(articulos);
+  const numeroFinal = new Map(ensamblado.map((item) => [item.articuloId, item.numero]));
+
+  const filas: FilaObservacion[] = [];
+  for (const articulo of ordenados) {
+    const propias = observaciones
+      .filter((observacion) => observacion.articuloId === articulo.id)
+      .slice()
+      .sort((a, b) => a.creadoEn.localeCompare(b.creadoEn));
+    if (propias.length === 0) continue;
+
+    const numero = numeroFinal.get(articulo.id);
+    const etiqueta = numero !== undefined
+      ? `Artículo ${numero}`
+      : `Artículo ${articulo.numero ?? articulo.orden} (descartado)`;
+
+    for (const observacion of propias) {
+      filas.push({
+        articulo: etiqueta,
+        sumilla: articulo.sumilla ?? "",
+        observacion: observacion.texto,
+        autor: observacion.autorNombre ?? "Sin identificar",
+        rol: observacion.autorRol ?? "",
+        fecha: observacion.creadoEn ? observacion.creadoEn.slice(0, 10) : "",
+        estado: observacion.atendidoEn ? "Atendida" : "Pendiente",
+        fundamento: observacion.fundamento ?? "",
+      });
+    }
+  }
+  return filas;
+}
+
+/** Registro tabular de las observaciones, con el mismo generador que expedientes. */
+export async function exportarObservacionesXlsx(filas: FilaObservacion[]): Promise<void> {
+  const { default: writeExcelFile } = await import("write-excel-file/browser");
+  const data = [
+    ["Artículo", "Sumilla", "Observación", "Autor", "Rol", "Fecha", "Estado", "Fundamento de atención"],
+    ...filas.map((fila) => [
+      fila.articulo,
+      fila.sumilla,
+      fila.observacion,
+      fila.autor,
+      fila.rol,
+      fila.fecha,
+      fila.estado,
+      fila.fundamento,
+    ]),
+  ];
+  const stamp = new Date().toISOString().slice(0, 10);
+  await writeExcelFile(data, {
+    columns: [
+      { width: 16 },
+      { width: 28 },
+      { width: 60 },
+      { width: 22 },
+      { width: 14 },
+      { width: 12 },
+      { width: 12 },
+      { width: 40 },
+    ],
+    sheet: "Observaciones",
+  }).toFile(`observaciones-${stamp}.xlsx`);
+}
+
 /**
  * Genera el Word.
  *

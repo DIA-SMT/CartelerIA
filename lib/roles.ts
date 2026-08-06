@@ -17,6 +17,21 @@ export function isAppRole(value: unknown): value is AppRole {
   return typeof value === "string" && (APP_ROLES as string[]).includes(value);
 }
 
+/** Cómo se nombra cada rol en pantalla y con qué color se lo distingue. */
+export const ROLE_LABELS: Record<AppRole, string> = {
+  administrador: "Administrador",
+  coordinador: "Coordinador",
+  inspector: "Inspector",
+  consulta: "Consulta",
+};
+
+export const ROLE_COLORS: Record<AppRole, string> = {
+  administrador: "#0166FF",
+  coordinador: "#0891b2",
+  inspector: "#16a34a",
+  consulta: "#64748b",
+};
+
 /**
  * true si el rol puede ver datos personales y tributarios (empresa, CUIT,
  * padrón). Hoy coincide con los roles operativos, pero es una decisión de

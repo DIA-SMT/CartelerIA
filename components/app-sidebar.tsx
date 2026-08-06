@@ -23,7 +23,7 @@ import { APPROVALS_COUNT_EVENT } from "@/data/approvals";
 import { useAuth } from "@/hooks/use-auth";
 import { useDismissible } from "@/hooks/use-dismissible";
 import { useModalShell } from "@/hooks/use-modal-shell";
-import type { AppRole } from "@/lib/roles";
+import { ROLE_COLORS, ROLE_LABELS, type AppRole } from "@/lib/roles";
 
 /**
  * Escala de z-index del proyecto, que hasta ahora estaba repartida por el
@@ -46,20 +46,6 @@ import type { AppRole } from "@/lib/roles";
  * lee un documento.
  */
 const SIDEBAR_Z_INDEX = 1050;
-
-const ROLE_LABELS: Record<AppRole, string> = {
-  administrador: "Administrador",
-  coordinador: "Coordinador",
-  inspector: "Inspector",
-  consulta: "Consulta",
-};
-
-const ROLE_COLORS: Record<AppRole, string> = {
-  administrador: "#0166FF",
-  coordinador: "#0891b2",
-  inspector: "#16a34a",
-  consulta: "#64748b",
-};
 
 type SidebarItem = {
   href: string;

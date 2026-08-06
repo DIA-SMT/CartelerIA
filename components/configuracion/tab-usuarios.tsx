@@ -16,7 +16,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useDismissible } from "@/hooks/use-dismissible";
 import { useModalShell } from "@/hooks/use-modal-shell";
-import { APP_ROLES, type AppRole } from "@/lib/roles";
+import { APP_ROLES, ROLE_COLORS, ROLE_LABELS, type AppRole } from "@/lib/roles";
 import {
   ROLE_REASON_MIN_LENGTH,
   asignarRol,
@@ -35,20 +35,6 @@ type PendingChange = {
   perfil: PerfilMunicipal;
   rol: AppRole;
   fundamento: string;
-};
-
-const ROLE_COLORS: Record<AppRole, string> = {
-  administrador: "#0166FF",
-  coordinador: "#0891b2",
-  inspector: "#16a34a",
-  consulta: "#64748b",
-};
-
-const ROLE_LABELS: Record<AppRole, string> = {
-  administrador: "Administrador",
-  coordinador: "Coordinador",
-  inspector: "Inspector",
-  consulta: "Consulta",
 };
 
 function fecha(value: string | null): string {

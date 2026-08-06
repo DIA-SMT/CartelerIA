@@ -460,6 +460,131 @@ export async function diagnosticarContraVigente(
   };
 }
 
+// ----------------------------------------------------------------------------
+// Observaciones de las áreas
+// ----------------------------------------------------------------------------
+export interface Observacion {
+  id: string;
+  articuloId: string;
+  texto: string;
+  autorNombre: string | null;
+  autorRol: AppRole | null;
+  creadoEn: string;
+  atendidoEn: string | null;
+  fundamento: string | null;
+}
+
+function toObservacion(row: Record<string, unknown>): Observacion | null {
+  if (typeof row.id !== "string" || typeof row.texto !== "string") return null;
+  return {
+    id: row.id,
+    articuloId: String(row.articulo_id),
+    texto: row.texto,
+    autorNombre: typeof row.autor_nombre === "string" ? row.autor_nombre : null,
+    autorRol: isAppRole(row.autor_rol) ? row.autor_rol : null,
+    creadoEn: typeof row.creado_en === "string" ? row.creado_en : "",
+    atendidoEn: typeof row.atendido_en === "string" ? row.atendido_en : null,
+    fundamento: typeof row.fundamento === "string" ? row.fundamento : null,
+  };
+}
+
+export async function loadObservaciones(articuloId: string): Promise<LoadResult<Observacion[]>> {
+  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
+  const { data, error } = await supabase
+    .from("norma_observacion")
+    .select("id, articulo_id, texto, autor_nombre, autor_rol, creado_en, atendido_en, fundamento")
+    .eq("articulo_id", articuloId)
+    .order("creado_en", { ascending: false });
+  if (error || !data) {
+    return { ok: false, data: [], error: "No se pudieron cargar las observaciones." };
+  }
+  const observaciones: Observacion[] = [];
+  for (const row of data as Record<string, unknown>[]) {
+    const observacion = toObservacion(row);
+    if (!observacion) {
+      return { ok: false, data: [], error: "Las observaciones devolvieron un contrato inesperado." };
+    }
+    observaciones.push(observacion);
+  }
+  return { ok: true, data: observaciones, error: null };
+}
+
+export async function crearObservacion(
+  articuloId: string,
+  texto: string,
+): Promise<ResultadoEscritura> {
+  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
+  const { error } = await supabase.rpc("crear_observacion", {
+    p_articulo_id: articuloId,
+    p_texto: texto,
+  });
+  if (error) {
+    return {
+      ok: false,
+      error: /demasiado corta/i.test(error.message)
+        ? "La observación es demasiado corta."
+        : "No se pudo guardar la observación.",
+    };
+  }
+  return { ok: true, error: null };
+}
+
+export async function atenderObservacion(
+  observacionId: string,
+  fundamento: string,
+): Promise<ResultadoEscritura> {
+  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
+  const { error } = await supabase.rpc("atender_observacion", {
+    p_observacion_id: observacionId,
+    p_fundamento: fundamento,
+  });
+  if (error) {
+    return {
+      ok: false,
+      error: /Solo un administrador/i.test(error.message)
+        ? "Solo un administrador marca una observación como atendida."
+        : /fundamento/i.test(error.message)
+          ? `El fundamento debe tener al menos ${MOTIVO_MIN_LENGTH} caracteres.`
+          : "No se pudo atender la observación.",
+    };
+  }
+  return { ok: true, error: null };
+}
+
+/** Todas las observaciones del proyecto, para exportarlas agrupadas. */
+export async function loadObservacionesDelProyecto(
+  proyectoId: string,
+): Promise<LoadResult<Observacion[]>> {
+  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
+  const { data: articulos, error: articulosError } = await supabase
+    .from("norma_articulo")
+    .select("id")
+    .eq("proyecto_id", proyectoId);
+  if (articulosError || !articulos) {
+    return { ok: false, data: [], error: "No se pudo verificar el articulado." };
+  }
+  const ids = (articulos as { id: string }[]).map((fila) => fila.id);
+  if (ids.length === 0) return { ok: true, data: [], error: null };
+
+  const { data, error } = await supabase
+    .from("norma_observacion")
+    .select("id, articulo_id, texto, autor_nombre, autor_rol, creado_en, atendido_en, fundamento")
+    .in("articulo_id", ids)
+    .order("creado_en", { ascending: false });
+  if (error || !data) {
+    return { ok: false, data: [], error: "No se pudieron cargar las observaciones del proyecto." };
+  }
+  const observaciones: Observacion[] = [];
+  for (const row of data as Record<string, unknown>[]) {
+    const observacion = toObservacion(row);
+    if (!observacion) {
+      return { ok: false, data: [], error: "Las observaciones devolvieron un contrato inesperado." };
+    }
+    observaciones.push(observacion);
+  }
+  return { ok: true, data: observaciones, error: null };
+}
+
 export async function crearArticulo(input: {
   proyectoId: string;
   texto: string;

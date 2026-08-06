@@ -1166,6 +1166,110 @@ test("la exportacion para elevar es fail-closed", async () => {
   assert.match(ui, /puede: false,[\s\S]{0,200}No se pudieron verificar los diagnósticos/);
 });
 
+test("una observacion no se edita ni se borra, ni siquiera la propia", async () => {
+  const sql = await source("supabase/migrations/20260806_24_observaciones_articulo.sql");
+
+  // Ninguna sesión escribe la tabla directamente: solo por RPC.
+  assert.match(
+    sql,
+    /revoke insert, update, delete on public\.norma_observacion\s+from anon, authenticated, service_role;/,
+    "alguna sesión conserva escritura directa sobre las observaciones",
+  );
+  assert.doesNotMatch(
+    sql,
+    /create policy[\s\S]{0,120}on public\.norma_observacion\s+for (insert|update|delete|all)/i,
+    "no puede haber policy de escritura sobre las observaciones",
+  );
+
+  // El texto y la autoría son inmutables, y borrar está prohibido de plano.
+  assert.match(sql, /before update or delete on public\.norma_observacion/);
+  assert.match(sql, /if tg_op = 'DELETE' then\s+raise exception 'Una observacion no se borra/);
+  assert.match(
+    sql,
+    /new\.texto is distinct from old\.texto[\s\S]{0,320}raise exception 'El texto y la autoria de una observacion son inmutables'/,
+    "el trigger tiene que rechazar cualquier reescritura del texto o de la autoría",
+  );
+  // Reabrir una atendida borraría el rastro de que ya se había resuelto.
+  assert.match(sql, /if old\.atendido_en is not null then\s+raise exception 'Una observacion ya atendida no se modifica'/);
+
+  // El rol `consulta` escribe acá y solo acá: es una opinión, no un acto.
+  assert.match(
+    sql,
+    /create or replace function public\.crear_observacion[\s\S]{0,900}if v_rol is null then/,
+    "crear_observacion tiene que aceptar cualquier perfil reconocido, incluido consulta",
+  );
+  assert.doesNotMatch(
+    sql,
+    /create or replace function public\.crear_observacion[\s\S]{0,900}v_rol = any\(/,
+    "crear_observacion no debe restringirse a los roles operativos",
+  );
+
+  // Atender es del administrador y exige fundamento, sin tocar el texto original.
+  assert.match(
+    sql,
+    /create or replace function public\.atender_observacion[\s\S]{0,600}v_rol is distinct from 'administrador'/,
+  );
+  assert.match(
+    sql,
+    /create or replace function public\.atender_observacion[\s\S]{0,900}char_length\(btrim\(coalesce\(p_fundamento, ''\)\)\) < 12/,
+  );
+  assert.doesNotMatch(
+    sql,
+    /create or replace function public\.atender_observacion[\s\S]{0,900}set[\s\S]{0,200}texto\s*=/,
+    "atender no puede reescribir el texto de la observación",
+  );
+
+  // La interfaz no ofrece editar ni borrar: solo agregar otra.
+  const ui = await source("components/fabrica/observaciones-articulo.tsx");
+  assert.doesNotMatch(ui, /editarObservacion|borrarObservacion|eliminarObservacion/);
+  assert.match(ui, /No se puede editar: si querés corregirla, agregá otra/);
+
+  // El agrupado por artículo respeta el orden y no se come las observaciones de
+  // los artículos descartados: alguien opinó sobre ese texto igual.
+  const { agruparObservaciones } = await import("../lib/norma-export.ts");
+  const art = (id, orden, estado) => ({
+    id, orden, estado, numero: orden, sumilla: `S${orden}`,
+    texto: "Texto del artículo.", origen: "borrador_recibido",
+    textoOriginal: null, aprobadoEn: null, actualizadoEn: "",
+  });
+  const obs = (articuloId, creadoEn, texto) => ({
+    articuloId, texto, autorNombre: "Área X", autorRol: "consulta",
+    creadoEn, atendidoEn: null, fundamento: null,
+  });
+
+  const filas = agruparObservaciones(
+    [art("b", 2, "aprobado"), art("a", 1, "aprobado"), art("d", 3, "descartado")],
+    [
+      obs("d", "2026-08-03", "Sobre el descartado"),
+      obs("b", "2026-08-02", "Segunda del dos"),
+      obs("a", "2026-08-01", "Primera del uno"),
+      obs("b", "2026-08-01", "Primera del dos"),
+    ],
+  );
+  assert.deepEqual(
+    filas.map((fila) => fila.observacion),
+    ["Primera del uno", "Primera del dos", "Segunda del dos", "Sobre el descartado"],
+    "las observaciones salen por orden de artículo y, dentro de cada uno, cronológicas",
+  );
+  assert.match(filas[3].articulo, /descartado/, "el descarte se declara, no se oculta");
+  assert.equal(filas[0].estado, "Pendiente");
+
+  // Una observación atendida viaja con su fundamento y el texto original intacto.
+  const atendida = agruparObservaciones(
+    [art("a", 1, "aprobado")],
+    [{
+      articuloId: "a", texto: "Texto original", autorNombre: "Área X", autorRol: "consulta",
+      creadoEn: "2026-08-01", atendidoEn: "2026-08-05", fundamento: "Se incorporó al inciso b.",
+    }],
+  );
+  assert.equal(atendida[0].observacion, "Texto original");
+  assert.equal(atendida[0].estado, "Atendida");
+  assert.equal(atendida[0].fundamento, "Se incorporó al inciso b.");
+
+  // Un artículo sin observaciones no genera fila vacía.
+  assert.equal(agruparObservaciones([art("a", 1, "aprobado")], []).length, 0);
+});
+
 test("las migraciones declaradas coinciden con los archivos reales", async () => {
   const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
   const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))
