@@ -784,6 +784,56 @@ test("la siembra del articulado no pisa trabajo hecho ni inventa aprobaciones", 
   assert.match(script, /articulado NO sembrado/);
 });
 
+test("guardar un articulo versiona y nunca sobrescribe", async () => {
+  const [sql, ui] = await Promise.all([
+    source("supabase/migrations/20260806_21_fabrica_normativa.sql"),
+    source("components/fabrica/index.tsx"),
+  ]);
+
+  const guardar = sql.slice(
+    sql.indexOf("create or replace function public.guardar_articulo"),
+    sql.indexOf("create or replace function public.crear_articulo"),
+  );
+  assert.ok(guardar.length > 0, "no se pudo aislar guardar_articulo");
+
+  // Cada guardado AGREGA una fila al historial y recién después actualiza el
+  // texto vigente. Nunca hay un update que reemplace una version.
+  assert.match(guardar, /insert into public\.norma_articulo_version/);
+  assert.ok(
+    guardar.indexOf("insert into public.norma_articulo_version")
+      < guardar.indexOf("update public.norma_articulo"),
+    "la version se escribe antes de mover el texto vigente",
+  );
+  assert.doesNotMatch(guardar, /update public\.norma_articulo_version/);
+  assert.doesNotMatch(guardar, /delete from public\.norma_articulo_version/);
+  // La version nueva es la siguiente, no un reemplazo de la anterior.
+  assert.match(guardar, /v_siguiente := v_versiones \+ 1/);
+
+  // Motivo obligatorio a partir del segundo guardado.
+  assert.match(guardar, /v_versiones > 0 and char_length\(btrim\(coalesce\(p_motivo, ''\)\)\) < 12/);
+
+  // Un articulo aprobado no se edita en silencio.
+  assert.match(guardar, /raise exception 'Un articulo aprobado debe volver a revision antes de editarse'/);
+
+  // Escribir exige rol operativo; el rol consulta no mueve estados.
+  assert.match(guardar, /Escribir el articulado exige un rol operativo/);
+  assert.match(sql, /El rol consulta no modifica el articulado/);
+
+  // Aprobar es un acto administrativo, no una edicion mas.
+  assert.match(
+    sql,
+    /p_estado = 'aprobado' and v_rol not in \(\s*\n\s*'administrador'::public\.app_rol,\s*\n\s*'coordinador'::public\.app_rol/i,
+  );
+
+  // La interfaz no deja mover un estado sin fundamento escrito.
+  assert.match(ui, /disabled=\{motivo\.trim\(\)\.length < MOTIVO_MIN_LENGTH\}/);
+  // Y el distintivo de proyecto sin sancionar es permanente, no una nota al pie.
+  assert.match(ui, /Proyecto sin sancionar/);
+  // El asistente todavia no escribe: no hay ninguna llamada que cree articulos
+  // sin pasar por el editor.
+  assert.doesNotMatch(ui, /crearArticulo\(/);
+});
+
 test("las migraciones declaradas coinciden con los archivos reales", async () => {
   const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
   const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))

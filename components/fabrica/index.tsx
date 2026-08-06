@@ -1,0 +1,392 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, FileText, History, Loader2, Plus, RefreshCw, Save } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  ESTADO_ARTICULO_COLORS,
+  ESTADO_ARTICULO_LABELS,
+  MOTIVO_MIN_LENGTH,
+  ORIGEN_ARTICULO_LABELS,
+  cambiarEstadoArticulo,
+  guardarArticulo,
+  loadArticulos,
+  loadProyectoActivo,
+  type ArticuloNorma,
+  type EstadoArticulo,
+  type ProyectoNorma,
+} from "@/lib/fabrica-repository";
+import { ConfirmDialog } from "../confirm-dialog";
+import { toast } from "../toaster";
+import { HistorialArticulo } from "./historial-articulo";
+
+type LoadPhase = "idle" | "loading" | "ready" | "error";
+
+type CambioPendiente = {
+  articulo: ArticuloNorma;
+  estado: EstadoArticulo;
+  fundamento: string;
+};
+
+/** Transiciones ofrecidas desde cada estado. Descartar sale de cualquiera. */
+const SIGUIENTES: Record<EstadoArticulo, EstadoArticulo[]> = {
+  propuesto: ["en_revision", "descartado"],
+  en_revision: ["aprobado", "propuesto", "descartado"],
+  aprobado: ["en_revision"],
+  descartado: ["propuesto"],
+};
+
+/**
+ * Fábrica Normativa: la mesa donde se escribe la nueva ordenanza.
+ *
+ * La persona es la autora y el sistema asiste. De ahí que nada se sobrescriba
+ * —cada guardado agrega una versión—, que los estados se muevan con fundamento
+ * y que el texto del borrador recibido quede siempre a la vista para poder
+ * explicar por qué se cambió.
+ */
+export default function Fabrica({ onVolver }: { onVolver: () => void }) {
+  const auth = useAuth();
+  const puedeEscribir = auth.canInspect;
+
+  const [proyecto, setProyecto] = useState<ProyectoNorma | null>(null);
+  const [articulos, setArticulos] = useState<ArticuloNorma[]>([]);
+  const [seleccionId, setSeleccionId] = useState<string | null>(null);
+  const [loadPhase, setLoadPhase] = useState<LoadPhase>("idle");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [dataOwnerId, setDataOwnerId] = useState<string | null>(null);
+
+  const [texto, setTexto] = useState("");
+  const [sumilla, setSumilla] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [cambio, setCambio] = useState<CambioPendiente | null>(null);
+  const [historialDe, setHistorialDe] = useState<ArticuloNorma | null>(null);
+  const refreshSequence = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
+    setLoadPhase("loading");
+    setDataOwnerId(null);
+    const proyectoResult = await loadProyectoActivo();
+    if (sequence !== refreshSequence.current) return;
+    if (!proyectoResult.ok) {
+      setLoadError(proyectoResult.error);
+      setLoadPhase("error");
+      return;
+    }
+    if (!proyectoResult.data) {
+      setProyecto(null);
+      setArticulos([]);
+      setLoadPhase("ready");
+      setDataOwnerId(auth.user?.id ?? null);
+      return;
+    }
+    const articulosResult = await loadArticulos(proyectoResult.data.id);
+    if (sequence !== refreshSequence.current) return;
+    setDataOwnerId(auth.user?.id ?? null);
+    setProyecto(proyectoResult.data);
+    setArticulos(articulosResult.data);
+    setLoadError(articulosResult.ok ? null : articulosResult.error);
+    setLoadPhase(articulosResult.ok ? "ready" : "error");
+  }, [auth.user?.id]);
+
+  useEffect(() => {
+    void refresh();
+    return () => { refreshSequence.current += 1; };
+  }, [refresh]);
+
+  const seleccionado = articulos.find((articulo) => articulo.id === seleccionId) ?? null;
+
+  // Abrir un artículo carga su texto vigente en el editor y limpia el motivo:
+  // arrastrar el motivo del artículo anterior sería asentar un fundamento que
+  // no corresponde.
+  useEffect(() => {
+    setTexto(seleccionado?.texto ?? "");
+    setSumilla(seleccionado?.sumilla ?? "");
+    setMotivo("");
+    setFormError(null);
+  }, [seleccionado?.id, seleccionado?.texto, seleccionado?.sumilla]);
+
+  const ownsData = dataOwnerId === auth.user?.id;
+  const sucio = Boolean(seleccionado)
+    && (texto !== (seleccionado?.texto ?? "") || sumilla !== (seleccionado?.sumilla ?? ""));
+
+  const guardar = async () => {
+    if (!seleccionado || guardando) return;
+    if (motivo.trim().length < MOTIVO_MIN_LENGTH) {
+      setFormError(`Contá qué cambiaste y por qué (mínimo ${MOTIVO_MIN_LENGTH} caracteres).`);
+      return;
+    }
+    setGuardando(true);
+    setFormError(null);
+    try {
+      const result = await guardarArticulo({
+        articuloId: seleccionado.id,
+        texto,
+        sumilla: sumilla.trim() || null,
+        motivo: motivo.trim(),
+      });
+      if (!result.ok) {
+        setFormError(result.error);
+        toast(result.error ?? "No se pudo guardar.", "error");
+        return;
+      }
+      toast("Guardado como versión nueva. El texto anterior queda en el historial.");
+      setMotivo("");
+      await refresh();
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const aplicarCambio = async (pendiente: CambioPendiente) => {
+    setCambio(null);
+    const result = await cambiarEstadoArticulo(
+      pendiente.articulo.id,
+      pendiente.estado,
+      pendiente.fundamento,
+    );
+    if (!result.ok) {
+      toast(result.error ?? "No se pudo cambiar el estado.", "error");
+      return;
+    }
+    toast(`Artículo ${ESTADO_ARTICULO_LABELS[pendiente.estado].toLowerCase()}.`);
+    await refresh();
+  };
+
+  if (!auth.canRead) return null;
+
+  const aprobados = articulos.filter((articulo) => articulo.estado === "aprobado").length;
+  const vigentes = articulos.filter((articulo) => articulo.estado !== "descartado").length;
+
+  return (
+    <section id="fabrica" className="section-block !mt-8">
+      <button type="button" onClick={onVolver} className="secondary-button compact mb-5">
+        Volver al visualizador
+      </button>
+
+      <header className="max-w-2xl">
+        <span className="micro-label">Redacción normativa</span>
+        <div className="mt-1 flex flex-wrap items-center gap-3">
+          <h2 className="font-display text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
+            Fábrica Normativa
+          </h2>
+          {/* Distintivo permanente: tiene que verse en cualquier captura que
+              salga de una presentación, no ser una nota al pie. */}
+          <span className="badge-soft">
+            <i style={{ background: "#f59e0b" }}/>
+            Proyecto sin sancionar
+          </span>
+        </div>
+        <p className="mt-2 text-tiny leading-5 text-slate-500">
+          {proyecto?.titulo ?? "Sin proyecto cargado"}. Cada guardado crea una versión nueva:
+          el texto anterior nunca se pierde. La redacción es de la persona; el sistema asiste.
+        </p>
+      </header>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="badge-soft">
+          <i style={{ background: ESTADO_ARTICULO_COLORS.aprobado }}/>
+          {aprobados} de {vigentes} aprobados
+        </span>
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={loadPhase === "loading"}
+          className="secondary-button compact"
+        >
+          <RefreshCw size={13} className={loadPhase === "loading" ? "animate-spin" : ""}/>
+          Actualizar
+        </button>
+      </div>
+
+      {!ownsData || loadPhase === "loading" || loadPhase === "idle" ? (
+        <Skeleton/>
+      ) : loadPhase === "error" ? (
+        <div role="alert" className="mt-5 empty-state border-red-200 bg-red-50">
+          <span><AlertTriangle size={22}/></span>
+          <h3>No se pudo cargar el articulado</h3>
+          <p>{loadError} Reintentá o revisá tu sesión.</p>
+          <button type="button" onClick={refresh} className="secondary-button compact">Reintentar</button>
+        </div>
+      ) : !proyecto ? (
+        <div className="mt-5 empty-state">
+          <span><FileText size={22}/></span>
+          <h3>Todavía no hay proyecto cargado</h3>
+          <p>El borrador entra por script: <span className="font-mono">npm run ingest:docs</span>.</p>
+        </div>
+      ) : (
+        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+          {/* Lista */}
+          <div className="max-h-[32rem] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2">
+            <ul className="grid gap-1">
+              {articulos.map((articulo) => {
+                const activo = articulo.id === seleccionId;
+                return (
+                  <li key={articulo.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSeleccionId(articulo.id)}
+                      aria-current={activo ? "true" : undefined}
+                      className={`w-full rounded-xl px-2.5 py-2 text-left transition duration-fast ${
+                        activo ? "bg-municipal-50" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <b className={`text-tiny ${activo ? "text-municipal-700" : "text-ink"}`}>
+                          Artículo {articulo.numero ?? articulo.orden}
+                        </b>
+                        <span className="badge-soft shrink-0">
+                          <i style={{ background: ESTADO_ARTICULO_COLORS[articulo.estado] }}/>
+                          {ESTADO_ARTICULO_LABELS[articulo.estado]}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 truncate text-micro text-slate-500">
+                        {articulo.sumilla || articulo.texto.slice(0, 60)}
+                      </p>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {/* Editor */}
+          {!seleccionado ? (
+            <div className="empty-state">
+              <span><FileText size={22}/></span>
+              <h3>Elegí un artículo</h3>
+              <p>La lista trae los {articulos.length} artículos del borrador recibido.</p>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <span className="micro-label">
+                    Artículo {seleccionado.numero ?? seleccionado.orden} ·{" "}
+                    {ORIGEN_ARTICULO_LABELS[seleccionado.origen]}
+                  </span>
+                  <h3 className="mt-0.5 font-display text-base font-extrabold text-ink">
+                    {seleccionado.sumilla || "Sin sumilla"}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistorialDe(seleccionado)}
+                  className="secondary-button compact"
+                >
+                  <History size={13}/>
+                  Historial
+                </button>
+              </div>
+
+              <label className="mt-3 block">
+                <span className="micro-label">Sumilla</span>
+                <input
+                  value={sumilla}
+                  onChange={(event) => setSumilla(event.target.value)}
+                  disabled={!puedeEscribir}
+                  maxLength={200}
+                  className="mt-1 min-h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-tiny text-slate-700 outline-none focus:border-municipal-500 disabled:bg-slate-50"
+                />
+              </label>
+
+              <label className="mt-3 block">
+                <span className="micro-label">Texto del artículo</span>
+                <textarea
+                  value={texto}
+                  onChange={(event) => setTexto(event.target.value)}
+                  disabled={!puedeEscribir}
+                  rows={12}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-tiny leading-5 text-slate-700 outline-none focus:border-municipal-500 disabled:bg-slate-50"
+                />
+              </label>
+
+              {puedeEscribir && (
+                <>
+                  <label className="mt-3 block">
+                    <span className="micro-label">Motivo del cambio (obligatorio)</span>
+                    <textarea
+                      value={motivo}
+                      onChange={(event) => setMotivo(event.target.value)}
+                      rows={2}
+                      maxLength={500}
+                      placeholder={`Qué cambiaste y por qué (mínimo ${MOTIVO_MIN_LENGTH} caracteres)`}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-tiny text-slate-700 outline-none focus:border-municipal-500"
+                    />
+                  </label>
+
+                  {formError && (
+                    <p role="alert" className="mt-2 text-micro font-semibold text-red-700">{formError}</p>
+                  )}
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={guardar}
+                      disabled={guardando || !sucio}
+                      title={sucio ? "Guardar como versión nueva" : "No hay cambios que guardar"}
+                      className="primary-button compact disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {guardando ? <Loader2 size={13} className="animate-spin"/> : <Save size={13}/>}
+                      Guardar versión
+                    </button>
+
+                    {SIGUIENTES[seleccionado.estado].map((estado) => (
+                      <button
+                        key={estado}
+                        type="button"
+                        onClick={() => setCambio({ articulo: seleccionado, estado, fundamento: motivo.trim() })}
+                        disabled={motivo.trim().length < MOTIVO_MIN_LENGTH}
+                        title={
+                          motivo.trim().length < MOTIVO_MIN_LENGTH
+                            ? "Escribí primero el fundamento en el campo de motivo."
+                            : `Pasar a ${ESTADO_ARTICULO_LABELS[estado]}`
+                        }
+                        className="secondary-button compact disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {ESTADO_ARTICULO_LABELS[estado]}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {!puedeEscribir && (
+                <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-micro leading-4 text-slate-500">
+                  Tu rol puede leer el articulado y dejar observaciones, pero no editarlo.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {cambio && (
+        <ConfirmDialog
+          title={`Pasar el artículo a ${ESTADO_ARTICULO_LABELS[cambio.estado]}`}
+          description={`Artículo ${cambio.articulo.numero ?? cambio.articulo.orden}. El cambio queda asentado con este fundamento:`}
+          quote={cambio.fundamento}
+          tone={cambio.estado === "descartado" ? "discard" : cambio.estado === "aprobado" ? "approve" : "reject"}
+          confirmLabel={ESTADO_ARTICULO_LABELS[cambio.estado]}
+          onConfirm={() => void aplicarCambio(cambio)}
+          onCancel={() => setCambio(null)}
+        />
+      )}
+
+      {historialDe && (
+        <HistorialArticulo articulo={historialDe} onClose={() => setHistorialDe(null)}/>
+      )}
+    </section>
+  );
+}
+
+function Skeleton() {
+  return (
+    <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]" aria-label="Cargando articulado">
+      <div className="skeleton h-80 rounded-2xl"/>
+      <div className="skeleton h-80 rounded-2xl"/>
+    </div>
+  );
+}

@@ -30,12 +30,19 @@ import { ApprovalInbox } from "./approval-inbox";
  */
 const Configuracion = dynamic(() => import("./configuracion"), { ssr: false });
 
+/**
+ * La Fábrica Normativa también es una herramienta de pantalla completa: se
+ * escribe una ordenanza artículo por artículo, no se la cruza scrolleando.
+ */
+const Fabrica = dynamic(() => import("./fabrica"), { ssr: false });
+
 export function Dashboard() {
   const auth = useAuth();
   const [viewer, setViewer] = useState<{ document: UrbanDocument; page: number | null } | null>(null);
   /** Solo persiste la identidad: los datos se derivan siempre de la colección vigente. */
   const [selectedCartelId, setSelectedCartelId] = useState<string | null>(null);
   const [enConfiguracion, setEnConfiguracion] = useState(false);
+  const [enFabrica, setEnFabrica] = useState(false);
   const territorial = useTerritorialMap();
   const selectedCartel = selectedCartelId === null
     ? null
@@ -48,7 +55,11 @@ export function Dashboard() {
   // reemplaza el contenido de la página. Lo que la abre es el hash, así que un
   // enlace directo funciona igual que el ítem del menú.
   useEffect(() => {
-    const sincronizar = () => setEnConfiguracion(window.location.hash.startsWith("#configuracion"));
+    const sincronizar = () => {
+      const hash = window.location.hash;
+      setEnConfiguracion(hash.startsWith("#configuracion"));
+      setEnFabrica(hash.startsWith("#fabrica"));
+    };
     sincronizar();
     window.addEventListener("hashchange", sincronizar);
     return () => window.removeEventListener("hashchange", sincronizar);
@@ -56,11 +67,13 @@ export function Dashboard() {
 
   const isAdmin = auth.canRead && auth.role === "administrador";
   const mostrarConfiguracion = enConfiguracion && isAdmin;
+  const mostrarFabrica = enFabrica && auth.canRead;
+  const enHerramienta = mostrarConfiguracion || mostrarFabrica;
 
-  // Entrar a Configuración empieza arriba: se venía de cualquier punto del scroll.
+  // Entrar a una herramienta empieza arriba: se venía de cualquier punto del scroll.
   useEffect(() => {
-    if (mostrarConfiguracion) window.scrollTo({ top: 0, behavior: "auto" });
-  }, [mostrarConfiguracion]);
+    if (enHerramienta) window.scrollTo({ top: 0, behavior: "auto" });
+  }, [enHerramienta]);
 
   const openDocument = (document: UrbanDocument, page: number | null = null) => setViewer({ document, page });
   const openDocumentById = (documentoId: string, page: number | null) => {
@@ -79,6 +92,8 @@ export function Dashboard() {
     <main className="relative z-[1]">
       {mostrarConfiguracion ? (
         <Configuracion onVolver={() => { window.location.hash = "#inicio"; }}/>
+      ) : mostrarFabrica ? (
+        <Fabrica onVolver={() => { window.location.hash = "#inicio"; }}/>
       ) : (
         <>
           <div data-territorial-background-zone className="relative isolate overflow-hidden">

@@ -11,6 +11,7 @@ import {
   Library,
   Map as MapIcon,
   Menu,
+  PenLine,
   Route,
   Scale,
   Settings,
@@ -132,10 +133,11 @@ export function AppSidebar() {
 
     const recalcular = () => {
       pendiente = false;
-      if (window.location.hash.startsWith("#configuracion")) {
-        setActivo("#configuracion");
-        return;
-      }
+      // Las herramientas de pantalla completa no están en el scroll: su ítem se
+      // marca por el hash y no por la posición.
+      const hash = window.location.hash;
+      if (hash.startsWith("#configuracion")) { setActivo("#configuracion"); return; }
+      if (hash.startsWith("#fabrica")) { setActivo("#fabrica"); return; }
       // `target: es5` no deja iterar un NodeList directamente.
       const secciones = Array.from(document.querySelectorAll<HTMLElement>("[id]"))
         .filter((elemento) => SECCIONES_OBSERVABLES.has(`#${elemento.id}`));
@@ -194,6 +196,9 @@ export function AppSidebar() {
           items: [
             { href: "#indicadores", label: "Indicadores", icon: Gauge },
             { href: "#expedientes", label: "Expedientes", icon: FolderOpen },
+            // Pantalla completa como Configuración, por eso va al final del
+            // grupo: no es una sección que se cruce scrolleando.
+            { href: "#fabrica", label: "Fábrica Normativa", icon: PenLine },
           ],
         }]
       : []),
