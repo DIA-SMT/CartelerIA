@@ -908,6 +908,126 @@ test("un fallo de carga se ve como error, nunca como carga eterna", async () => 
   }
 });
 
+test("una cita que no aparece textualmente se descarta", async () => {
+  const { sanearFragmento, citaVerifica, verificarHallazgos } =
+    await import("../lib/norma-citas.ts");
+
+  // El saneado es UNO SOLO y se aplica al fragmento y a la cita. Si divergieran,
+  // toda cita válida se descartaría por una diferencia invisible.
+  const crudo = "Artículo 12.—  Las  superficies “máximas” se fijarán   por corredor.";
+  const fragmento = sanearFragmento(crudo);
+  assert.equal(fragmento, 'Artículo 12.— Las superficies "máximas" se fijarán por corredor.');
+
+  // Una cita copiada del fragmento verifica.
+  assert.equal(citaVerifica('Las superficies "máximas" se fijarán por corredor', [fragmento]), true);
+  // Aunque el modelo la haya copiado con espacios de más: ese es el único
+  // desvío que se tolera, porque lo produce el propio copiado.
+  assert.equal(citaVerifica('Las  superficies  "máximas" se fijarán por corredor', [fragmento]), true);
+
+  // Una cita inventada NO verifica, por verosímil que suene.
+  assert.equal(
+    citaVerifica("Las superficies máximas no podrán exceder los doce metros cuadrados", [fragmento]),
+    false,
+  );
+  // Y una demasiado corta tampoco: verificaría por casualidad.
+  assert.equal(citaVerifica("por corredor", [fragmento]), false);
+
+  // El texto feo se cita tal cual: preferimos texto feo a texto inventado.
+  const ocrFeo = sanearFragmento("PO ZOENLAM ATERN ID AD sera de cinco metros lineales");
+  assert.equal(citaVerifica("PO ZOENLAM ATERN ID AD sera de cinco metros", [ocrFeo]), true);
+
+  const { verificados, descartados } = verificarHallazgos(
+    [
+      { tipo: "contradiccion", severidad: "alta", descripcion: "Real", referencia: "Art. 12", cita: 'Las superficies "máximas" se fijarán por corredor', confianza: "alta" },
+      { tipo: "vacio", severidad: "alta", descripcion: "Inventado", referencia: null, cita: "Queda prohibida toda publicidad en el microcentro historico", confianza: "alta" },
+    ],
+    [fragmento],
+  );
+  assert.equal(verificados.length, 1);
+  assert.equal(verificados[0].descripcion, "Real");
+  assert.equal(descartados.length, 1);
+  assert.equal(descartados[0].descripcion, "Inventado");
+  assert.match(descartados[0].motivo, /no aparece textualmente/);
+
+  // La confianza arranca en baja si el modelo no la declara: aceptar un
+  // hallazgo tiene que ser deliberado.
+  const sinConfianza = verificarHallazgos(
+    [{ tipo: "vacio", severidad: "media", descripcion: "X", referencia: null, cita: 'Las superficies "máximas" se fijarán por corredor' }],
+    [fragmento],
+  );
+  assert.equal(sinConfianza.verificados[0].confianza, "baja");
+
+  // Una lista vacía es una respuesta válida y frecuente.
+  assert.deepEqual(verificarHallazgos([], [fragmento]).verificados, []);
+});
+
+test("un cartel sin superficie no cumple ni incumple: no es evaluable", async () => {
+  const { simularArticulo, ParametroSinConfirmarError } =
+    await import("../lib/norma-simulador.ts");
+
+  const cartel = (id, superficie, distancia, situacion = "dentro_corredor") => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [0, 0] },
+    properties: {
+      id,
+      analysisStatus: situacion,
+      distanceToCorridorM: distancia,
+      territorialContext: "corredor",
+      administrative: superficie === undefined ? undefined : { recordId: id, linkStatus: "aprobado", superficieM2: superficie },
+    },
+  });
+
+  const maximo12 = [{ clave: "superficie_maxima_m2", valor: 12, unidad: "m²", cita: "x", confirmado: true }];
+
+  const { resumen, resultados } = simularArticulo(
+    [
+      cartel("a", 8, 10),      // cumple
+      cartel("b", 20, 10),     // no cumple
+      cartel("c", null, 10),   // sin superficie cargada
+      cartel("d", undefined, 10), // sin registro administrativo
+    ],
+    maximo12,
+  );
+
+  assert.equal(resumen.cumple, 1);
+  assert.equal(resumen.noCumple, 1);
+  assert.equal(resumen.noEvaluable, 2, "los que no tienen superficie no son evaluables");
+  assert.equal(resumen.total, 4);
+  // Y se dice por qué campo quedaron afuera.
+  assert.deepEqual(resumen.faltantes, [{ campo: "superficie declarada", cantidad: 2 }]);
+  // Nunca se cuentan como que cumplen: eso le daría a una autoridad un número
+  // tranquilizador que es falso.
+  assert.equal(resultados.find((r) => r.cartelId === "c").cumplimiento, "no_evaluable");
+  assert.equal(resultados.find((r) => r.cartelId === "d").cumplimiento, "no_evaluable");
+  // Los tres valores suman el total: ninguno se pierde por el camino.
+  assert.equal(resumen.cumple + resumen.noCumple + resumen.noEvaluable, resumen.total);
+  assert.deepEqual(resumen.idsNoCumple, ["b"]);
+
+  // Un incumplimiento comprobado manda sobre un dato faltante.
+  const dosParametros = [
+    ...maximo12,
+    { clave: "distancia_minima_corredor_m", valor: 50, unidad: "m", cita: "y", confirmado: true },
+  ];
+  const mixto = simularArticulo([cartel("e", 20, null)], dosParametros);
+  assert.equal(mixto.resumen.noCumple, 1, "si ya se sabe que incumple, no es no_evaluable");
+
+  // La simulación NO corre con parámetros sin confirmar por una persona.
+  assert.throws(
+    () => simularArticulo([cartel("f", 8, 10)], [
+      { clave: "superficie_maxima_m2", valor: 12, unidad: "m²", cita: "x", confirmado: false },
+    ]),
+    ParametroSinConfirmarError,
+  );
+  // Y falla, no ignora el parámetro en silencio.
+  assert.throws(
+    () => simularArticulo([cartel("f", 8, 10)], [
+      { clave: "superficie_maxima_m2", valor: 12, unidad: "m²", cita: "x", confirmado: true },
+      { clave: "zonas_habilitadas", valor: ["dentro_corredor"], unidad: null, cita: "z", confirmado: false },
+    ]),
+    /sin confirmar/,
+  );
+});
+
 test("las migraciones declaradas coinciden con los archivos reales", async () => {
   const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
   const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))
