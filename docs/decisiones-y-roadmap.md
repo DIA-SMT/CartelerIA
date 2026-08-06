@@ -202,6 +202,37 @@ Dos conclusiones que conviene no olvidar:
   desvío silencioso de meses en un error visible. Un fallo ruidoso es el
   resultado buscado, no un efecto colateral.
 
+## Estado de implementación al 2026-08-06 (paquetes G y H)
+
+La navegación pasó a un único cajón lateral (`components/app-sidebar.tsx`) para
+todos los tamaños de pantalla, y la administración de identidades dejó de ser
+una sección suelta: vive en `#configuracion`, con cinco pestañas.
+
+La **migración 19** (`20260806_19_bitacora_y_corpus.sql`) queda **pendiente de
+aplicación manual**. Agrega `bitacora_unificada` (auditoría paginada en la base),
+`resumen_corpus_rag` y `estado_buckets_evidencia`. Hasta aplicarla, las pestañas
+Auditoría, Seguridad y Corpus fallan en modo cerrado, que es lo correcto.
+
+Decisiones que conviene conocer:
+
+- El cajón se **superpone** al contenido en vez de empujarlo. Es lo que evita
+  que Leaflet recalcule su tamaño, que el spotlight del recorrido guiado se
+  reposicione y que los anclajes apunten a otro lado.
+- Quedó una inconsistencia previa sin tocar: el visor de PDF está en `z-[90]`,
+  o sea **por debajo** de la barra superior. Por eso no se pudo cumplir al pie
+  de la letra "el cajón por debajo del visor de PDF": el cajón va en 1050, sobre
+  la barra. En la práctica no se superponen, porque elegir un ítem cierra el
+  cajón. Subir el visor taparía el encabezado y es una decisión visual que
+  conviene mirar a ojo antes de cambiarla.
+- La pestaña Seguridad separa tres orígenes distintos: lo consultado en vivo
+  (buckets), lo verificado a mano con su fecha (ajustes del panel de Supabase) y
+  lo declarado en el repositorio (migraciones). La aplicación **no puede saber**
+  qué migraciones se aplicaron: no hay CLI ni tabla de migraciones. Presentar esa
+  lista como comprobada sería justamente el dato simulado que este documento
+  prohíbe, y ya pasó una vez que una migración quedara sin aplicar durante meses.
+- La lista de migraciones de esa pantalla tiene un test que la compara con los
+  archivos reales de `supabase/migrations/`, para que no se desactualice sola.
+
 ## Propósito
 
 CartelerIA será una herramienta oficial para tomar decisiones administrativas

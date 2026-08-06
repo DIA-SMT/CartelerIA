@@ -59,6 +59,30 @@ Todavía no hay una suite general ni configuración de ESLint.
   `hooks/use-dismissible.ts` (patrón `data-state`). Animar solo
   transform/opacity; el spotlight del tour ya se migró a transform — no
   reintroducir animación de top/left/width/height/box-shadow.
+- **Navegación**: `components/app-sidebar.tsx` es el **único** punto de
+  navegación, para todos los tamaños de pantalla. Ya no hay nav horizontal ni
+  menú aparte para pantallas chicas. El cajón usa obligatoriamente
+  `use-modal-shell` y `use-dismissible`; no reimplementar focus trap, scroll
+  lock ni Escape. Se superpone al contenido y **no lo empuja**: es lo que evita
+  que Leaflet recalcule tamaño y que el spotlight del tour se reposicione.
+  El sidebar es dueño de la lógica de rol de la nav y del único listener de
+  `APPROVALS_COUNT_EVENT`. La escala de z-index del proyecto está documentada
+  en ese archivo (el cajón va en 1050).
+- **Configuración** (`components/configuracion/`, sección `#configuracion`):
+  casa de la administración de identidades, solo rol administrador y cargada
+  con `dynamic()` para no engordar el bundle inicial. Cinco pestañas con estado
+  en la URL (`#configuracion?tab=...`): Usuarios, Roles y permisos, Auditoría,
+  Seguridad y Corpus. No volver a crear una sección suelta de usuarios.
+  La matriz de permisos se deriva de `PERMISSION_MATRIX` en `lib/roles.ts`, que
+  usa las mismas constantes que aplican los permisos: si se desincroniza de
+  `canSeeFiscalData`/`OPERATIVE_ROLES`, falla un test.
+  En Seguridad, cada dato declara su origen (consultado en vivo, verificado a
+  mano con fecha, o declarado en el repositorio). No presentar como comprobado
+  lo que no se pudo consultar.
+- **Motion, detalle a saber**: el token `DEFAULT` (250ms) de
+  `transitionDuration` **no tiene clase utilitaria** — ni `duration` ni
+  `duration-DEFAULT` se generan. Los overlays usan `duration-200`; `duration-fast`
+  y `duration-slow` sí existen.
 - **Sistema de UI compartido (usarlo, no reimplementarlo)**:
   `hooks/use-modal-shell.ts` (scroll lock apilado + focus trap donde solo el
   modal tope atrapa Tab + restitución de foco) para todo overlay nuevo;

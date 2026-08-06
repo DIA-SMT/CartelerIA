@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useState } from "react";
 import type { UrbanDocument } from "@/data/documents";
 import { documents } from "@/data/documents";
@@ -11,7 +12,6 @@ import { Header } from "./header";
 import { Hero } from "./hero";
 import { ExpedientesRegistro } from "./expedientes-registro";
 import { IndicadoresGestion } from "./indicadores-gestion";
-import { UsuariosAdmin } from "./usuarios-admin";
 import { MapPreview } from "./map-preview";
 import { NormativaAsk } from "./normativa-ask";
 import { PdfLibrary } from "./pdf-library";
@@ -21,6 +21,13 @@ import { StatsCards } from "./stats-cards";
 import { Toaster } from "./toaster";
 import { TryhardHeroMap } from "./TryhardHeroMap";
 import { ApprovalInbox } from "./approval-inbox";
+
+/**
+ * Configuración es la sección más pesada de la aplicación —cinco pestañas con
+ * sus tablas— y la ve una sola persona. Se carga aparte para que no entre en el
+ * bundle inicial de quien solo mira el mapa.
+ */
+const Configuracion = dynamic(() => import("./configuracion"), { ssr: false });
 
 export function Dashboard() {
   const [viewer, setViewer] = useState<{ document: UrbanDocument; page: number | null } | null>(null);
@@ -57,13 +64,13 @@ export function Dashboard() {
           <MapPreview carteles={territorial.filteredCarteles} allCarteles={territorial.carteles} corridors={territorial.corridors} allowedPlaces={territorial.allowedPlaces} filters={territorial.filters} onFilters={territorial.setFilters} loading={territorial.loading} error={territorial.error} onRetry={territorial.retry} administrativeSource={territorial.administrativeSource} linkedCount={territorial.linkedCount} selected={selectedCartel} onSelect={selectCartel}/>
         </div>
       </div>
-      {/* Bloque de gestión contiguo: bandeja de aprobaciones, registro de
-          expedientes y padrón de usuarios. Todos se ocultan sin la sesión/rol
-          correspondiente. */}
+      {/* Bloque de gestión contiguo: indicadores, bandeja de aprobaciones,
+          registro de expedientes y administración del sistema. Todos se ocultan
+          sin la sesión/rol correspondiente. */}
       <IndicadoresGestion/>
       <ApprovalInbox/>
       <ExpedientesRegistro/>
-      <UsuariosAdmin/>
+      <Configuracion/>
       <CartelLibrary carteles={territorial.filteredCarteles} onLocate={locateCartel}/>
       <div id="normativa" data-tour="normativa" className="section-block pb-0"><NormativaAsk onOpenDocument={openDocumentById}/></div>
       <PdfLibrary onOpen={(document) => openDocument(document)}/>

@@ -48,3 +48,69 @@ export const RESTRICTED_BY_ROLE_LABEL = "Restringido por rol";
  * Supabase del navegador.
  */
 export const ROLE_REASON_MIN_LENGTH = 12;
+
+/** Roles que pueden abrir y gestionar expedientes (RLS de la migración 06). */
+export const EXPEDIENTE_ROLES: AppRole[] = ["administrador", "coordinador"];
+/** Único rol que resuelve aprobaciones y administra identidades. */
+export const ADMIN_ROLES: AppRole[] = ["administrador"];
+
+export interface PermisoFila {
+  accion: string;
+  detalle: string;
+  roles: AppRole[];
+}
+
+/**
+ * Qué puede hacer cada rol, en un solo lugar.
+ *
+ * No es una lista escrita a mano para mostrar en pantalla: son las MISMAS
+ * constantes que usan `AuthProvider` para calcular `canInspect` y `canSeeFiscal`
+ * y que las migraciones repiten en sus `tiene_rol`. Si alguien cambia un
+ * permiso y se olvida de la matriz, el test de invariantes falla.
+ */
+export const PERMISSION_MATRIX: PermisoFila[] = [
+  {
+    accion: "Leer el registro administrativo",
+    detalle: "Ver el mapa con los carteles registrados y sus actuaciones.",
+    roles: APP_ROLES,
+  },
+  {
+    accion: "Ver empresa, CUIT y padrón",
+    detalle: "El rol consulta lee vistas que directamente no tienen esas columnas.",
+    roles: OPERATIVE_ROLES,
+  },
+  {
+    accion: "Filtrar y rankear por empresa",
+    detalle: "Un ranking por razón social la reconstruye aunque el campo no se muestre.",
+    roles: OPERATIVE_ROLES,
+  },
+  {
+    accion: "Registrar inspecciones y evidencia",
+    detalle: "Cargar inspecciones, fotografías y solicitar cambios de estado.",
+    roles: OPERATIVE_ROLES,
+  },
+  {
+    accion: "Abrir y gestionar expedientes",
+    detalle: "Crear el legajo del cartel e incorporar documentación.",
+    roles: EXPEDIENTE_ROLES,
+  },
+  {
+    accion: "Resolver aprobaciones",
+    detalle: "Aprobar o rechazar cambios de estado y vínculos, con fundamento.",
+    roles: ADMIN_ROLES,
+  },
+  {
+    accion: "Asignar roles",
+    detalle: "Cambiar el rol de una cuenta. Exige fundamento y queda asentado.",
+    roles: ADMIN_ROLES,
+  },
+  {
+    accion: "Leer la bitácora y los accesos",
+    detalle: "Auditoría de actuaciones, cambios de rol y lecturas sensibles.",
+    roles: ADMIN_ROLES,
+  },
+];
+
+export function rolTienePermiso(fila: PermisoFila, rol: AppRole): boolean {
+  return fila.roles.includes(rol);
+}

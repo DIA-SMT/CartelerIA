@@ -26,8 +26,8 @@ import {
   type CambioDeRol,
   type PerfilMunicipal,
 } from "@/lib/perfiles-repository";
-import { ConfirmDialog, confirmDialogIsOpen } from "./confirm-dialog";
-import { toast } from "./toaster";
+import { ConfirmDialog, confirmDialogIsOpen } from "../confirm-dialog";
+import { toast } from "../toaster";
 
 type LoadPhase = "idle" | "loading" | "ready" | "error";
 
@@ -63,7 +63,7 @@ function fecha(value: string | null): string {
  * cambio pasa por `asignar_rol`, que exige administrador humano, fundamento y
  * escribe el historial en la misma transacción.
  */
-export function UsuariosAdmin() {
+export function TabUsuarios() {
   const auth = useAuth();
   const isAdmin = auth.canRead && auth.role === "administrador";
 
@@ -127,6 +127,7 @@ export function UsuariosAdmin() {
   if (!isAdmin) return null;
   const ownsData = dataOwnerId === auth.user?.id;
   const blocked = loadPhase !== "ready";
+  const administradores = perfiles.filter((perfil) => perfil.rol === "administrador").length;
 
   const startEditing = (perfil: PerfilMunicipal) => {
     setEditingId(perfil.userId);
@@ -181,13 +182,12 @@ export function UsuariosAdmin() {
   };
 
   return (
-    <section id="usuarios" className="section-block">
-      <div className="section-heading">
-        <div>
-          <span className="section-kicker">Administración</span>
-          <h2>Usuarios y roles</h2>
-          <p>Padrón de cuentas municipales. Cada cambio de rol exige fundamento y queda asentado.</p>
-        </div>
+    <div>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <p className="max-w-xl text-tiny leading-5 text-slate-500">
+          Padrón de cuentas municipales. Cada cambio de rol exige fundamento y queda
+          asentado en un historial inmutable.
+        </p>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -241,11 +241,21 @@ export function UsuariosAdmin() {
               {perfiles.map((perfil) => {
                 const isSelf = perfil.userId === auth.user?.id;
                 const editing = editingId === perfil.userId;
+                // Las mismas guardas que exige `asignar_rol`, visibles antes de
+                // intentar: degradar al único administrador dejaría el sistema
+                // sin nadie que pueda recuperarlo.
+                const esUltimoAdmin = perfil.rol === "administrador" && administradores <= 1;
+                const motivoBloqueo = isSelf
+                  ? "Nadie puede cambiar su propio rol."
+                  : esUltimoAdmin
+                    ? "Es el único administrador: el sistema no puede quedarse sin ninguno."
+                    : null;
                 return (
                   <UserRow
                     key={perfil.userId}
                     perfil={perfil}
                     isSelf={isSelf}
+                    motivoBloqueo={motivoBloqueo}
                     editing={editing}
                     blocked={blocked}
                     busy={busyId === perfil.userId}
@@ -290,7 +300,7 @@ export function UsuariosAdmin() {
           onInvited={refresh}
         />
       )}
-    </section>
+    </div>
   );
 }
 
@@ -495,6 +505,7 @@ function InvitePanel({
 function UserRow({
   perfil,
   isSelf,
+  motivoBloqueo,
   editing,
   blocked,
   busy,
@@ -510,6 +521,8 @@ function UserRow({
 }: {
   perfil: PerfilMunicipal;
   isSelf: boolean;
+  /** null si el cambio está permitido; si no, el motivo que ve el usuario. */
+  motivoBloqueo: string | null;
   editing: boolean;
   blocked: boolean;
   busy: boolean;
@@ -543,8 +556,8 @@ function UserRow({
             <button
               type="button"
               onClick={editing ? onCancel : onEdit}
-              disabled={blocked || isSelf || busy}
-              title={isSelf ? "Nadie puede cambiar su propio rol." : "Cambiar rol"}
+              disabled={blocked || busy || motivoBloqueo !== null}
+              title={motivoBloqueo ?? "Cambiar rol"}
               className="secondary-button compact disabled:cursor-not-allowed disabled:opacity-50"
             >
               <UserCog size={13}/>

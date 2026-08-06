@@ -464,6 +464,138 @@ test("los indicadores se calculan en PostgreSQL y no inventan ceros", async () =
   assert.doesNotMatch(ui, /loadCarteles|loadInspections|loadExpedientes/);
 });
 
+test("la matriz de permisos coincide con lo que aplica auth-provider", async () => {
+  const { APP_ROLES, OPERATIVE_ROLES, PERMISSION_MATRIX, canSeeFiscalData } =
+    await import("../lib/roles.ts");
+
+  const fila = (accion) => {
+    const encontrada = PERMISSION_MATRIX.find((item) => item.accion === accion);
+    assert.ok(encontrada, `falta la fila "${accion}" en la matriz`);
+    return encontrada;
+  };
+
+  // Escribir: es exactamente lo que AuthProvider usa para canInspect.
+  assert.deepEqual(
+    [...fila("Registrar inspecciones y evidencia").roles].sort(),
+    [...OPERATIVE_ROLES].sort(),
+  );
+
+  // Ver datos fiscales: la matriz tiene que coincidir rol por rol con la
+  // función que decide el permiso, no con una lista paralela.
+  for (const rol of APP_ROLES) {
+    assert.equal(
+      fila("Ver empresa, CUIT y padrón").roles.includes(rol),
+      canSeeFiscalData(rol),
+      `la matriz y canSeeFiscalData discrepan en "${rol}"`,
+    );
+    assert.equal(
+      fila("Filtrar y rankear por empresa").roles.includes(rol),
+      canSeeFiscalData(rol),
+      `filtrar por empresa debe seguir el mismo permiso fiscal en "${rol}"`,
+    );
+  }
+
+  // Leer el registro: todos los roles reconocidos, ninguno más.
+  assert.deepEqual([...fila("Leer el registro administrativo").roles].sort(), [...APP_ROLES].sort());
+
+  // Administrar: exclusivo del administrador.
+  for (const accion of ["Resolver aprobaciones", "Asignar roles", "Leer la bitácora y los accesos"]) {
+    assert.deepEqual(fila(accion).roles, ["administrador"], `"${accion}" debe ser solo del administrador`);
+  }
+
+  // La matriz solo puede nombrar roles que existen.
+  for (const item of PERMISSION_MATRIX) {
+    for (const rol of item.roles) {
+      assert.ok(APP_ROLES.includes(rol), `la matriz nombra un rol inexistente: ${rol}`);
+    }
+  }
+});
+
+test("Configuración es exclusiva del administrador y no entra al bundle inicial", async () => {
+  const [shell, dashboard, sidebar] = await Promise.all([
+    source("components/configuracion/index.tsx"),
+    source("components/dashboard.tsx"),
+    source("components/app-sidebar.tsx"),
+  ]);
+
+  // Guarda de rol antes de renderizar nada.
+  assert.match(shell, /const isAdmin = auth\.canRead && auth\.role === "administrador"/);
+  assert.match(shell, /if \(!isAdmin\) return null;/);
+  assert.ok(
+    shell.indexOf("if (!isAdmin) return null;") < shell.indexOf('<section id="configuracion"'),
+    "la guarda de rol debe estar antes del marcado de la sección",
+  );
+
+  // Carga diferida: la sección más pesada no viaja a quien solo mira el mapa.
+  assert.match(dashboard, /dynamic\(\(\) => import\("\.\/configuracion"\)/);
+  // La sección vieja de usuarios no puede seguir existiendo en paralelo.
+  assert.doesNotMatch(dashboard, /UsuariosAdmin/);
+  assert.doesNotMatch(sidebar, /#usuarios/);
+
+  // Pestañas accesibles y enlazables.
+  assert.match(shell, /role="tablist"/);
+  assert.match(shell, /role="tab"/);
+  assert.match(shell, /role="tabpanel"/);
+  assert.match(shell, /aria-selected=\{activo\}/);
+  assert.match(shell, /ArrowRight/);
+  assert.match(shell, /#configuracion\?tab=/);
+});
+
+test("el sidebar no ofrece gestión sin sesión con rol", async () => {
+  const [sidebar, header] = await Promise.all([
+    source("components/app-sidebar.tsx"),
+    source("components/header.tsx"),
+  ]);
+
+  // Gestión exige canRead; Administración exige además el rol administrador.
+  assert.match(sidebar, /const isAdmin = auth\.canRead && auth\.role === "administrador"/);
+  assert.match(sidebar, /\.\.\.\(auth\.canRead\s*\n?\s*\?\s*\[\{\s*\n?\s*titulo: "Gestión"/);
+  assert.match(sidebar, /\.\.\.\(isAdmin\s*\n?\s*\?\s*\[\{\s*\n?\s*titulo: "Administración"/);
+
+  // Un ítem administrativo no puede quedar en el grupo base.
+  const navegacionBase = sidebar.slice(
+    sidebar.indexOf("const NAVEGACION"),
+    sidebar.indexOf("];", sidebar.indexOf("const NAVEGACION")),
+  );
+  for (const privado of ["#configuracion", "#aprobaciones", "#expedientes", "#indicadores"]) {
+    assert.doesNotMatch(
+      navegacionBase,
+      new RegExp(privado),
+      `${privado} no puede estar en la navegación pública`,
+    );
+  }
+
+  // El header dejó de calcular navegación y de tener su propia trampa de foco.
+  assert.doesNotMatch(header, /APPROVALS_COUNT_EVENT/);
+  assert.doesNotMatch(header, /document\.body\.style\.overflow/);
+  assert.doesNotMatch(header, /event\.key !== "Tab"/);
+  assert.match(header, /<AppSidebar\/>/);
+  // El único listener del contador vive en el sidebar.
+  assert.match(sidebar, /APPROVALS_COUNT_EVENT/);
+  // El cajón usa el sistema compartido en vez de reimplementarlo.
+  assert.match(sidebar, /useModalShell\(panelRef\)/);
+  assert.match(sidebar, /useDismissible\(onClose/);
+  // Solo transform y opacity.
+  assert.doesNotMatch(sidebar, /transition-\[?(width|left|box-shadow)/);
+});
+
+test("las migraciones declaradas coinciden con los archivos reales", async () => {
+  const { MIGRACIONES_DECLARADAS } = await import("../data/estado-sistema.ts");
+  const archivos = (await readdir(new URL("../supabase/migrations/", import.meta.url)))
+    .filter((archivo) => archivo.endsWith(".sql"))
+    .sort();
+
+  assert.deepEqual(
+    MIGRACIONES_DECLARADAS.map((item) => item.archivo).sort(),
+    archivos,
+    "la pantalla de Seguridad declara migraciones que no coinciden con el repositorio",
+  );
+  // La numeración no puede repetirse ni saltear.
+  const numeros = MIGRACIONES_DECLARADAS.map((item) => item.numero);
+  assert.deepEqual(numeros, [...numeros].sort((a, b) => a - b));
+  assert.equal(new Set(numeros).size, numeros.length, "hay números de migración repetidos");
+});
+
 test("la interfaz no vuelve a ofrecer atajos administrativos inseguros", async () => {
   const [form, header, keepalive, inspectionRepo, expedienteRepo, proposalGenerator] =
     await Promise.all([
