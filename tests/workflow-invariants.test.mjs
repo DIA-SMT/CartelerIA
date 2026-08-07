@@ -1426,6 +1426,19 @@ test("la correccion del OCR vuelve al archivo sin falsear la medicion", async ()
   assert.match(editor, /enlace\.download = `\$\{documentoId\}\.json`/);
   assert.doesNotMatch(editor, /supabase|\.rpc\(|\.from\(/, "el editor no escribe en la base");
   assert.match(editor, /npm run ingest:docs/);
+
+  // Y como el editor vive en memoria hasta que se descarga, cerrar con
+  // correcciones sin bajar tiene que avisar. Ya se perdio trabajo una vez por
+  // no tener esto.
+  const panel = await source("components/configuracion/revisar-documento.tsx");
+  assert.match(editor, /onPendiente\(pendientes > 0\)/);
+  assert.match(editor, /window\.addEventListener\("beforeunload", avisar\)/);
+  assert.match(panel, /if \(ocrPendiente\) \{ setConfirmarSalida\(true\); return; \}/);
+  assert.match(panel, /Salir sin descargar las correcciones/);
+  // Las tres salidas del panel pasan por el aviso, no solo el boton de cerrar.
+  assert.match(panel, /onClick=\{intentarCerrar\}\s*data-state/, "el clic en el telón");
+  assert.match(panel, /onClick=\{intentarCerrar\} aria-label="Cerrar"/, "el botón X");
+  assert.match(panel, /if \(event\.key !== "Escape" \|\| confirmDialogIsOpen\(\)\) return;\s*intentarCerrar\(\);/, "Escape");
 });
 
 test("el OCR dudoso deja de vetar cuando una persona reviso", async () => {

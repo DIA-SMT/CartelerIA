@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, FileJson, FolderOpen, RotateCcw } from "lucide-react";
 import {
   aplicarCorreccion,
@@ -22,12 +22,38 @@ import { toast } from "../toaster";
  * fragmentos los arma el ingest después, partiendo el texto. Corregir el
  * fragmento sería corregir el derivado.
  */
-export function CorregirOcr({ documentoId }: { documentoId: string }) {
+export function CorregirOcr({
+  documentoId,
+  onPendiente,
+}: {
+  documentoId: string;
+  /**
+   * Avisa al panel si hay correcciones sin descargar. El editor vive en
+   * memoria: si se cierra sin bajar el archivo, el trabajo se pierde y no queda
+   * rastro en ningún lado.
+   */
+  onPendiente: (hay: boolean) => void;
+}) {
   const [archivo, setArchivo] = useState<ArchivoOcr | null>(null);
   const [textos, setTextos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pagina, setPagina] = useState(0);
   const entradaRef = useRef<HTMLInputElement>(null);
+
+  const pendientes = archivo ? contarCambios(archivo, textos) : 0;
+
+  useEffect(() => {
+    onPendiente(pendientes > 0);
+    return () => onPendiente(false);
+  }, [pendientes, onPendiente]);
+
+  // Recargar o cerrar la pestaña también se lleva las correcciones puestas.
+  useEffect(() => {
+    if (pendientes === 0) return;
+    const avisar = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", avisar);
+    return () => window.removeEventListener("beforeunload", avisar);
+  }, [pendientes]);
 
   const abrir = async (lista: FileList | null) => {
     const elegido = lista?.[0];
@@ -91,7 +117,7 @@ export function CorregirOcr({ documentoId }: { documentoId: string }) {
   }
 
   const actual = archivo.paginas[pagina]!;
-  const cambios = contarCambios(archivo, textos);
+  const cambios = pendientes;
   const pdf = archivo.archivo ? `/docs/${archivo.archivo}#page=${actual.pagina}` : null;
 
   return (
@@ -167,13 +193,23 @@ export function CorregirOcr({ documentoId }: { documentoId: string }) {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3">
-        <p className="text-micro leading-4 text-slate-500">
-          {cambios === 0
-            ? "Todavía no cambiaste nada."
-            : `${cambios} página${cambios === 1 ? "" : "s"} con cambios.`}{" "}
-          La confianza del OCR no se toca: es una medición y sigue siendo cierta. Lo que
-          se agrega es la marca de que hubo corrección humana.
+      <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl p-3 ${
+        cambios > 0 ? "bg-amber-50" : "bg-slate-50"
+      }`}>
+        <p className={`text-micro leading-4 ${cambios > 0 ? "text-amber-900" : "text-slate-500"}`}>
+          {cambios === 0 ? (
+            <>
+              Todavía no cambiaste nada. La confianza del OCR no se toca: es una medición y
+              sigue siendo cierta. Lo que se agrega es la marca de que hubo corrección humana.
+            </>
+          ) : (
+            <>
+              <b>
+                {cambios} página{cambios === 1 ? "" : "s"} con cambios sin descargar.
+              </b>{" "}
+              Esto vive en la pantalla: si cerrás sin bajar el archivo, se pierde.
+            </>
+          )}
         </p>
         <button
           type="button"

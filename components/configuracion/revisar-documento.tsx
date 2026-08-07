@@ -53,7 +53,19 @@ function PanelRevision({ documento, onClose, onCambio }: PropsRevision) {
   const [pendiente, setPendiente] = useState<{ revisado: boolean; iaExterna: boolean } | null>(null);
   const [aplicando, setAplicando] = useState(false);
   const [vista, setVista] = useState<"indexado" | "corregir">("indexado");
+  const [ocrPendiente, setOcrPendiente] = useState(false);
+  const [confirmarSalida, setConfirmarSalida] = useState(false);
   const secuencia = useRef(0);
+
+  /**
+   * Las correcciones del OCR viven en memoria hasta que se descarga el archivo.
+   * Cerrar sin bajarlo las pierde y no queda rastro en ningún lado, así que se
+   * pregunta. Ya pasó una vez.
+   */
+  const intentarCerrar = () => {
+    if (ocrPendiente) { setConfirmarSalida(true); return; }
+    close();
+  };
 
   useEffect(() => {
     const actual = ++secuencia.current;
@@ -70,11 +82,11 @@ function PanelRevision({ documento, onClose, onCambio }: PropsRevision) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || confirmDialogIsOpen()) return;
-      close();
+      intentarCerrar();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [close]);
+  });
 
   const aplicar = async () => {
     if (!pendiente || aplicando) return;
@@ -113,7 +125,7 @@ function PanelRevision({ documento, onClose, onCambio }: PropsRevision) {
       className="fixed inset-0 z-[1100] grid place-items-center bg-ink/45 p-4 backdrop-blur-sm transition-opacity duration-200 ease-out"
       style={{ opacity: open ? 1 : 0 }}
       role="presentation"
-      onClick={close}
+      onClick={intentarCerrar}
       data-state={open ? "open" : "closed"}
     >
       <div
@@ -134,7 +146,7 @@ function PanelRevision({ documento, onClose, onCambio }: PropsRevision) {
               Esto es lo que vería el modelo, no lo que dice el PDF.
             </p>
           </div>
-          <button type="button" onClick={close} aria-label="Cerrar" className="secondary-button compact shrink-0">
+          <button type="button" onClick={intentarCerrar} aria-label="Cerrar" className="secondary-button compact shrink-0">
             <X size={14}/>
           </button>
         </div>
@@ -163,7 +175,7 @@ function PanelRevision({ documento, onClose, onCambio }: PropsRevision) {
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {vista === "corregir" ? (
-            <CorregirOcr documentoId={documento.id}/>
+            <CorregirOcr documentoId={documento.id} onPendiente={setOcrPendiente}/>
           ) : (
           <>
           {documento.ocrDudoso && (
@@ -272,6 +284,18 @@ function PanelRevision({ documento, onClose, onCambio }: PropsRevision) {
           </div>
         </div>
       </div>
+
+      {confirmarSalida && (
+        <ConfirmDialog
+          title="Salir sin descargar las correcciones"
+          description="Las correcciones del OCR viven en esta pantalla hasta que descargás el archivo. Si salís ahora se pierden y no quedan en ningún lado."
+          quote={null}
+          tone="discard"
+          confirmLabel="Salir y perderlas"
+          onConfirm={() => { setConfirmarSalida(false); close(); }}
+          onCancel={() => setConfirmarSalida(false)}
+        />
+      )}
 
       {pendiente && (
         <ConfirmDialog
