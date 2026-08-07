@@ -237,6 +237,8 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   la instancia el 2026-08-06): 29 comprobaciones, incluidos los cinco RPC del
   bloque 3, la columna `origen`, los 33 artículos sembrados, y que `service_role`
   reciba `42501` al intentar insertar, reescribir o borrar una observación.
+  **La 28 está pendiente de aplicación** (no cambia la firma, así que no hay
+  ventana de `PGRST202`: se puede aplicar antes o después de desplegar).
   Las **25, 26 y 27 están aplicadas y verificadas** (2026-08-06). La 27 subió el
   recall de 3 a 16 fragmentos habilitados sobre cinco consultas municipales
   típicas, y se comprobó que la búsqueda restringida devuelve **cero** fragmentos
@@ -256,6 +258,23 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   "TÍCULO 1*.-" y "hacla la Via Pública". La métrica de confianza del OCR no
   sirve como prueba de que el texto esté bien: por eso `human_reviewed` es una
   aserción de una persona y se pide leer los fragmentos antes de marcarla.
+  Desde la migración 28, `ocr_doubtful` **no veta la salida**: la revisión
+  humana, que ya es obligatoria, es la que contesta la duda. No se le agregó
+  `or human_reviewed` al predicado porque sería una tautología que se lee como
+  un guard y no guarda nada. La columna sigue existiendo y la pantalla la
+  muestra al lado del "Revisado".
+- **Corregir el OCR se hace sobre `data/ocr/<id>.json`, no sobre la base.** El
+  ingest deriva los fragmentos de ese archivo, así que una corrección guardada
+  solo en `rag_chunks` la pisa la próxima reingesta sin avisar — el mismo modo
+  de falla que se comió el `estado_legal` del borrador. El editor
+  (`components/configuracion/corregir-ocr.tsx`) abre el archivo del disco, lo
+  edita contra el PDF y lo descarga; después va `npm run ingest:docs`. No toca
+  Supabase por ningún lado, y hay un test que lo verifica.
+  Dos campos son intocables al corregir: `sourceHash` (ata el texto a un PDF
+  concreto; el ingest lo compara y descarta el archivo si no coincide) y
+  `confianza` por página (es una medición del motor de OCR — editarla porque
+  una persona corrigió el texto sería falsear una medida). Lo que se agrega es
+  `corregidaPorHumano` y `correccionHumana`, que el ingest ignora.
   Al probar un RPC por PostgREST, ojo: si los nombres de los argumentos no
   coinciden exactos, devuelve `PGRST202` —el mismo código que si la función no
   existiera—. Verificar la firma antes de concluir que falta algo.

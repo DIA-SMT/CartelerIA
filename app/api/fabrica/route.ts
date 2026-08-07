@@ -217,11 +217,24 @@ export async function POST(request: Request) {
     return response({ error: "retrieval_error" }, 502);
   }
 
+  /**
+   * `ocr_doubtful` NO está acá, y es a propósito (migración 28).
+   *
+   * Es una medida de la máquina: el ingest la enciende si alguna página quedó
+   * bajo el umbral de confianza. Vetaba por su cuenta, y eso dejaba un callejón
+   * sin salida — la Ordenanza 4728/2014 tiene una página con confianza 41, así
+   * que por más que alguien leyera y corrigiera el texto entero, el documento
+   * seguía bloqueado por una bandera que ya no describía nada.
+   *
+   * La revisión humana, que sí es obligatoria acá, es lo que contesta esa duda.
+   * La duda no se borra: queda en `ocr_doubtful` y la pantalla la muestra al
+   * lado del "Revisado". Las dos cosas conviven — la máquina dudó, una persona
+   * chequeó — y sumar `or human_reviewed` sería escribir una tautología.
+   */
   const puedeSalir = (fragmento: Fragmento) => (
     fragmento.audience === "publico"
     && fragmento.human_reviewed
     && fragmento.external_ai_allowed
-    && !fragmento.ocr_doubtful
   );
   // Cinturón y tirantes: la búsqueda restringida ya filtró, pero lo que sale
   // del municipio se comprueba también acá. Si las dos reglas se separaran,

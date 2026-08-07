@@ -1072,8 +1072,9 @@ test("el asistente propone pero nunca guarda", async () => {
   assert.match(route, /ENABLE_EXTERNAL_NORMATIVA_AI/);
   assert.match(route, /fragmento\.external_ai_allowed\s*$/m);
   assert.match(route, /fragmento\.human_reviewed\s*$/m);
-  assert.match(route, /!fragmento\.ocr_doubtful\s*$/m);
   assert.match(route, /fragmento\.audience === "publico"/);
+  // `ocr_doubtful` salió del predicado en la migración 28: lo cubre su propio
+  // test, junto con por qué no se lo reemplazó por una tautología.
   assert.match(route, /hasPotentialPii\(consulta, contexto\)/);
   // El contexto sale SIEMPRE de la normativa vigente.
   assert.match(route, /p_estados: \["vigente"\]/);
@@ -1357,6 +1358,101 @@ test("un articulo nuevo guarda que se pidio y quien lo escribio", async () => {
   // El texto tipeado no se pierde por un clic afuera ni por Escape.
   assert.match(lienzo, /if \(hayTrabajo\) \{ setConfirmarSalida\(true\); return; \}/);
   assert.match(lienzo, /if \(confirmDialogIsOpen\(\)\) return;/);
+});
+
+test("la correccion del OCR vuelve al archivo sin falsear la medicion", async () => {
+  const { leerArchivoOcr, aplicarCorreccion, contarCambios } = await import("../lib/ocr-archivo.ts");
+  const hash = "a".repeat(64);
+  const base = {
+    docId: "doc-06", archivo: "ordenanza-4728-2014.pdf", sourceHash: hash,
+    paginasTotal: 2, confianzaMedia: 79, dudosa: false,
+    paginas: [
+      { pagina: 1, fuente: "ocr", confianza: 90, texto: "TICULO 1 texto con errores del OCR" },
+      { pagina: 2, fuente: "ocr", confianza: 41, texto: "pagina que el OCR leyo mal" },
+    ],
+  };
+
+  // Se valida lo mismo que valida el ingest, para decirlo mientras se edita y
+  // no cuando el script lo descarta con un aviso en la consola.
+  assert.equal(leerArchivoOcr("no es json", "doc-06").ok, false);
+  assert.equal(leerArchivoOcr(JSON.stringify(base), "doc-02").ok, false, "no acepta el archivo de otro documento");
+  assert.equal(
+    leerArchivoOcr(JSON.stringify({ ...base, paginas: [base.paginas[0]] }), "doc-06").ok,
+    false,
+    "no acepta un juego incompleto de páginas",
+  );
+  assert.equal(
+    leerArchivoOcr(JSON.stringify({ ...base, sourceHash: "corto" }), "doc-06").ok,
+    false,
+    "sin la huella del PDF no se sabe de dónde salió el texto",
+  );
+  assert.equal(
+    leerArchivoOcr(JSON.stringify({ ...base, paginas: [base.paginas[1], base.paginas[0]] }), "doc-06").ok,
+    true,
+    "las páginas desordenadas se ordenan, no se rechazan",
+  );
+
+  const { archivo } = leerArchivoOcr(JSON.stringify(base), "doc-06");
+  const corregido = aplicarCorreccion(
+    archivo,
+    ["ARTÍCULO 1 texto corregido a mano", archivo.paginas[1].texto],
+    "2026-08-06T12:00:00.000Z",
+  );
+
+  // Lo que NO se toca. La huella ata el texto a un PDF concreto: cambiarla
+  // sería afirmar que salió de uno del que no salió.
+  assert.equal(corregido.sourceHash, hash);
+  // Y la confianza es una medición del motor de OCR. Bajarla o subirla porque
+  // una persona corrigió el texto sería falsear una medida.
+  assert.equal(corregido.paginas[0].confianza, 90);
+  assert.equal(corregido.paginas[1].confianza, 41);
+  assert.equal(corregido.dudosa, false);
+
+  // Lo que sí se agrega: el registro de que hubo mano humana, por página.
+  assert.equal(corregido.paginas[0].texto, "ARTÍCULO 1 texto corregido a mano");
+  assert.equal(corregido.paginas[0].corregidaPorHumano, true);
+  assert.equal(corregido.paginas[1].corregidaPorHumano, false, "una página intacta no se marca");
+  assert.deepEqual(corregido.correccionHumana, { fecha: "2026-08-06T12:00:00.000Z", paginas: [1] });
+
+  // Sin cambios no se inventa un registro de corrección.
+  const sinTocar = aplicarCorreccion(archivo, archivo.paginas.map((p) => p.texto), "2026-08-06T12:00:00.000Z");
+  assert.equal(sinTocar.correccionHumana, undefined);
+  assert.equal(contarCambios(archivo, archivo.paginas.map((p) => p.texto)), 0);
+  assert.equal(contarCambios(archivo, ["otro texto", archivo.paginas[1].texto]), 1);
+
+  // La corrección se descarga: no se guarda en la base, porque el ingest deriva
+  // los fragmentos del archivo y la próxima reingesta la pisaría sin avisar.
+  const editor = await source("components/configuracion/corregir-ocr.tsx");
+  assert.match(editor, /enlace\.download = `\$\{documentoId\}\.json`/);
+  assert.doesNotMatch(editor, /supabase|\.rpc\(|\.from\(/, "el editor no escribe en la base");
+  assert.match(editor, /npm run ingest:docs/);
+});
+
+test("el OCR dudoso deja de vetar cuando una persona reviso", async () => {
+  const sql = await source("supabase/migrations/20260806_28_ocr_dudoso_revisado.sql");
+  const ruta = await source("app/api/fabrica/route.ts");
+
+  // La firma no cambia: alcanza con `create or replace` y no hay sobrecarga que
+  // borrar, a diferencia de la 27.
+  assert.match(sql, /create or replace function public\.buscar_rag_chunks_lexico\(\s*p_query text,\s*p_match_count integer,\s*p_estados text\[\],\s*p_solo_ia_externa boolean\s*\)/);
+  assert.doesNotMatch(sql, /drop function if exists public\.buscar_rag_chunks_lexico/);
+
+  // El OCR dudoso ya no aparece en el predicado de salida, ni en el SQL ni en
+  // la ruta. Y no se reemplaza por `or human_reviewed`, que sería una
+  // tautología: la revisión humana ya es obligatoria en las dos.
+  const predicadoSql = sql.slice(sql.indexOf("not coalesce(p_solo_ia_externa"), sql.indexOf("and length(e.texto)"));
+  assert.match(predicadoSql, /d\.audience = 'publico'\s*and d\.human_reviewed\s*and d\.external_ai_allowed/);
+  assert.doesNotMatch(predicadoSql, /ocr_doubtful/, "el OCR dudoso no vuelve al predicado de salida");
+
+  const predicadoRuta = ruta.slice(ruta.indexOf("const puedeSalir"), ruta.indexOf("const habilitados"));
+  assert.match(predicadoRuta, /fragmento\.audience === "publico"\s*&& fragmento\.human_reviewed\s*&& fragmento\.external_ai_allowed\s*\);/);
+  assert.doesNotMatch(predicadoRuta, /ocr_doubtful/);
+
+  // Pero la columna sigue existiendo y la pantalla la muestra: la duda de la
+  // máquina se contesta, no se borra.
+  const panel = await source("components/configuracion/revisar-documento.tsx");
+  assert.match(panel, /documento\.ocrDudoso &&/);
+  assert.match(panel, /La duda es de la máquina y no se borra/);
 });
 
 test("el articulo no trae puesto su propio numero", async () => {

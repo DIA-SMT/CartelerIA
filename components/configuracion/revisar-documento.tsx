@@ -14,6 +14,7 @@ import {
 import { ROLE_REASON_MIN_LENGTH } from "@/lib/roles";
 import { ConfirmDialog, confirmDialogIsOpen } from "../confirm-dialog";
 import { toast } from "../toaster";
+import { CorregirOcr } from "./corregir-ocr";
 
 interface PropsRevision {
   documento: DocumentoCorpus;
@@ -51,6 +52,7 @@ function PanelRevision({ documento, onClose, onCambio }: PropsRevision) {
   const [fundamento, setFundamento] = useState("");
   const [pendiente, setPendiente] = useState<{ revisado: boolean; iaExterna: boolean } | null>(null);
   const [aplicando, setAplicando] = useState(false);
+  const [vista, setVista] = useState<"indexado" | "corregir">("indexado");
   const secuencia = useRef(0);
 
   useEffect(() => {
@@ -137,13 +139,41 @@ function PanelRevision({ documento, onClose, onCambio }: PropsRevision) {
           </button>
         </div>
 
+        <div className="flex shrink-0 gap-1 border-b border-slate-100 px-4" role="tablist">
+          {([
+            ["indexado", "Texto indexado"],
+            ["corregir", "Corregir el OCR"],
+          ] as const).map(([clave, etiqueta]) => (
+            <button
+              key={clave}
+              type="button"
+              role="tab"
+              aria-selected={vista === clave}
+              onClick={() => setVista(clave)}
+              className={`-mb-px border-b-2 px-3 py-2 text-tiny font-bold transition duration-fast ${
+                vista === clave
+                  ? "border-municipal-600 text-municipal-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {etiqueta}
+            </button>
+          ))}
+        </div>
+
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <p className="flex items-start gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-micro leading-4 text-amber-800">
-            <AlertTriangle size={12} className="mt-0.5 shrink-0"/>
-            Corregir el texto todavía no se hace desde acá: la corrección tiene que volver al
-            archivo de OCR, que es de donde se deriva la base. Si se guardara sólo en la base,
-            la próxima reingesta se la llevaría puesta sin avisar.
-          </p>
+          {vista === "corregir" ? (
+            <CorregirOcr documentoId={documento.id}/>
+          ) : (
+          <>
+          {documento.ocrDudoso && (
+            <p className="mb-3 flex items-start gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-micro leading-4 text-amber-800">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0"/>
+              Alguna página de este documento quedó por debajo del umbral de confianza del
+              OCR. La duda es de la máquina y no se borra: la contesta tu revisión, y las dos
+              cosas quedan a la vista.
+            </p>
+          )}
 
           {cargando ? (
             <div className="mt-3 space-y-2">
@@ -170,6 +200,8 @@ function PanelRevision({ documento, onClose, onCambio }: PropsRevision) {
                 </li>
               ))}
             </ol>
+          )}
+          </>
           )}
         </div>
 
