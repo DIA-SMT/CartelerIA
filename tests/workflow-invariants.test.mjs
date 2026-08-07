@@ -1061,9 +1061,11 @@ test("el asistente propone pero nunca guarda", async () => {
   assert.doesNotMatch(route, /buscar_rag_chunks_lexico/);
   assert.doesNotMatch(route, /diagnosticar_vigente/);
 
-  // Lo único que sigue frenando la salida hacia el proveedor externo.
+  // Lo único que sigue frenando la salida hacia el proveedor externo, y aplica
+  // a las dos acciones: la idea del lienzo y el texto que se revisa.
   assert.match(route, /ENABLE_EXTERNAL_NORMATIVA_AI/);
-  assert.match(route, /hasPotentialPii\(idea\)/);
+  assert.match(route, /hasPotentialPii\(entrada\)/);
+  assert.match(route, /const entrada = accion === "proponer_articulo" \? idea : textoArticulo;/);
 
   // Defensas de toda ruta nueva, con cuota propia.
   assert.match(route, /rateLimit\(`fabrica:/);
@@ -1072,6 +1074,87 @@ test("el asistente propone pero nunca guarda", async () => {
   assert.match(route, /AbortSignal\.timeout\(LLM_TIMEOUT_MS\)/);
   assert.match(route, /"Cache-Control": "no-store"/);
   assert.doesNotMatch(route, /error:\s*\w*[Ee]rror\.message/);
+});
+
+test("una cita valida no se descarta por una mayuscula", async () => {
+  const { localizarCita, verificarHallazgos } = await import("../lib/norma-citas.ts");
+  // El caso real del 2026-08-06: el artículo dice "Como" después de un punto y
+  // el modelo arrancó la cita en minúscula. Se descartó una contradicción
+  // correcta —2 m² contra 60 m²— por una letra.
+  const articulo = "Cuando un anuncio quede comprendido en más de una regla, se aplicará la más "
+    + "restrictiva. Como límites máximos generales, y sujeto a revisión política, se "
+    + "establecen: carteles hasta 60 m².";
+
+  const encontrada = localizarCita("como límites máximos generales, y sujeto a revisión política", [articulo]);
+  assert.notEqual(encontrada, null, "una diferencia de mayúsculas no puede tirar la cita");
+  // Y lo que se devuelve es el texto de la FUENTE, no el del modelo: lo que se
+  // muestra en pantalla tiene que ser literalmente lo que dice el artículo.
+  assert.match(encontrada, /^Como límites/);
+  assert.ok(articulo.includes(encontrada));
+
+  // Lo que sigue sin pasar: una cita inventada, y una demasiado corta.
+  assert.equal(localizarCita("se prohíbe toda publicidad en la vía pública", [articulo]), null);
+  assert.equal(localizarCita("Como", [articulo]), null);
+
+  // El hallazgo verificado lleva la cita de la fuente.
+  const { verificados, descartados } = verificarHallazgos(
+    [{
+      tipo: "contradiccion", severidad: "alta", referencia: "Artículo 14",
+      descripcion: "Fija 2 m² contra los 60 m² del artículo 14.",
+      cita: "como límites máximos generales, y sujeto a revisión política",
+    }],
+    [articulo],
+  );
+  assert.equal(descartados.length, 0);
+  assert.match(verificados[0].cita, /^Como límites/);
+});
+
+test("el revisor mira el propio documento y no inventa hallazgos", async () => {
+  const { articulosRelacionados } = await import("../lib/norma-relacionados.ts");
+  const ruta = await source("app/api/fabrica/route.ts");
+  const ui = await source("components/fabrica/revisor-proyecto.tsx");
+
+  const articulos = [
+    { id: "a", numero: 1, sumilla: "Objeto", texto: "La presente regula la actividad publicitaria en la via publica." },
+    { id: "b", numero: 2, sumilla: "Distancias", texto: "Ningun anuncio podra emplazarse a menos de treinta metros de una ochava." },
+    { id: "c", numero: 3, sumilla: "Superficie", texto: "La superficie maxima por cara sera de seis metros cuadrados." },
+    { id: "d", numero: 4, sumilla: "Ochavas", texto: "En las ochavas rige una restriccion especial de emplazamiento." },
+  ];
+
+  // Sin esto, "ochava" y "ochavas" son términos distintos y el revisor no
+  // conecta dos artículos que hablan de lo mismo: fallar por un plural sería
+  // fallar en el caso más común.
+  const sobreOchavas = articulosRelacionados("Se prohibe emplazar anuncios en ochavas y esquinas", articulos, 4);
+  assert.deepEqual(sobreOchavas.map((a) => a.numero).sort(), [2, 4]);
+
+  // Un término que aparece en todos no acerca a nadie; uno raro sí.
+  const sobreSuperficie = articulosRelacionados("La superficie maxima sera de ocho metros cuadrados", articulos, 1);
+  assert.deepEqual(sobreSuperficie.map((a) => a.numero), [3]);
+
+  // Y un texto sin nada que ver no arrastra artículos por las dudas: devolver
+  // vacío es mejor que devolver ruido.
+  assert.deepEqual(articulosRelacionados("Los permisos de taxi se renuevan cada dos anios", articulos, 4), []);
+  assert.deepEqual(articulosRelacionados("cualquier cosa", [], 4), []);
+
+  // La ruta compara contra el documento y no contra el corpus.
+  assert.match(ruta, /from\("norma_articulo"\)/);
+  assert.doesNotMatch(ruta, /buscar_rag_chunks_lexico/);
+  // Los quitados del documento no cuentan: no van a estar en la ordenanza.
+  assert.match(ruta, /row\.estado !== "descartado"/);
+  // Si nadie comparte vocabulario, no se gasta una llamada al modelo.
+  assert.match(ruta, /if \(relacionados\.length === 0\)/);
+  // Las citas se verifican contra los artículos que efectivamente se mandaron.
+  assert.match(ruta, /verificarHallazgos\(\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*saneados,\s*\)/);
+
+  // Y no escribe nada: es un par de ojos más, no una compuerta.
+  for (const escritura of ["guardar_articulo", "crear_articulo", "cambiar_estado_articulo", "registrar_diagnosticos"]) {
+    assert.doesNotMatch(ruta, new RegExp(`rpc\\("${escritura}"`));
+  }
+  assert.match(ui, /Esto no bloquea nada: decidís vos/);
+  // Una lista vacía es la respuesta normal y se dice como tal, no como falla.
+  assert.match(ui, /Sin choques con los \$\{revision\.comparados\} artículos/);
+  // Cambiar de artículo limpia lo anterior.
+  assert.match(ui, /useEffect\(\(\) => \{ setRevision\(null\); \}, \[articulo\.id\]\);/);
 });
 
 test("la cita del parametro se propone sola sin dejar de ser textual", async () => {

@@ -337,6 +337,98 @@ export interface PropuestaArticulo {
   error: string | null;
 }
 
+export interface HallazgoProyecto {
+  tipo: string;
+  severidad: string;
+  descripcion: string;
+  referencia: string | null;
+  cita: string;
+  confianza: string;
+}
+
+export interface RevisionProyecto {
+  ok: boolean;
+  asistido: boolean;
+  motivo: string | null;
+  hallazgos: HallazgoProyecto[];
+  /** Cuántos artículos del documento se compararon contra este. */
+  comparados: number;
+  /** Cuántos hallazgos se tiraron por citar algo que no existe. */
+  descartados: number;
+  error: string | null;
+}
+
+/**
+ * Revisa un artículo contra los otros del mismo documento.
+ *
+ * No guarda nada ni bloquea nada: los hallazgos son para leer y decidir. Una
+ * lista vacía es la respuesta normal —lo raro es que un artículo choque con
+ * otro—, y los hallazgos que citan algo que no está en ningún artículo se
+ * descartan antes de llegar acá.
+ */
+export async function revisarContraProyecto(
+  articuloId: string,
+  texto: string,
+): Promise<RevisionProyecto> {
+  const vacio = {
+    ok: false, asistido: false, motivo: null,
+    hallazgos: [], comparados: 0, descartados: 0, error: "",
+  };
+  if (!supabase) return { ...vacio, error: "Supabase no está configurado." };
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) return { ...vacio, error: "Tu sesión no está vigente." };
+
+  let respuesta: Response;
+  try {
+    respuesta = await fetch("/api/fabrica", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ accion: "revisar_proyecto", articuloId, texto }),
+    });
+  } catch {
+    return { ...vacio, error: "No se pudo contactar al servidor." };
+  }
+
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = await respuesta.json() as Record<string, unknown>;
+  } catch {
+    // Se resuelve por el status.
+  }
+  if (!respuesta.ok) {
+    return {
+      ...vacio,
+      error: respuesta.status === 429
+        ? "Alcanzaste el límite de consultas al asistente. Probá en un rato."
+        : "No se pudo revisar el artículo.",
+    };
+  }
+
+  const hallazgos = Array.isArray(payload.hallazgos)
+    ? (payload.hallazgos as Record<string, unknown>[])
+        .filter((item) => Boolean(item) && typeof item.descripcion === "string")
+        .map((item) => ({
+          tipo: typeof item.tipo === "string" ? item.tipo : "hallazgo",
+          severidad: typeof item.severidad === "string" ? item.severidad : "baja",
+          descripcion: item.descripcion as string,
+          referencia: typeof item.referencia === "string" ? item.referencia : null,
+          cita: typeof item.cita === "string" ? item.cita : "",
+          confianza: typeof item.confianza === "string" ? item.confianza : "baja",
+        }))
+    : [];
+
+  return {
+    ok: true,
+    asistido: payload.asistido === true,
+    motivo: typeof payload.motivo === "string" ? payload.motivo : null,
+    hallazgos,
+    comparados: typeof payload.comparados === "number" ? payload.comparados : 0,
+    descartados: typeof payload.descartados === "number" ? payload.descartados : 0,
+    error: null,
+  };
+}
+
 /** Por qué el asistente no intervino, en castellano. */
 export const MOTIVO_ASISTENTE: Record<string, string> = {
   asistencia_deshabilitada: "La asistencia por IA externa está deshabilitada en este entorno.",

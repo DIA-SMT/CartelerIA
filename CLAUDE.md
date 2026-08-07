@@ -85,69 +85,57 @@ Todavía no hay una suite general ni configuración de ESLint.
   En Seguridad, cada dato declara su origen (consultado en vivo, verificado a
   mano con fecha, o declarado en el repositorio). No presentar como comprobado
   lo que no se pudo consultar.
-- **Fábrica Normativa** (`components/fabrica/`, sección `#fabrica`, migraciones
-  20 a 24): mesa de redacción de la nueva ordenanza. Regla que gobierna todo el
-  módulo: **la persona es la autora y el sistema asiste**, y eso se sostiene en
-  PostgreSQL, no en la interfaz.
-  - Nada se sobrescribe: `guardar_articulo` agrega una fila a
-    `norma_articulo_version` con motivo obligatorio, y `texto_original` del
-    borrador recibido es inmutable por trigger. No reintroducir un `update`
-    directo sobre `norma_articulo.texto`.
-  - El borrador (`doc-16`) tiene `estado_legal = 'proyecto'` y **nunca** es
-    citable por el asistente normativo: `buscar_rag_chunks_lexico` exige
-    `p_estados` explícito y no tiene default permisivo. Ojo:
-    `sincronizar_documento_rag` escribe una lista fija de columnas y se come
-    `estado_legal`; por eso existe `fijar_estado_legal_documento` (migración 22).
-  - `norma_parametro` solo acepta un valor con cita **textual** del artículo
-    (se valida con `position(cita in texto)`); un parámetro sin confirmar hace
-    fallar la simulación en vez de asumir. `lib/norma-simulador.ts` es
-    determinístico y no llama a ningún modelo: un dato faltante da
+- **Fábrica Normativa** (`components/fabrica/`, sección `#fabrica`): mesa de
+  redacción de la nueva ordenanza. **El documento recibido ES la normativa
+  nueva, no un borrador a aprobar.** El módulo se construyó sobre la premisa
+  contraria y en la migración 29 se le sacó todo el aparato de aprobaciones: no
+  hay estados, ni fundamentos obligatorios, ni compuertas de exportación.
+  Guardar es guardar. Antes de reintroducir un paso, preguntar si hace falta.
+  - Nada se sobrescribe igual: `guardar_articulo` agrega una fila a
+    `norma_articulo_version` y `texto_original` es inmutable por trigger. El
+    motivo es opcional. No reintroducir un `update` directo sobre el texto.
+  - `estado` sobrevive como mecanismo, no como etiqueta: la pantalla solo usa
+    `descartado` para sacar un artículo del documento y `propuesto` para volver
+    a incluirlo. Nada se borra.
+  - **El asistente no consulta la normativa vigente.** `/api/fabrica` tiene dos
+    acciones: `proponer_articulo` (idea en criollo → artículo) y
+    `revisar_proyecto` (choques con los otros artículos del MISMO documento).
+    Ninguna toca el corpus, así que la maquinaria de habilitar documentos
+    —migraciones 26 a 28— quedó fuera de este camino; sigue viva para
+    `/api/normativa`.
+  - `lib/norma-relacionados.ts` elige qué artículos mandarle al modelo por
+    solapamiento de términos poco frecuentes, sin base ni modelo. Recorta
+    plurales a propósito: sin eso "ochava" y "ochavas" no se conectan y el
+    revisor falla en el caso más común.
+  - **Las citas se comparan ignorando mayúsculas** (`localizarCita`) y se
+    devuelve el recorte de la FUENTE, no lo que escribió el modelo. El
+    2026-08-06 se descartó una contradicción correcta —2 m² contra 60 m²—
+    porque el modelo empezó la cita con "como" donde el artículo dice "Como".
+    Una cita inventada no coincide por casualidad en 25 caracteres, así que
+    ignorar la caja no debilita nada.
+  - `norma_parametro` sigue exigiendo cita **textual** del artículo
+    (`position(cita in texto)`), pero la cita se propone sola a partir del
+    número (`proponerCitaParaValor`): confirmar es un clic, sin perder la
+    garantía. `lib/norma-simulador.ts` es determinístico: un dato faltante da
     `no_evaluable`, nunca `cumple`.
-  - `/api/fabrica` propone y jamás escribe: no llama a ninguna RPC de
-    articulado. Los hallazgos con cita que no se verifica contra los fragmentos
-    (`lib/norma-citas.ts`) se descartan antes de guardarse.
-  - **La búsqueda acepta `p_solo_ia_externa`** (migración 27) y `/api/fabrica`
-    hace **dos** consultas en paralelo: la restringida es la que va al modelo, la
-    general es la que se muestra. No es un lujo: la función corta en 8 filas
-    *antes* de mirar quién puede salir, así que filtrar el resultado deja afuera
-    justo lo que servía — medido, 2 de 5 consultas municipales típicas no
-    recuperaban ni un fragmento habilitado. La firma tiene cuatro argumentos:
-    `/api/normativa` y `scripts/verify-live-integrity.mjs` también la llaman.
-  - **La salida hacia IA externa se decide documento por documento**
-    (migración 26). Antes un solo fragmento restringido bloqueaba la consulta
-    entera y, como la búsqueda recorre los 15 documentos vigentes, habilitar uno
-    no servía de nada. Ahora el modelo recibe solo los fragmentos habilitados y
-    los demás se muestran en pantalla. **Las citas se verifican contra
-    `saneadosHabilitados`, no contra todos**: si no, una cita inventada que
-    coincidiera con un fragmento retenido pasaría por verificada. El precio de
-    filtrar es el falso negativo, así que la respuesta trae `visto` por
-    fragmento y `FragmentosVigente` lo dice: un "sin hallazgos" que no aclara
-    qué se miró es peor que no responder.
-    Habilitar es un acto: `habilitar_documento_ia_externa` exige administrador
-    humano y fundamento, queda en `auditoria_eventos`, y tiene dos barreras que
-    no dependen de quién llame — nada `interno` y nada en estado `proyecto` sale,
-    aunque se lo pida. Apagar siempre se puede, sin barreras.
-  - La exportación para elevar es fail-closed (`evaluarElevacion`): un artículo
-    sin aprobar o un diagnóstico grave sin atender la bloquean y se dice cuál.
-    La versión de trabajo siempre está disponible y va marcada como borrador.
-    Word se genera en el cliente con `docx` en import diferido; el PDF sale de
-    `@media print`. Ni `docx` ni `write-excel-file` deben entrar al bundle
-    inicial.
-  - `norma_observacion` es el único lugar donde el rol `consulta` escribe, y
-    escribe una opinión, no un acto administrativo. Insert-only: nadie edita ni
-    borra, tampoco la propia — se agrega otra. El administrador la marca
-    atendida con fundamento y el texto original queda intacto.
+  - **Una sola salida: PDF**, desde `@media print`. Se sacaron el Word (y la
+    dependencia `docx`) y el Excel de observaciones. El XLSX de expedientes es
+    de otra sección y no se toca.
   - El lienzo (`lienzo-articulo.tsx`) va de una idea en lenguaje llano a un
-    artículo. Esa idea **es** el motivo de la versión 1 (migración 25): sin eso
-    un artículo de origen `asistente` queda sin rastro de qué pidió una persona.
-    `origen` se declara `asistente` solo si el texto lo escribió la máquina; si
-    lo escribiste vos, dice `redactado`. Sin IA el lienzo igual crea artículos a
-    mano: se degrada la asistencia, no la herramienta.
+    artículo. Esa idea queda como motivo de la versión 1 cuando la hay.
+    `origen` se declara `asistente` solo si el texto lo escribió la máquina.
+    Sin IA el lienzo igual crea artículos a mano.
   - El artículo abierto vive en el hash (`#fabrica?articulo=<id>`), igual que
     las pestañas de Configuración, y se escribe con `replaceState` — asignar
     `location.hash` scrollea a la sección y saca el foco del editor. Un id que
     no existe se limpia **recién** con `loadPhase === "ready"`: antes
     descartaría una selección válida solo por llegar primero.
+  - `norma_observacion` (migración 24) quedó **sin uso**: se sacaron las
+    observaciones de las áreas. La tabla sigue en la base para no obligar a un
+    drop; se puede borrar cuando convenga.
+  -  (migración 24) quedó **sin uso**: se sacaron las
+    observaciones de las áreas. La tabla sigue en la base para no obligar a un
+    drop; se puede borrar cuando convenga.
 - **Motion, detalle a saber**: el token `DEFAULT` (250ms) de
   `transitionDuration` **no tiene clase utilitaria** — ni `duration` ni
   `duration-DEFAULT` se generan. Los overlays usan `duration-200`; `duration-fast`

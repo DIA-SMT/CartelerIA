@@ -122,10 +122,33 @@ function recortarOraciones(texto: string): { inicio: number; fin: number }[] {
   return cortes;
 }
 
-export function citaVerifica(cita: string, fragmentosSaneados: string[]): boolean {
+/**
+ * Busca la cita en los fragmentos y devuelve el texto **de la fuente**.
+ *
+ * La comparación ignora mayúsculas y minúsculas, y no es un capricho: el
+ * 2026-08-06 el revisor detectó una contradicción real —un artículo fijaba 2 m²
+ * y otro 60 m²— y el hallazgo se descartó porque el modelo empezó la cita con
+ * "como" donde el artículo dice "Como", al venir después de un punto. Una letra
+ * tirando a la basura el hallazgo correcto.
+ *
+ * Ignorar la caja no debilita nada: una cita inventada no coincide por
+ * casualidad en veinticinco caracteres seguidos. Y se devuelve el recorte de la
+ * fuente, no lo que escribió el modelo, para que lo que se muestre en pantalla
+ * sea literalmente lo que dice el artículo.
+ */
+export function localizarCita(cita: string, fragmentosSaneados: string[]): string | null {
   const buscada = sanearFragmento(cita);
-  if (buscada.length < CITA_MIN) return false;
-  return fragmentosSaneados.some((fragmento) => fragmento.includes(buscada));
+  if (buscada.length < CITA_MIN) return null;
+  const aguja = buscada.toLowerCase();
+  for (const fragmento of fragmentosSaneados) {
+    const posicion = fragmento.toLowerCase().indexOf(aguja);
+    if (posicion !== -1) return fragmento.slice(posicion, posicion + buscada.length);
+  }
+  return null;
+}
+
+export function citaVerifica(cita: string, fragmentosSaneados: string[]): boolean {
+  return localizarCita(cita, fragmentosSaneados) !== null;
 }
 
 /**
@@ -152,7 +175,8 @@ export function verificarHallazgos(
       });
       continue;
     }
-    if (!citaVerifica(cita, fragmentosSaneados)) {
+    const enLaFuente = localizarCita(cita, fragmentosSaneados);
+    if (enLaFuente === null) {
       descartados.push({
         descripcion: hallazgo.descripcion,
         cita,
@@ -165,7 +189,9 @@ export function verificarHallazgos(
       severidad: hallazgo.severidad,
       descripcion: hallazgo.descripcion,
       referencia: hallazgo.referencia ?? null,
-      cita,
+      // La de la fuente, no la que escribió el modelo: lo que se muestra tiene
+      // que ser literalmente lo que dice el artículo.
+      cita: enLaFuente,
       // Ante la duda, baja: aceptar un hallazgo tiene que ser deliberado.
       confianza: esConfianza(hallazgo.confianza) ? hallazgo.confianza : "baja",
     });

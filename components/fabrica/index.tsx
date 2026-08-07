@@ -18,6 +18,7 @@ import { ArticuladoCompleto } from "./articulado-completo";
 import { HistorialArticulo } from "./historial-articulo";
 import { LienzoArticulo } from "./lienzo-articulo";
 import { PanelDiagnostico } from "./panel-diagnostico";
+import { RevisorProyecto } from "./revisor-proyecto";
 
 type LoadPhase = "idle" | "loading" | "ready" | "error";
 
@@ -449,6 +450,10 @@ export default function Fabrica({
                   Tu rol puede leer el articulado, pero no editarlo.
                 </p>
               )}
+
+              {/* Revisa el texto del editor, no el guardado: sirve mientras se
+                  escribe, que es cuando conviene enterarse. */}
+              <RevisorProyecto articulo={seleccionado} texto={texto}/>
 
               <PanelDiagnostico
                 articulo={seleccionado}
