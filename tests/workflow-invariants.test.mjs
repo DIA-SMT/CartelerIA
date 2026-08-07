@@ -951,73 +951,6 @@ test("una cita que no aparece textualmente se descarta", async () => {
   assert.deepEqual(verificarHallazgos([], [fragmento]).verificados, []);
 });
 
-test("un cartel sin superficie no cumple ni incumple: no es evaluable", async () => {
-  const { simularArticulo, ParametroSinConfirmarError } =
-    await import("../lib/norma-simulador.ts");
-
-  const cartel = (id, superficie, distancia, situacion = "dentro_corredor") => ({
-    type: "Feature",
-    geometry: { type: "Point", coordinates: [0, 0] },
-    properties: {
-      id,
-      analysisStatus: situacion,
-      distanceToCorridorM: distancia,
-      territorialContext: "corredor",
-      administrative: superficie === undefined ? undefined : { recordId: id, linkStatus: "aprobado", superficieM2: superficie },
-    },
-  });
-
-  const maximo12 = [{ clave: "superficie_maxima_m2", valor: 12, unidad: "m²", cita: "x", confirmado: true }];
-
-  const { resumen, resultados } = simularArticulo(
-    [
-      cartel("a", 8, 10),      // cumple
-      cartel("b", 20, 10),     // no cumple
-      cartel("c", null, 10),   // sin superficie cargada
-      cartel("d", undefined, 10), // sin registro administrativo
-    ],
-    maximo12,
-  );
-
-  assert.equal(resumen.cumple, 1);
-  assert.equal(resumen.noCumple, 1);
-  assert.equal(resumen.noEvaluable, 2, "los que no tienen superficie no son evaluables");
-  assert.equal(resumen.total, 4);
-  // Y se dice por qué campo quedaron afuera.
-  assert.deepEqual(resumen.faltantes, [{ campo: "superficie declarada", cantidad: 2 }]);
-  // Nunca se cuentan como que cumplen: eso le daría a una autoridad un número
-  // tranquilizador que es falso.
-  assert.equal(resultados.find((r) => r.cartelId === "c").cumplimiento, "no_evaluable");
-  assert.equal(resultados.find((r) => r.cartelId === "d").cumplimiento, "no_evaluable");
-  // Los tres valores suman el total: ninguno se pierde por el camino.
-  assert.equal(resumen.cumple + resumen.noCumple + resumen.noEvaluable, resumen.total);
-  assert.deepEqual(resumen.idsNoCumple, ["b"]);
-
-  // Un incumplimiento comprobado manda sobre un dato faltante.
-  const dosParametros = [
-    ...maximo12,
-    { clave: "distancia_minima_corredor_m", valor: 50, unidad: "m", cita: "y", confirmado: true },
-  ];
-  const mixto = simularArticulo([cartel("e", 20, null)], dosParametros);
-  assert.equal(mixto.resumen.noCumple, 1, "si ya se sabe que incumple, no es no_evaluable");
-
-  // La simulación NO corre con parámetros sin confirmar por una persona.
-  assert.throws(
-    () => simularArticulo([cartel("f", 8, 10)], [
-      { clave: "superficie_maxima_m2", valor: 12, unidad: "m²", cita: "x", confirmado: false },
-    ]),
-    ParametroSinConfirmarError,
-  );
-  // Y falla, no ignora el parámetro en silencio.
-  assert.throws(
-    () => simularArticulo([cartel("f", 8, 10)], [
-      { clave: "superficie_maxima_m2", valor: 12, unidad: "m²", cita: "x", confirmado: true },
-      { clave: "zonas_habilitadas", valor: ["dentro_corredor"], unidad: null, cita: "z", confirmado: false },
-    ]),
-    /sin confirmar/,
-  );
-});
-
 test("el asistente propone pero nunca guarda", async () => {
   const [route, sql] = await Promise.all([
     source("app/api/fabrica/route.ts"),
@@ -1119,6 +1052,71 @@ test("una cita valida no se descarta por una mayuscula", async () => {
   assert.match(verificados[0].cita, /^Como límites/);
 });
 
+test("el simulador lee el registro y no el mapa, y un cartel sin dato no cumple ni incumple", async () => {
+  const { simularSuperficieMaxima, distribucionSuperficie } =
+    await import("../lib/norma-simulador.ts");
+
+  const cartel = (id, superficieM2, tipoCartel, zone) => ({
+    id, superficieM2, tipoCartel, zone,
+    empresa: null, cuit: null, dimensiones: "", domicilio: "", numero: "",
+    googleMapsUrl: "", padronCisi: null, estado: "Relevado", latitud: null,
+    longitud: null, status: "sin_datos", contaminationLevel: "bajo",
+  });
+  const registro = [
+    cartel("a", 60, "CARTEL", "Av. Mate de Luna"),
+    cartel("b", 30, "CARTEL", "Av. Mate de Luna"),
+    cartel("c", 12, "LED", "Microcentro"),
+    cartel("d", null, "CARTEL", "Microcentro"),
+  ];
+
+  const r = simularSuperficieMaxima(registro, 20);
+  assert.equal(r.total, 4);
+  // El que no tiene superficie NO se cuenta como que cumple: se informa aparte.
+  // La diferencia entre "cumple" y "no sabemos" es la que no hay que perder.
+  assert.equal(r.conDato, 3);
+  assert.equal(r.sinDato, 1);
+  assert.equal(r.superan, 2, "60 y 30 superan un máximo de 20; el de 12 no");
+  assert.equal(r.porcentaje, 67, "el porcentaje se calcula sobre los evaluables, no sobre el total");
+
+  // Los cortes reparten el mismo universo, incluidos los que faltan.
+  const zonas = Object.fromEntries(r.porZona.map((f) => [f.etiqueta, f]));
+  assert.equal(zonas["Av. Mate de Luna"].superan, 2);
+  assert.equal(zonas["Microcentro"].superan, 0);
+  assert.equal(zonas["Microcentro"].sinDato, 1);
+  assert.equal(r.porTipo.reduce((t, f) => t + f.total, 0), 4);
+
+  // Un máximo por encima de todos no deja a nadie afuera.
+  assert.equal(simularSuperficieMaxima(registro, 100).superan, 0);
+
+  // La distribución ignora los que no tienen dato y no explota con lista vacía.
+  const d = distribucionSuperficie(registro);
+  assert.equal(d.minimo, 12);
+  assert.equal(d.maximo, 60);
+  assert.equal(distribucionSuperficie([]), null);
+
+  // Lee el REGISTRO administrativo, no la capa territorial: por el mapa solo
+  // pasan los carteles con vínculo aprobado, y hay 1 de 253. Esa era la razón
+  // por la que el panel viejo calculaba sobre un cartel y no servía para nada.
+  const lib = await source("lib/norma-simulador.ts");
+  assert.match(lib, /import type \{ CartelRecord \} from "@\/data\/carteles"/);
+  assert.doesNotMatch(lib, /AnalyzedCartel|territorialContext|distanceToCorridorM/);
+
+  const ui = await source("components/fabrica/simulador.tsx");
+  assert.match(ui, /loadCarteles\(auth\.role\)/);
+  // No guarda nada: es una calculadora, no un formulario.
+  assert.doesNotMatch(ui, /confirmarParametro|\.rpc\(/);
+  // Y lo que todavía no se puede se dice con su motivo, en vez de omitirlo.
+  // Ojo con los saltos de línea del JSX: la frase viaja partida.
+  assert.match(ui, /pueden simular: salen de la geometría del mapa/);
+  assert.match(ui, /ratificándolos desde la bandeja de aprobaciones/);
+
+  // Vive fuera del editor de artículos: pedía los mismos tres parámetros en los
+  // treinta y tres, incluido el que define el objeto de la ordenanza.
+  const fabrica = await source("components/fabrica/index.tsx");
+  assert.match(fabrica, /\{proyecto && loadPhase === "ready" && <Simulador\/>\}/);
+  assert.doesNotMatch(fabrica, /PanelDiagnostico/);
+});
+
 test("el revisor mira el propio documento y no inventa hallazgos", async () => {
   const { articulosRelacionados } = await import("../lib/norma-relacionados.ts");
   const ruta = await source("app/api/fabrica/route.ts");
@@ -1165,30 +1163,6 @@ test("el revisor mira el propio documento y no inventa hallazgos", async () => {
   assert.match(ui, /Sin choques con los \$\{revision\.comparados\} artículos/);
   // Cambiar de artículo limpia lo anterior.
   assert.match(ui, /useEffect\(\(\) => \{ setRevision\(null\); \}, \[articulo\.id\]\);/);
-});
-
-test("la cita del parametro se propone sola sin dejar de ser textual", async () => {
-  const { proponerCitaParaValor } = await import("../lib/norma-citas.ts");
-  const articulo = "Los anuncios se clasifican segun su soporte. La superficie maxima "
-    + "permitida por cara sera de 6 metros cuadrados en toda la via publica. "
-    + "El incumplimiento se sanciona conforme al regimen general.";
-
-  const cita = proponerCitaParaValor(articulo, 6);
-  assert.notEqual(cita, null, "tendría que encontrar la oración del 6");
-  // Lo que importa: la propuesta es un recorte EXACTO del artículo, porque
-  // PostgreSQL valida con `position(cita in texto)`.
-  assert.ok(articulo.includes(cita), "la cita propuesta tiene que estar textual en el artículo");
-  assert.match(cita, /6 metros cuadrados/);
-  assert.doesNotMatch(cita, /clasifican/, "no se lleva la oración anterior puesta");
-
-  // Un número que no está no se inventa, y uno pegado a otro no confunde.
-  assert.equal(proponerCitaParaValor(articulo, 9), null);
-  assert.equal(proponerCitaParaValor("El maximo es de 60 metros cuadrados por cara.", 6), null,
-    "el 6 de 60 no cuenta");
-  // Decimales escritos con coma, como se escriben en un artículo.
-  assert.notEqual(proponerCitaParaValor("La distancia minima al corredor sera de 2,5 metros.", 2.5), null);
-  // Y una oración demasiado corta no vale como cita.
-  assert.equal(proponerCitaParaValor("Son 6 metros.", 6), null);
 });
 
 test("un articulo nuevo guarda que se pidio y quien lo escribio", async () => {

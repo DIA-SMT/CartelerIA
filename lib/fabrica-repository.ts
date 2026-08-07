@@ -1,5 +1,4 @@
 import type { LoadResult } from "@/data/approvals";
-import { esClaveParametro, type ClaveParametro } from "./norma-simulador";
 import { isAppRole, type AppRole } from "./roles";
 import { supabase } from "./supabase";
 
@@ -202,92 +201,6 @@ export async function cambiarEstadoArticulo(
     p_fundamento: fundamento,
   });
   if (error) return { ok: false, error: traducir(error.message, "No se pudo cambiar el estado.") };
-  return { ok: true, error: null };
-}
-
-// ----------------------------------------------------------------------------
-// Parámetros y diagnósticos
-// ----------------------------------------------------------------------------
-export interface ParametroGuardado {
-  id: string;
-  clave: ClaveParametro;
-  valor: number | string[];
-  unidad: string | null;
-  /**
-   * La oración del artículo de donde salió el número, cuando la hay.
-   *
-   * Es opcional desde la migración 30: hay artículos que escriben la medida en
-   * letras o entre corchetes, y ahí no existe ninguna oración que contenga el
-   * número. Cuando está, PostgreSQL ya comprobó que aparece textual — una cita
-   * que no está en el artículo no se guarda, porque aparentaría un respaldo que
-   * no existe.
-   */
-  cita: string | null;
-  fundamento: string | null;
-  confirmadoEn: string | null;
-}
-
-function valorDeParametro(value: unknown): number | string[] | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
-  return null;
-}
-
-export async function loadParametros(articuloId: string): Promise<LoadResult<ParametroGuardado[]>> {
-  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
-  const { data, error } = await supabase
-    .from("norma_parametro")
-    .select("id, clave, valor, unidad, cita, fundamento, confirmado_en")
-    .eq("articulo_id", articuloId)
-    .order("clave");
-  if (error || !data) {
-    return { ok: false, data: [], error: "No se pudieron cargar los parámetros del artículo." };
-  }
-  const parametros: ParametroGuardado[] = [];
-  for (const row of data as Record<string, unknown>[]) {
-    const valor = valorDeParametro(row.valor);
-    if (typeof row.id !== "string" || !esClaveParametro(row.clave) || valor === null) {
-      return { ok: false, data: [], error: "Los parámetros devolvieron un contrato inesperado." };
-    }
-    parametros.push({
-      id: row.id,
-      clave: row.clave,
-      valor,
-      unidad: typeof row.unidad === "string" ? row.unidad : null,
-      cita: typeof row.cita === "string" && row.cita.trim() !== "" ? row.cita : null,
-      fundamento: typeof row.fundamento === "string" ? row.fundamento : null,
-      confirmadoEn: typeof row.confirmado_en === "string" ? row.confirmado_en : null,
-    });
-  }
-  return { ok: true, data: parametros, error: null };
-}
-
-export async function confirmarParametro(input: {
-  articuloId: string;
-  clave: ClaveParametro;
-  valor: number | string[];
-  unidad: string | null;
-  cita: string;
-  fundamento: string;
-}): Promise<ResultadoEscritura> {
-  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
-  const { error } = await supabase.rpc("confirmar_parametro", {
-    p_articulo_id: input.articuloId,
-    p_clave: input.clave,
-    p_valor: input.valor,
-    p_unidad: input.unidad,
-    p_cita: input.cita,
-    p_fundamento: input.fundamento,
-  });
-  if (error) {
-    const conocido = /rol operativo/i.test(error.message)
-      ? "Tu rol no permite cargar parámetros."
-      : /cita textual|no aparece textualmente|null value.*cita/i.test(error.message)
-        // Los tres solo aparecen si falta correr la migración 30.
-        ? "Falta aplicar la migración 30 en el SQL Editor."
-        : null;
-    return { ok: false, error: conocido ?? "No se pudo cargar el parámetro." };
-  }
   return { ok: true, error: null };
 }
 

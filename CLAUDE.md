@@ -121,15 +121,20 @@ Todavía no hay una suite general ni configuración de ESLint.
     porque el modelo empezó la cita con "como" donde el artículo dice "Como".
     Una cita inventada no coincide por casualidad en 25 caracteres, así que
     ignorar la caja no debilita nada.
-  - `norma_parametro`: la cita del artículo es **opcional** desde la migración
-    30. Se propone sola a partir del número (`proponerCitaParaValor`), pero hay
-    artículos que escriben la medida en letras o entre corchetes y ahí no existe
-    oración que citar — exigirla dejaba a la persona sin poder cargar el
-    parámetro. Lo que sobrevive: **si viene una cita, tiene que estar textual en
-    el artículo o no se guarda**; una cita que no está aparenta un respaldo que
-    no existe. La pantalla marca cuáles tienen respaldo y cuáles no.
-    `lib/norma-simulador.ts` es determinístico: un dato faltante da
-    `no_evaluable`, nunca `cumple`.
+  - **El simulador (`simulador.tsx`) lee el registro administrativo, no el
+    mapa**, y eso es la diferencia entre servir y no servir. La superficie solo
+    se adjunta a un cartel del mapa cuando su vínculo territorial está
+    **aprobado**, y hay **1 aprobado de 253**: el panel viejo calculaba sobre un
+    cartel y devolvía "no evaluable" para el resto. Sobre el registro la
+    cobertura es 249/253 en superficie y 253/253 en tipo y zona, y ninguno de
+    esos datos necesita geometría.
+    Vive **fuera** del editor de artículos: antes pedía los mismos tres
+    parámetros en los 33, incluido el que define el objeto de la ordenanza.
+    Calibrar números es del documento entero. No guarda nada — es una
+    calculadora, y lo que se decide se escribe en el artículo.
+    Las reglas de **distancia** siguen sin poder simularse: salen de la
+    geometría y necesitan el vínculo. Se muestran bloqueadas con el motivo, no
+    omitidas. `norma_parametro` y `confirmar_parametro` quedaron **sin uso**.
   - **Una sola salida: PDF**, desde `@media print`. Se sacaron el Word (y la
     dependencia `docx`) y el Excel de observaciones. El XLSX de expedientes es
     de otra sección y no se toca.
