@@ -47,6 +47,32 @@ const ENCABEZADO_TITULO = /^\s*(t[íi]tulo|cap[íi]tulo|anexo)\s+([ivxlcdm\d]+)\
 /** Un encabezado no debería traer un párrafo entero pegado detrás. */
 const MAX_SUMILLA = 160;
 
+/**
+ * Encabezado al principio del cuerpo de un artículo, incluido el caso del
+ * asistente escribiendo "ARTÍCULO X.-" con una equis de relleno.
+ *
+ * Es más permisivo que `ENCABEZADO_ARTICULO` justamente en el número: acepta
+ * dígitos, romanos o una letra sola. Solo se usa para limpiar, nunca para
+ * decidir dónde empieza un artículo.
+ */
+const ENCABEZADO_AL_INICIO = /^\s*art(?:[íi]culo|\.?)\s*(?:[\divxlcdm]{1,6}|[a-z])\s*(?:bis|ter)?\s*[.\-—–º°:)]+\s*/i;
+
+/**
+ * Quita el encabezado que el artículo no debería traer puesto.
+ *
+ * La numeración la asigna el sistema al ensamblar, a partir del orden: si el
+ * texto además trae el suyo, el documento sale con el número dos veces —y la
+ * segunda es la equis de relleno del modelo, o un número que no coincide con la
+ * posición real—. Se limpia acá y no en la interfaz para que valga igual venga
+ * de donde venga.
+ */
+export function quitarEncabezadoArticulo(texto: string): string {
+  const limpio = texto.replace(ENCABEZADO_AL_INICIO, "");
+  // Si sacarlo dejara casi nada, el "encabezado" era el artículo entero: se
+  // devuelve el original antes que un texto mutilado.
+  return limpio.trim().length >= 20 ? limpio.trimStart() : texto;
+}
+
 function normalizarEspacios(texto: string): string {
   return texto.replace(/­/g, "").replace(/[ \t ]+/g, " ").trim();
 }

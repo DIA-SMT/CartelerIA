@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { quitarEncabezadoArticulo } from "@/lib/articulado";
 import { hasPotentialPii } from "@/lib/external-ai-policy";
 import { sanearFragmento, verificarHallazgos, type HallazgoSinVerificar } from "@/lib/norma-citas";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
@@ -54,6 +55,7 @@ const SISTEMA_REDACCION = `Sos un asistente de redacción normativa de la Munici
 
 Reglas:
 - Escribís UN artículo, con forma jurídica, en español rioplatense formal.
+- NO encabezás el texto con "ARTÍCULO N", "Art. 1" ni nada parecido, ni siquiera con una equis de relleno: el número lo asigna el sistema según la posición en el articulado. Empezás directamente por el contenido del artículo.
 - Usás SOLO lo que está en la idea y en el contexto. No inventás números de artículo, de ordenanza, plazos, montos ni medidas que no estén.
 - Si la idea no alcanza para escribir un artículo completo, NO rellenás: devolvés "falta" y decís exactamente qué hay que definir. Es preferible pedir una definición que entregar un artículo verosímil con un vacío adentro.
 - No aprobás nada ni afirmás que el texto sea definitivo: lo revisa y lo firma una persona.
@@ -294,12 +296,19 @@ export async function POST(request: Request) {
     }
     // La propuesta vuelve al navegador. No se guarda: la crea una persona al
     // aceptarla desde el editor.
+    //
+    // El encabezado se saca acá aunque el prompt ya lo prohíba: el modelo lo
+    // escribe igual de vez en cuando, y un "ARTÍCULO X.-" dentro del cuerpo
+    // sale duplicado en el documento final, porque la numeración la pone el
+    // ensamblado según la posición.
     return response({
       ok: true,
       asistido: true,
       suficiente: true,
       sumilla: typeof propuesta.sumilla === "string" ? propuesta.sumilla : null,
-      texto: typeof propuesta.texto === "string" ? propuesta.texto : "",
+      texto: typeof propuesta.texto === "string"
+        ? quitarEncabezadoArticulo(propuesta.texto)
+        : "",
       fragmentos: detalleFragmentos,
       sinVer,
     });

@@ -1359,6 +1359,41 @@ test("un articulo nuevo guarda que se pidio y quien lo escribio", async () => {
   assert.match(lienzo, /if \(confirmDialogIsOpen\(\)\) return;/);
 });
 
+test("el articulo no trae puesto su propio numero", async () => {
+  const { quitarEncabezadoArticulo } = await import("../lib/articulado.ts");
+  const cuerpo = "La superficie máxima permitida para un cartel publicitario colocado en la vía pública será de seis metros cuadrados por cara.";
+
+  // El caso que aparecio de verdad: el modelo pone una equis de relleno porque
+  // no sabe que numero le toca. Hace bien en no inventarlo, pero el encabezado
+  // no va: la numeracion la asigna el ensamblado segun la posicion, y el
+  // documento saldria con el numero dos veces.
+  for (const encabezado of [
+    "ARTÍCULO X.- ", "Artículo X.— ", "ARTICULO 12.- ", "Art. 5: ",
+    "Artículo 1º ", "ARTÍCULO IV.- ", "artículo 3 bis.- ", "Artículo 7) ",
+  ]) {
+    assert.equal(
+      quitarEncabezadoArticulo(encabezado + cuerpo),
+      cuerpo,
+      `no limpió "${encabezado}"`,
+    );
+  }
+
+  // Lo que NO se toca: un texto que arranca por su contenido, y uno que
+  // menciona un artículo sin ser un encabezado.
+  assert.equal(quitarEncabezadoArticulo(cuerpo), cuerpo);
+  const referencia = "Lo dispuesto en el artículo 4 de la presente no se aplica a los soportes propios.";
+  assert.equal(quitarEncabezadoArticulo(referencia), referencia);
+
+  // Y si sacar el encabezado dejara casi nada, era el artículo entero: se
+  // devuelve el original antes que un texto mutilado.
+  assert.equal(quitarEncabezadoArticulo("ARTÍCULO 1.- Derógase."), "ARTÍCULO 1.- Derógase.");
+
+  // La ruta lo aplica a la propuesta, y el prompt además lo prohíbe.
+  const ruta = await source("app/api/fabrica/route.ts");
+  assert.match(ruta, /\? quitarEncabezadoArticulo\(propuesta\.texto\)/);
+  assert.match(ruta, /NO encabezás el texto con "ARTÍCULO N"/);
+});
+
 test("el articulo abierto vive en la URL y sobrevive a la ida y vuelta", async () => {
   const fabrica = await source("components/fabrica/index.tsx");
   const dashboard = await source("components/dashboard.tsx");
