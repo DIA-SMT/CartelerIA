@@ -103,4 +103,5 @@ export const MIGRACIONES_DECLARADAS: MigracionDeclarada[] = [
   { numero: 24, archivo: "20260806_24_observaciones_articulo.sql", resumen: "Observaciones de las áreas por artículo" },
   { numero: 25, archivo: "20260806_25_articulo_nuevo_con_motivo.sql", resumen: "Un artículo nuevo nace diciendo qué se pidió" },
   { numero: 26, archivo: "20260806_26_habilitacion_ia_externa.sql", resumen: "La salida hacia IA externa se autoriza con fundamento" },
+  { numero: 27, archivo: "20260806_27_busqueda_solo_habilitados.sql", resumen: "La búsqueda puede limitarse a lo que sí puede salir" },
 ];

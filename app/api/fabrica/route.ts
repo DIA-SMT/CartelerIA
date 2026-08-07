@@ -189,63 +189,77 @@ export async function POST(request: Request) {
   const consulta = accion === "proponer_articulo" ? idea : textoArticulo;
   if (consulta.length < 20) return response({ error: "input_insuficiente" }, 400);
 
-  const { data: crudos, error: retrievalError } = await admin.rpc("buscar_rag_chunks_lexico", {
+  /**
+   * Dos búsquedas, y la diferencia es la que hace usable la herramienta.
+   *
+   * La función corta en 8 filas ANTES de mirar si el documento puede salir del
+   * municipio, así que una sola búsqueda gastaba sus lugares en documentos que
+   * el modelo no puede usar: medido con el Decreto 0609/18 habilitado, dos de
+   * cada cinco consultas municipales típicas no recuperaban ni un fragmento
+   * habilitado. Filtrar el resultado no lo arregla — para cuando llega, lo útil
+   * ya quedó afuera del corte.
+   *
+   * `habilitada` es lo que ve el modelo. `general` es lo que se muestra en
+   * pantalla, incluidos los documentos que no pueden salir: no se mandan
+   * afuera, pero se leen acá.
+   */
+  const buscar = (soloIaExterna: boolean) => admin.rpc("buscar_rag_chunks_lexico", {
     p_query: consulta.slice(0, 500),
     p_match_count: MATCH_COUNT,
     p_estados: ["vigente"],
+    p_solo_ia_externa: soloIaExterna,
   });
-  if (retrievalError) {
-    console.error("fabrica retrieval:", retrievalError.message);
+  const [general, habilitada] = await Promise.all([buscar(false), buscar(true)]);
+  if (general.error || habilitada.error) {
+    console.error("fabrica retrieval:", (general.error ?? habilitada.error)?.message);
     return response({ error: "retrieval_error" }, 502);
   }
-  const fragmentos = Array.isArray(crudos) ? crudos.filter(esFragmento) : [];
 
-  // Saneado UNA sola vez: el mismo string que ve el modelo es contra el que se
-  // verifican las citas. Si divergieran, toda cita válida se descartaría.
-  const saneados = fragmentos.map((fragmento) => sanearFragmento(fragmento.contenido));
-
-  /**
-   * Habilitación documento por documento.
-   *
-   * Antes bastaba un fragmento restringido para bloquear la consulta entera:
-   * como la búsqueda recorre los quince documentos vigentes, habilitar uno solo
-   * no servía de nada. Ahora el modelo recibe únicamente los fragmentos
-   * habilitados y los demás quedan acá, para leerlos en pantalla.
-   *
-   * El costo de filtrar en vez de bloquear es un falso negativo: el asistente
-   * puede decir "sin hallazgos" porque no vio el documento donde estaba el
-   * conflicto. Por eso la respuesta declara cuáles vio y cuáles no, y la
-   * pantalla lo muestra: un "sin hallazgos" que no aclara qué se miró es peor
-   * que no responder.
-   */
   const puedeSalir = (fragmento: Fragmento) => (
     fragmento.audience === "publico"
     && fragmento.human_reviewed
     && fragmento.external_ai_allowed
     && !fragmento.ocr_doubtful
   );
-  const indicesHabilitados = fragmentos
-    .map((fragmento, indice) => (puedeSalir(fragmento) ? indice : -1))
-    .filter((indice) => indice !== -1);
+  // Cinturón y tirantes: la búsqueda restringida ya filtró, pero lo que sale
+  // del municipio se comprueba también acá. Si las dos reglas se separaran,
+  // esta es la que corta.
+  const habilitados = (Array.isArray(habilitada.data) ? habilitada.data.filter(esFragmento) : [])
+    .filter(puedeSalir);
+  const generales = Array.isArray(general.data) ? general.data.filter(esFragmento) : [];
 
-  const saneadosHabilitados = indicesHabilitados.map((indice) => saneados[indice]!);
-  const contexto = indicesHabilitados
-    .map((indice, posicion) => {
-      const fragmento = fragmentos[indice]!;
-      return `[${posicion + 1}] ${fragmento.titulo}${fragmento.seccion ? ` · ${fragmento.seccion}` : ""}\n${saneadosHabilitados[posicion]}`;
-    })
+  // Saneado UNA sola vez: el mismo string que ve el modelo es contra el que se
+  // verifican las citas. Si divergieran, toda cita válida se descartaría.
+  const saneadosHabilitados = habilitados.map((fragmento) => sanearFragmento(fragmento.contenido));
+  const contexto = habilitados
+    .map((fragmento, indice) => `[${indice + 1}] ${fragmento.titulo}${fragmento.seccion ? ` · ${fragmento.seccion}` : ""}\n${saneadosHabilitados[indice]}`)
     .join("\n\n");
 
-  /** Todo lo recuperado, marcando qué llegó al modelo y qué no. */
-  const detalleFragmentos = fragmentos.map((fragmento, indice) => ({
-    titulo: fragmento.titulo,
-    seccion: fragmento.seccion,
-    contenido: saneados[indice],
-    visto: puedeSalir(fragmento),
-  }));
+  /**
+   * Para la pantalla: los dos conjuntos unidos, sin repetir, marcando cuáles
+   * llegaron al modelo.
+   *
+   * El costo de filtrar en vez de bloquear es un falso negativo: el asistente
+   * puede decir "sin hallazgos" porque no vio el documento donde estaba el
+   * conflicto. Un "sin hallazgos" que no aclara qué se miró es peor que no
+   * responder, así que la respuesta lo declara fragmento por fragmento.
+   */
+  const vistos = new Set(habilitados.map((fragmento) => fragmento.documento_id + "|" + fragmento.contenido));
+  const detalleFragmentos = [...habilitados, ...generales]
+    .filter((fragmento, indice, todos) => (
+      todos.findIndex((otro) => (
+        otro.documento_id === fragmento.documento_id && otro.contenido === fragmento.contenido
+      )) === indice
+    ))
+    .map((fragmento) => ({
+      titulo: fragmento.titulo,
+      seccion: fragmento.seccion,
+      contenido: sanearFragmento(fragmento.contenido),
+      visto: vistos.has(fragmento.documento_id + "|" + fragmento.contenido),
+    }));
   const sinVer = detalleFragmentos.filter((fragmento) => !fragmento.visto).length;
 
-  const sinHabilitados = indicesHabilitados.length === 0;
+  const sinHabilitados = habilitados.length === 0;
   if (!EXTERNAL_AI_ENABLED || !openrouterKey || sinHabilitados || hasPotentialPii(consulta, contexto)) {
     return response({
       ok: true,

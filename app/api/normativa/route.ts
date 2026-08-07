@@ -183,10 +183,15 @@ export async function POST(request: Request) {
     // ordenanza en construcción, y responderle a un agente municipal citando un
     // texto que todavía no se sancionó sería un error grave. El estado es
     // obligatorio en la RPC justamente para que esto no se pueda olvidar.
+    // `p_solo_ia_externa: false` a propósito: esta ruta recupera todo lo
+    // vigente y decide después si algo puede salir. Restringir acá le sacaría
+    // contexto a la respuesta local, que es la que se da cuando la IA externa
+    // no interviene — y es la mayoría de las veces.
     const { data, error } = await admin.rpc("buscar_rag_chunks_lexico", {
       p_query: q,
       p_match_count: MATCH_COUNT,
       p_estados: ["vigente"],
+      p_solo_ia_externa: false,
     });
     if (error) {
       // El detalle queda en el log del server; al cliente solo el código.

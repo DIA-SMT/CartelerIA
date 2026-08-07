@@ -1079,7 +1079,7 @@ test("el asistente propone pero nunca guarda", async () => {
   assert.match(route, /p_estados: \["vigente"\]/);
 
   // Saneado una sola vez: lo que ve el modelo es contra lo que se verifica.
-  assert.match(route, /const saneados = fragmentos\.map/);
+  assert.match(route, /const saneadosHabilitados = habilitados\.map\(\(fragmento\) => sanearFragmento/);
   assert.match(route, /verificarHallazgos\(\s*\n?\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*\n?\s*saneadosHabilitados,?\s*\n?\s*\)/);
 
   // Defensas de toda ruta nueva, con cuota propia.
@@ -1255,21 +1255,48 @@ test("la salida hacia IA externa se autoriza por documento y se declara que no v
 
   // La ruta filtra en vez de bloquear: antes un solo fragmento restringido
   // cortaba la consulta entera, así que habilitar un documento no servía de nada.
-  assert.match(ruta, /const indicesHabilitados = fragmentos/);
   assert.doesNotMatch(
     ruta,
     /const fuenteRestringida = fragmentos\.some/,
     "un fragmento restringido no puede volver a bloquear toda la consulta",
   );
 
+  // Y son DOS búsquedas: la función corta en 8 filas antes de mirar quién puede
+  // salir, así que filtrar el resultado deja afuera lo único que servía.
+  const busqueda = await source("supabase/migrations/20260806_27_busqueda_solo_habilitados.sql");
+  assert.match(busqueda, /drop function if exists public\.buscar_rag_chunks_lexico\(text, integer, text\[\]\);/);
+  assert.match(
+    busqueda,
+    /not coalesce\(p_solo_ia_externa, false\)\s*or \(\s*d\.audience = 'publico'\s*and d\.human_reviewed\s*and d\.external_ai_allowed\s*and not d\.ocr_doubtful\s*\)/,
+    "el filtro tiene que ser el mismo que aplica la ruta antes de mandar nada afuera",
+  );
+  assert.match(
+    busqueda,
+    /and d\.estado_legal = any\(s\.permitidos\)/,
+    "el estado legal sigue siendo obligatorio: el borrador no se cita",
+  );
+  assert.match(ruta, /const \[general, habilitada\] = await Promise\.all\(\[buscar\(false\), buscar\(true\)\]\)/);
+  assert.match(ruta, /const sinHabilitados = habilitados\.length === 0;/);
+  // La búsqueda restringida ya filtró, pero lo que sale se comprueba igual acá.
+  assert.match(ruta, /\.filter\(puedeSalir\)/);
+
+  // Los otros dos que llaman a la misma función quedaron con la firma nueva.
+  const normativa = await source("app/api/normativa/route.ts");
+  const verificador = await source("scripts/verify-live-integrity.mjs");
+  assert.match(normativa, /p_solo_ia_externa: false/);
+  assert.match(verificador, /p_estados: \["vigente"\],\s*p_solo_ia_externa: false/);
+
   // Las citas se verifican contra lo que el modelo VIO. Contra todo, una cita
   // inventada que coincidiera con un fragmento retenido pasaría por verificada.
   assert.match(ruta, /verificarHallazgos\(\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*saneadosHabilitados,\s*\)/);
-  assert.match(ruta, /const saneadosHabilitados = indicesHabilitados\.map/);
+  assert.match(ruta, /const saneadosHabilitados = habilitados\.map/);
 
   // Y el precio de filtrar se declara: un "sin hallazgos" calculado sin ver
   // todo no es un certificado de que no hay conflicto.
-  assert.match(ruta, /visto: puedeSalir\(fragmento\)/);
+  // `visto` sale del conjunto que efectivamente fue al modelo, no de volver a
+  // evaluar la regla: si el contexto se armara distinto, la marca mentiría.
+  assert.match(ruta, /const vistos = new Set\(habilitados\.map/);
+  assert.match(ruta, /visto: vistos\.has\(/);
   assert.match(aviso, /El asistente no vio \{sinVer\.length\} de los \{fragmentos\.length\} fragmentos/);
   assert.match(aviso, /no quiere decir que no haya conflicto/);
 });

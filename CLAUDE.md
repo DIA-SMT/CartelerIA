@@ -106,6 +106,13 @@ Todavía no hay una suite general ni configuración de ESLint.
   - `/api/fabrica` propone y jamás escribe: no llama a ninguna RPC de
     articulado. Los hallazgos con cita que no se verifica contra los fragmentos
     (`lib/norma-citas.ts`) se descartan antes de guardarse.
+  - **La búsqueda acepta `p_solo_ia_externa`** (migración 27) y `/api/fabrica`
+    hace **dos** consultas en paralelo: la restringida es la que va al modelo, la
+    general es la que se muestra. No es un lujo: la función corta en 8 filas
+    *antes* de mirar quién puede salir, así que filtrar el resultado deja afuera
+    justo lo que servía — medido, 2 de 5 consultas municipales típicas no
+    recuperaban ni un fragmento habilitado. La firma tiene cuatro argumentos:
+    `/api/normativa` y `scripts/verify-live-integrity.mjs` también la llaman.
   - **La salida hacia IA externa se decide documento por documento**
     (migración 26). Antes un solo fragmento restringido bloqueaba la consulta
     entera y, como la búsqueda recorre los 15 documentos vigentes, habilitar uno
@@ -230,7 +237,11 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   la instancia el 2026-08-06): 29 comprobaciones, incluidos los cinco RPC del
   bloque 3, la columna `origen`, los 33 artículos sembrados, y que `service_role`
   reciba `42501` al intentar insertar, reescribir o borrar una observación.
-  Las **25 y 26 también están aplicadas y verificadas** (2026-08-06, 9
+  **La 27 está pendiente de aplicación**, y hay que aplicarla con el código
+  nuevo ya desplegado: cambia la firma de `buscar_rag_chunks_lexico` a cuatro
+  argumentos, y entre una cosa y la otra `/api/normativa` y `/api/fabrica`
+  devuelven `PGRST202`.
+  Las **25 y 26 están aplicadas y verificadas** (2026-08-06, 9
   comprobaciones): la sobrecarga vieja de `crear_articulo` de cuatro argumentos
   quedó efectivamente borrada, y `habilitar_documento_ia_externa` le responde a
   `service_role` con `permission denied for function` — el `revoke` lo frena al

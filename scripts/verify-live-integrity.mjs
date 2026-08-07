@@ -80,9 +80,14 @@ const client = createClient(url, serviceRoleKey, {
 
 const lexicalRetrievalPromise = Promise.all(
   LEXICAL_PROBES.map(async (probe) => {
+    // La firma cambió dos veces: `p_estados` en la migración 20 y
+    // `p_solo_ia_externa` en la 27. Sin los cuatro argumentos PostgREST
+    // devuelve PGRST202 y el probe falla sin decir por qué.
     const result = await client.rpc("buscar_rag_chunks_lexico", {
       p_query: probe.query,
       p_match_count: 8,
+      p_estados: ["vigente"],
+      p_solo_ia_externa: false,
     });
     const rows = Array.isArray(result.data) ? result.data : [];
     const documentIds = [
