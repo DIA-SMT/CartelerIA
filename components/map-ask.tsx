@@ -32,8 +32,10 @@ const EXAMPLES = [
   "¿Cuántos están fuera de las áreas analizadas?",
   "Mostrame los que están dentro de corredores",
   "Carteles que requieren revisión territorial",
-  "¿Qué empresa tiene más observaciones?",
 ];
+
+/** Ejemplos que sólo se ofrecen a quien puede ver razón social y CUIT. */
+const FISCAL_EXAMPLES = ["¿Qué empresa tiene más observaciones?"];
 
 const OPERATION_LABEL: Record<QueryIntent["operation"], string> = {
   count: "Conteo",
@@ -95,7 +97,10 @@ export function MapAsk({ carteles, onApply }: Props) {
     setQueryOwnerId(currentOwnerId);
     setLoading(true);
     try {
-      const { intent: parsed, source: usedSource } = await interpretQuestionSmart(trimmed);
+      const { intent: parsed, source: usedSource } = await interpretQuestionSmart(
+        trimmed,
+        { canSeeFiscalData: auth.canSeeFiscal },
+      );
       if (sequence !== requestSequence.current) return;
 
       if (parsed.dataset === "inspecciones") {
@@ -111,7 +116,7 @@ export function MapAsk({ carteles, onApply }: Props) {
           setInspResult(null);
           setInspRecords([]);
         } else {
-          const records = await loadInspections();
+          const records = await loadInspections(auth.role);
           if (sequence !== requestSequence.current) return;
           setInspRecords(records);
           setInspResult(runInspectionQuery(parsed, records));
@@ -167,7 +172,7 @@ export function MapAsk({ carteles, onApply }: Props) {
       <button type="submit" disabled={loading || !question.trim()} className="primary-button compact justify-center disabled:cursor-not-allowed disabled:opacity-60">{loading ? <Loader2 size={13} className="animate-spin"/> : <Send size={13}/>}{loading ? "Consultando…" : "Preguntar"}</button>
     </form>
 
-    {!intent && <div className="mt-2 flex flex-wrap gap-1.5">{EXAMPLES.map((example) => (
+    {!intent && <div className="mt-2 flex flex-wrap gap-1.5">{[...EXAMPLES, ...(auth.canSeeFiscal ? FISCAL_EXAMPLES : [])].map((example) => (
       <button key={example} type="button" onClick={() => { setQuestion(example); ask(example); }} className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[9px] font-bold text-slate-500 transition hover:border-municipal-300 hover:text-municipal-700">{example}</button>
     ))}</div>}
     {!intent && notice && <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-semibold text-amber-800"><Lock size={12} className="mt-0.5 shrink-0"/>{notice}</p>}

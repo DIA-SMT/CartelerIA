@@ -28,10 +28,26 @@ Todavía no hay una suite general ni configuración de ESLint.
 - **Sesión**: `AuthProvider` único montado en `app/layout.tsx`
   (`components/auth-provider.tsx`). `hooks/use-auth.ts` es solo re-export para
   compatibilidad. No instanciar estado de auth en componentes.
-- **Registro administrativo privado**: `loadCarteles()` solo se ejecuta con
+- **Registro administrativo privado**: `loadCarteles(role)` solo se ejecuta con
   sesión y no tiene fallback estático. No importar `data/carteles.json` desde
   módulos cliente: contiene empresa, CUIT y padrón y terminaría en el bundle
   público. Sin sesión, el mapa usa únicamente las capas territoriales.
+- **Permiso fiscal por rol** (`lib/roles.ts`, única fuente): `canSeeFiscalData`
+  y `fiscalSource(tabla, rol)` deciden si se lee la tabla base o la vista
+  `*_consulta` sin empresa/CUIT/padrón. El rol `consulta` no las ve por ninguna
+  vía: tampoco puede filtrar ni agrupar por `empresa`/`empresaInspeccion` (los
+  campos llevan `fiscal: true` y `parseQueryIntent` los corta), y las
+  exportaciones XLSX/dossier reciben `includeFiscalData`. Un dato restringido se
+  muestra con `<RestrictedByRole/>`, nunca vacío: el usuario debe distinguir
+  "no hay dato" de "no tenés acceso".
+- **Evidencia**: el navegador no firma URLs. `lib/evidence-access.ts` pide a
+  `app/api/evidence/access` que autorice el lote; la RPC
+  `autorizar_lectura_evidencia` resuelve rutas y registra el acceso en la MISMA
+  transacción, así que si la auditoría falla no hay URL. La lectura directa de
+  los buckets quedó revocada (las policies de INSERT siguen: el flujo
+  reservar→upload→finalize depende de ellas). Cliente admin compartido en
+  `lib/supabase-admin.ts` (las tres rutas anteriores todavía lo instancian
+  inline: deuda conocida).
 - **APIs** (`app/api/ask`, `app/api/normativa`): llaman a OpenRouter. Toda API
   nueva debe replicar sus defensas: rate limit por IP (`lib/rate-limit.ts`),
   límite de longitud del input, `AbortSignal.timeout`, y nunca filtrar
@@ -43,6 +59,87 @@ Todavía no hay una suite general ni configuración de ESLint.
   `hooks/use-dismissible.ts` (patrón `data-state`). Animar solo
   transform/opacity; el spotlight del tour ya se migró a transform — no
   reintroducir animación de top/left/width/height/box-shadow.
+- **Navegación**: `components/app-sidebar.tsx` es el **único** punto de
+  navegación, para todos los tamaños de pantalla. Ya no hay nav horizontal ni
+  menú aparte para pantallas chicas. El cajón usa obligatoriamente
+  `use-modal-shell` y `use-dismissible`; no reimplementar focus trap, scroll
+  lock ni Escape. Se superpone al contenido y **no lo empuja**: es lo que evita
+  que Leaflet recalcule tamaño y que el spotlight del tour se reposicione.
+  El cajón se dibuja con `createPortal` sobre `document.body`, y es
+  obligatorio: la barra superior tiene `backdrop-blur`, y un `backdrop-filter`
+  convierte al elemento en bloque contenedor de sus descendientes
+  `position: fixed`. Sin portal, el cajón queda encerrado en los 72px del
+  header. **Mismo cuidado con cualquier overlay nuevo que se monte dentro de un
+  contenedor con blur.**
+  El sidebar es dueño de la lógica de rol de la nav y del único listener de
+  `APPROVALS_COUNT_EVENT`. La escala de z-index del proyecto está documentada
+  en ese archivo (el cajón va en 1050).
+- **Configuración** (`components/configuracion/`, sección `#configuracion`):
+  casa de la administración de identidades, solo rol administrador y cargada
+  con `dynamic()` para no engordar el bundle inicial. Cinco pestañas con estado
+  en la URL (`#configuracion?tab=...`): Usuarios, Roles y permisos, Auditoría,
+  Seguridad y Corpus. No volver a crear una sección suelta de usuarios.
+  La matriz de permisos se deriva de `PERMISSION_MATRIX` en `lib/roles.ts`, que
+  usa las mismas constantes que aplican los permisos: si se desincroniza de
+  `canSeeFiscalData`/`OPERATIVE_ROLES`, falla un test.
+  En Seguridad, cada dato declara su origen (consultado en vivo, verificado a
+  mano con fecha, o declarado en el repositorio). No presentar como comprobado
+  lo que no se pudo consultar.
+- **Fábrica Normativa** (`components/fabrica/`, sección `#fabrica`): mesa de
+  redacción de la nueva ordenanza. **El documento recibido ES la normativa
+  nueva, no un borrador a aprobar.** El módulo se construyó sobre la premisa
+  contraria y en la migración 29 se le sacó todo el aparato de aprobaciones: no
+  hay estados, ni fundamentos obligatorios, ni compuertas de exportación.
+  Guardar es guardar. Antes de reintroducir un paso, preguntar si hace falta.
+  - Nada se sobrescribe igual: `guardar_articulo` agrega una fila a
+    `norma_articulo_version` y `texto_original` es inmutable por trigger. El
+    motivo es opcional. No reintroducir un `update` directo sobre el texto.
+  - `estado` sobrevive como mecanismo, no como etiqueta: la pantalla solo usa
+    `descartado` para sacar un artículo del documento y `propuesto` para volver
+    a incluirlo. Nada se borra.
+  - **El asistente no consulta la normativa vigente.** `/api/fabrica` tiene dos
+    acciones: `proponer_articulo` (idea en criollo → artículo) y
+    `revisar_proyecto` (choques con los otros artículos del MISMO documento).
+    Ninguna toca el corpus, así que la maquinaria de habilitar documentos
+    —migraciones 26 a 28— quedó fuera de este camino; sigue viva para
+    `/api/normativa`.
+  - `lib/norma-relacionados.ts` elige qué artículos mandarle al modelo por
+    solapamiento de términos poco frecuentes, sin base ni modelo. Recorta
+    plurales a propósito: sin eso "ochava" y "ochavas" no se conectan y el
+    revisor falla en el caso más común.
+  - **Las citas se comparan ignorando mayúsculas** (`localizarCita`) y se
+    devuelve el recorte de la FUENTE, no lo que escribió el modelo. El
+    2026-08-06 se descartó una contradicción correcta —2 m² contra 60 m²—
+    porque el modelo empezó la cita con "como" donde el artículo dice "Como".
+    Una cita inventada no coincide por casualidad en 25 caracteres, así que
+    ignorar la caja no debilita nada.
+  - `norma_parametro` sigue exigiendo cita **textual** del artículo
+    (`position(cita in texto)`), pero la cita se propone sola a partir del
+    número (`proponerCitaParaValor`): confirmar es un clic, sin perder la
+    garantía. `lib/norma-simulador.ts` es determinístico: un dato faltante da
+    `no_evaluable`, nunca `cumple`.
+  - **Una sola salida: PDF**, desde `@media print`. Se sacaron el Word (y la
+    dependencia `docx`) y el Excel de observaciones. El XLSX de expedientes es
+    de otra sección y no se toca.
+  - El lienzo (`lienzo-articulo.tsx`) va de una idea en lenguaje llano a un
+    artículo. Esa idea queda como motivo de la versión 1 cuando la hay.
+    `origen` se declara `asistente` solo si el texto lo escribió la máquina.
+    Sin IA el lienzo igual crea artículos a mano.
+  - El artículo abierto vive en el hash (`#fabrica?articulo=<id>`), igual que
+    las pestañas de Configuración, y se escribe con `replaceState` — asignar
+    `location.hash` scrollea a la sección y saca el foco del editor. Un id que
+    no existe se limpia **recién** con `loadPhase === "ready"`: antes
+    descartaría una selección válida solo por llegar primero.
+  - `norma_observacion` (migración 24) quedó **sin uso**: se sacaron las
+    observaciones de las áreas. La tabla sigue en la base para no obligar a un
+    drop; se puede borrar cuando convenga.
+  -  (migración 24) quedó **sin uso**: se sacaron las
+    observaciones de las áreas. La tabla sigue en la base para no obligar a un
+    drop; se puede borrar cuando convenga.
+- **Motion, detalle a saber**: el token `DEFAULT` (250ms) de
+  `transitionDuration` **no tiene clase utilitaria** — ni `duration` ni
+  `duration-DEFAULT` se generan. Los overlays usan `duration-200`; `duration-fast`
+  y `duration-slow` sí existen.
 - **Sistema de UI compartido (usarlo, no reimplementarlo)**:
   `hooks/use-modal-shell.ts` (scroll lock apilado + focus trap donde solo el
   modal tope atrapa Tab + restitución de foco) para todo overlay nuevo;
@@ -67,9 +164,15 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 - Migraciones idempotentes en `supabase/migrations/` (correrlas a mano en el SQL
   Editor; no hay CLI vinculado). `schema.sql` + seeds para setup desde cero.
 - Seguridad (migración 11, aplicada y verificada): lectura de `carteles` exige sesión; escritura exige
-  rol operativo via `tiene_rol`; `anon` no accede al registro administrativo y
-  las cuentas nuevas nacen con rol `consulta`.
+  rol operativo via `tiene_rol`; `anon` no accede al registro administrativo.
   No crear policies `to anon` de escritura ni defaults de rol altos.
+- **Las cuentas nuevas nacen con rol `consulta` (migración 18).** Ojo con esta:
+  la 10 ya lo decía y el repo la reflejaba, pero la instancia real conservó la
+  versión de la migración 07 —que insertaba `'administrador'`— hasta el
+  2026-08-06. Se descubrió recién cuando el trigger de la 16 rechazó un alta.
+  **Leer el archivo del repo no prueba nada sobre la base**: las migraciones se
+  corren a mano y una puede quedar a medio aplicar sin dejar rastro. Ante una
+  duda sobre una función, consultar `pg_proc.prosrc` en la instancia.
 - Flujo oficial (migración 12, aplicada y verificada): estados y vínculos cambian únicamente mediante
   RPC auditados; los roles operativos solicitan y el administrador resuelve con
   fundamento. No reintroducir `update({ estado })` directo ni borrado físico de
@@ -85,6 +188,22 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   usa full-text search privado en PostgreSQL y superó los cinco probes del
   verificador. `@huggingface/transformers` queda solo en dependencias de
   desarrollo para ingesta offline; no volver a importarlo desde rutas Next.
+- Gobernanza de identidades (migración 16, aplicada y verificada): los roles
+  solo se cambian con la RPC `asignar_rol`
+  (administrador humano, fundamento ≥12 caracteres, prohibido el auto-cambio,
+  prohibido quedarse sin administradores, historial inmutable en
+  `perfiles_historial`). `revoke` sobre `perfiles` + trigger
+  `proteger_rol_perfiles` cierran el UPDATE directo, incluso a `service_role`.
+  El rol `consulta` lee vistas `carteles_consulta`/`inspecciones_consulta`/
+  `expedientes_consulta` sin datos personales ni tributarios. Las lecturas
+  sensibles se registran en `acceso_datos_sensibles` (insert-only, solo
+  administrador la lee). No reintroducir `update public.perfiles set rol = ...`
+  a mano en el SQL Editor: el trigger lo rechaza y es a propósito. Tampoco
+  borrar y reinsertar el perfil: un perfil nuevo solo nace con rol `consulta`.
+- La lectura de los buckets quedó acotada al objeto propio, no revocada del
+  todo: un `INSERT` con `RETURNING` también pasa por las policies de `SELECT` y
+  sin ninguna se rompe la carga de evidencia. Si alguna vez se endurece más,
+  probar un upload real — no lo cubren tsc, build ni tests.
 - `service_role` es una identidad técnica: puede ejecutar mantenimiento
   autorizado, pero nunca debe registrarse ni interpretarse como aprobación
   legal. Las aprobaciones exigen un administrador humano y fundamento.
@@ -97,6 +216,56 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
 - `data/carteles.json` y los `seed*.sql` contienen datos personales: se guardan
   bajo `private/`, fuera de Git y Vercel. Los scripts que los procesan deben
   mantener esas rutas privadas.
+- Indicadores (migración 17, aplicada y verificada):
+  `indicadores_gestion(...)` devuelve un `jsonb` con los 7 indicadores del
+  roadmap, cada uno con `procedencia` y `suficiente`. El cálculo va en
+  PostgreSQL: no replicarlo en el cliente ni traer el registro para contar. Un
+  indicador sin datos suficientes se muestra "Sin datos", nunca como cero.
+- Fábrica Normativa (migraciones 20 a 24, todas aplicadas y verificadas contra
+  la instancia el 2026-08-06): 29 comprobaciones, incluidos los cinco RPC del
+  bloque 3, la columna `origen`, los 33 artículos sembrados, y que `service_role`
+  reciba `42501` al intentar insertar, reescribir o borrar una observación.
+  **La 28 está pendiente de aplicación** (no cambia la firma, así que no hay
+  ventana de `PGRST202`: se puede aplicar antes o después de desplegar).
+  Las **25, 26 y 27 están aplicadas y verificadas** (2026-08-06). La 27 subió el
+  recall de 3 a 16 fragmentos habilitados sobre cinco consultas municipales
+  típicas, y se comprobó que la búsqueda restringida devuelve **cero** fragmentos
+  del borrador aun pidiendo `p_estados: ["proyecto"]` explícitamente.
+  Nota de contenido, medida: ni el Decreto 0609/18 ni la Ordenanza 4728/2014
+  regulan distancias a esquinas (cero menciones de "esquina", una de "ochava" en
+  toda la 4728). Un artículo sobre eso es terreno nuevo, no un conflicto — si el
+  asistente no devuelve hallazgos ahí, está en lo cierto.
+  Verificaciones anteriores: 25 y 26 con 9
+  comprobaciones: la sobrecarga vieja de `crear_articulo` de cuatro argumentos
+  quedó efectivamente borrada, y `habilitar_documento_ia_externa` le responde a
+  `service_role` con `permission denied for function` — el `revoke` lo frena al
+  nivel del grant, antes del chequeo interno. El detalle de las reglas está
+  arriba, en Arquitectura.
+- **El `ocr_doubtful` de la máquina no es confiable en los dos sentidos.**
+  `doc-02` (Decreto 0609/18) figura con OCR limpio y su texto indexado dice
+  "TÍCULO 1*.-" y "hacla la Via Pública". La métrica de confianza del OCR no
+  sirve como prueba de que el texto esté bien: por eso `human_reviewed` es una
+  aserción de una persona y se pide leer los fragmentos antes de marcarla.
+  Desde la migración 28, `ocr_doubtful` **no veta la salida**: la revisión
+  humana, que ya es obligatoria, es la que contesta la duda. No se le agregó
+  `or human_reviewed` al predicado porque sería una tautología que se lee como
+  un guard y no guarda nada. La columna sigue existiendo y la pantalla la
+  muestra al lado del "Revisado".
+- **Corregir el OCR se hace sobre `data/ocr/<id>.json`, no sobre la base.** El
+  ingest deriva los fragmentos de ese archivo, así que una corrección guardada
+  solo en `rag_chunks` la pisa la próxima reingesta sin avisar — el mismo modo
+  de falla que se comió el `estado_legal` del borrador. El editor
+  (`components/configuracion/corregir-ocr.tsx`) abre el archivo del disco, lo
+  edita contra el PDF y lo descarga; después va `npm run ingest:docs`. No toca
+  Supabase por ningún lado, y hay un test que lo verifica.
+  Dos campos son intocables al corregir: `sourceHash` (ata el texto a un PDF
+  concreto; el ingest lo compara y descarta el archivo si no coincide) y
+  `confianza` por página (es una medición del motor de OCR — editarla porque
+  una persona corrigió el texto sería falsear una medida). Lo que se agrega es
+  `corregidaPorHumano` y `correccionHumana`, que el ingest ignora.
+  Al probar un RPC por PostgREST, ojo: si los nombres de los argumentos no
+  coinciden exactos, devuelve `PGRST202` —el mismo código que si la función no
+  existiera—. Verificar la firma antes de concluir que falta algo.
 - Plan free: se pausa a los ~7 días sin actividad (el subdominio deja de
   resolver → parece error de DNS). Lo evita `.github/workflows/supabase-keepalive.yml`
   (ping diario; los `schedule` solo corren desde `main`; secrets `SUPABASE_URL`
@@ -119,8 +288,18 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   ("This page couldn't load"), aunque el server responda 200 y la página ande
   perfecta en un navegador real. Verificar con `curl`, `tsc`, tests y build;
   la pasada visual la hace Lucas en su navegador.
-- StrictMode en dev duplica efectos: los fetch de capas se ven repetidos (en
-  prod es uno por capa).
+- **StrictMode está apagado** (`next.config.mjs`) porque react-leaflet 4.2.1 no
+  soporta el doble montaje: dejaba el mapa a medio destruir y el overlay de
+  error tapaba la pantalla en dev ("Map container is already initialized"). Solo
+  afecta a dev; producción nunca duplicó efectos. Consecuencia: ya no se ven los
+  fetch de capas repetidos, y tampoco se detectan efectos mal limpiados —
+  revisar a mano las limpiezas de `useEffect` al escribir overlays nuevos.
+  Reactivarlo al migrar a react-leaflet 5 (pide React 19).
+- En el Browser pane, `requestAnimationFrame` NO dispara (`document.hidden`).
+  Como `use-dismissible` abre con un rAF, **todo overlay se queda en su estado
+  de salida** dentro del pane: el cajón aparece en `translateX(-100%)` y los
+  telones en `opacity: 0`. No es un bug. Para verificar geometría, forzar el
+  estilo por JS y medir; la animación la confirma Lucas en su navegador.
 - `python` no existe en esta máquina (alias de Microsoft Store); usar `node -e`.
   `gh` CLI tampoco está instalado.
 

@@ -74,3 +74,86 @@ button { cursor: pointer; }
   }
   .skeleton::after { animation: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Documento normativo e impresión
+   ---------------------------------------------------------------------------
+   El PDF para elevar sale de acá: se abre el articulado completo y se guarda
+   como PDF desde el navegador. Es infinitamente más liviano que meter un
+   navegador headless en una función serverless, y para elevar un documento
+   alcanza. El membrete se resuelve en CSS y no con una imagen, para que no
+   dependa de que una request de red termine antes de imprimir.
+--------------------------------------------------------------------------- */
+.documento-normativo { @apply mx-auto max-w-[46rem] text-slate-800; }
+.documento-normativo .membrete { @apply mb-6 border-b-2 border-municipal-600 pb-4 text-center; }
+.documento-normativo .membrete .organismo { @apply text-micro font-extrabold uppercase tracking-[.18em] text-slate-500; }
+.documento-normativo .membrete h1 { @apply mt-1 font-display text-xl font-extrabold tracking-tight text-ink; }
+.documento-normativo .membrete .marca-borrador { @apply mt-2 inline-block rounded-full bg-amber-100 px-3 py-1 text-micro font-extrabold uppercase tracking-wider text-amber-800; }
+.documento-normativo .articulo { @apply mb-4; }
+.documento-normativo .articulo h2 { @apply font-display text-tiny font-extrabold text-ink; }
+.documento-normativo .articulo p { @apply mt-1 whitespace-pre-wrap text-tiny leading-6 text-slate-700; }
+.documento-normativo .pie { @apply mt-8 border-t border-slate-200 pt-3 text-micro leading-4 text-slate-400; }
+.solo-impresion { @apply hidden; }
+.documento-normativo .marca-corriente { @apply hidden; }
+
+@media print {
+  /* Solo el documento llega al papel.
+     `.print-root` es el panel del articulado, que se monta por portal como
+     hijo directo de `body`. Sin el portal esta regla no apagaba nada: el árbol
+     de la aplicación contiene al documento, así que se imprimía el tablero
+     entero con el documento en el medio. */
+  body > *:not(.print-root) { display: none !important; }
+
+  /* El documento pasa a tabla para que el navegador repita la marca corriente
+     arriba de cada página. Es el único mecanismo que los navegadores
+     implementan de verdad: las cajas de margen de `@page` y `position:
+     running()` son de motores de paginación tipo Prince, no de Chrome ni
+     Firefox. */
+  .documento-normativo { display: table; width: 100%; max-width: none; }
+  .documento-normativo .marca-corriente { display: table-header-group; }
+  .documento-normativo .cuerpo { display: table-row-group; }
+  .documento-normativo .marca-corriente span,
+  .documento-normativo .marca-corriente b {
+    display: block;
+    padding-bottom: 2mm;
+    font-size: 7pt;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+  .documento-normativo .marca-corriente b { color: #92400e; letter-spacing: .12em; }
+
+  /* Tamaños en puntos: los tokens de pantalla (10 y 11 px) quedan ilegibles en
+     papel, y esto va a un expediente. */
+  .documento-normativo { font-size: 10.5pt; line-height: 1.55; color: #1e293b; }
+  .documento-normativo .membrete h1 { font-size: 15pt; }
+  .documento-normativo .membrete .organismo { font-size: 8pt; }
+  .documento-normativo .articulo h2 { font-size: 11pt; }
+  .documento-normativo .articulo p { font-size: 10.5pt; line-height: 1.55; }
+  .documento-normativo .pie p { font-size: 7.5pt; line-height: 1.35; }
+
+  /* Un artículo puede partirse entre páginas —hay varios largos y forzarlos
+     enteros deja medias hojas en blanco—, pero su encabezado nunca se queda
+     solo al pie ni se sueltan renglones huérfanos. */
+  .documento-normativo .articulo { break-inside: auto; }
+  .documento-normativo .articulo h2 { break-after: avoid; }
+  .documento-normativo .articulo p { orphans: 3; widows: 3; }
+  .documento-normativo .pie { break-before: avoid; }
+
+  .solo-impresion { display: inline !important; font-weight: 700; }
+
+  /* El navegador no imprime fondos salvo que el usuario lo habilite, así que la
+     marca de borrador lleva además borde y color de texto: tiene que leerse
+     igual con "gráficos de fondo" apagado. */
+  .documento-normativo .membrete .marca-borrador {
+    border: 1.5pt solid #92400e;
+    color: #92400e;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  @page {
+    margin: 18mm 16mm 20mm;
+    size: A4;
+  }
+}

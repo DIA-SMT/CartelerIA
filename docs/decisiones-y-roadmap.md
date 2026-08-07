@@ -53,6 +53,252 @@ CartelerIA. No describe necesariamente el estado actual de implementación.
 - La inspección visual de la fuente primaria corrigió Ordenanza 4828/2014 a
   Ordenanza 4728/2014; catálogo, PDF y metadatos live quedaron sincronizados.
 
+## Estado de implementación al 2026-08-06 (paquete E)
+
+La migración 16 (`20260806_16_gobernanza_identidades.sql`) está escrita,
+verificada con `tsc`, `npm run test:workflow` y `next build`, y **queda
+pendiente de aplicación manual por Lucas en el SQL Editor de Supabase**. Hasta
+que se aplique, la interfaz nueva no tiene contraparte en la base: el panel de
+usuarios no podrá listar perfiles y la evidencia se seguirá sirviendo solo si
+las policies viejas siguen vigentes.
+
+Su alcance:
+
+- **Gobernanza de roles.** Cambiar un rol dejó de ser un `update` a mano. La RPC
+  `asignar_rol` exige administrador autenticado (excluye `service_role`),
+  fundamento de al menos 12 caracteres, prohíbe el auto-cambio y prohíbe dejar
+  la instancia sin administradores; es no-op silencioso si el rol no cambia y
+  escribe `perfiles_historial` en la misma transacción. `perfiles` queda con
+  `revoke` de escritura y un trigger que rechaza todo UPDATE de `rol` que no
+  provenga de la RPC. La recuperación ante una instancia sin administradores
+  exige una migración deliberada: no se dejó atajo silencioso.
+- **Privacidad consultiva.** El rol `consulta` ya no lee las tablas base de
+  `carteles`, `inspecciones` ni `expedientes`, sino vistas sin empresa, CUIT ni
+  padrón (y sin las identidades de los agentes que solicitaron o aprobaron
+  vínculos). Del lado cliente, la fuente se elige por rol, el campo restringido
+  se muestra como "Restringido por rol" y no como vacío, y se cerraron las tres
+  vías indirectas: el ranking por empresa de "Preguntale al mapa", el campo
+  `empresa` de todo listado de resultados y la exportación XLSX/dossier de
+  expedientes.
+- **Auditoría de lectura.** `acceso_datos_sensibles` registra quién consultó
+  datos fiscales o evidencia. La evidencia se autoriza en el servidor:
+  `app/api/evidence/access` verifica sesión y rol, y la RPC resuelve las rutas y
+  escribe la auditoría en una sola transacción, de modo que un fallo de registro
+  deshace la entrega. La lectura directa de los buckets quedó revocada.
+- **Panel de usuarios.** Sección `#usuarios`, solo administrador: padrón con
+  nombre, email, rol y último cambio, cambio de rol con fundamento obligatorio
+  confirmado en diálogo propio, e historial inmutable por cuenta.
+
+### Antes de aplicar la 16, en el SQL Editor
+
+Las vistas consultivas corren con los privilegios de su dueño (no
+`security_invoker`) para poder leer la tabla base que la nueva policy le cierra
+al rol `consulta`, y llevan su propia guarda de rol adentro. Eso depende de dos
+supuestos que conviene confirmar en la instancia real:
+
+```sql
+select relname, relrowsecurity, relforcerowsecurity, pg_get_userbyid(relowner) as owner
+from pg_class
+where relname in ('carteles','inspecciones','expedientes','perfiles');
+```
+
+Si `relforcerowsecurity` fuera `true` en alguna, o el owner no fuera `postgres`,
+las vistas devolverían cero filas **a todos los roles** y el mapa quedaría vacío.
+Hoy no hay ningún `force row level security` en el repo, así que lo esperable es
+`false` y `postgres` en las cuatro.
+
+Después de aplicar:
+
+- Si `carteles_consulta` respondiera 404, es la caché de esquema de PostgREST:
+  `notify pgrst, 'reload schema';`.
+- El Advisor de Supabase va a marcar las tres vistas nuevas como
+  `security_definer_view` (lint 0010). Es exactamente lo que la migración busca:
+  sin eso, la vista no podría leer la tabla base para el rol `consulta`.
+- **Probar una carga real de fotografía y de documento.** La migración acota la
+  lectura del bucket al objeto propio en lugar de revocarla del todo, porque un
+  `INSERT` con `RETURNING` también pasa por las policies de `SELECT` y sin
+  ninguna el upload falla. Ni el typecheck, ni el build, ni los tests detectan
+  esa rotura: se vería recién al intentar subir evidencia.
+
+Decisiones tomadas al implementar, que el plan no fijaba:
+
+- Las columnas físicas nuevas usan `created_at`, como las cuatro tablas de
+  historial ya existentes; los nombres en español (`creado_en`,
+  `rol_cambiado_en`) quedan como contrato de las RPC, no del esquema.
+- Las vistas consultivas omiten además `vinculo_solicitado_por` y
+  `vinculo_aprobado_por`: son identidades de agentes municipales y ningún
+  componente cliente las usaba.
+- `expediente_documentos` e `inspeccion_fotos` conservan sus policies: no tienen
+  datos personales en columnas y su binario se cierra por Storage. Queda
+  anotado que `descripcion`, `nota` y `fundamento` son texto libre donde una
+  persona podría tipear un CUIT; cerrarlos exigiría revisar contenido, no
+  permisos.
+- `/api/ask` seguía sin autenticación y devolviendo el intent crudo del
+  intérprete local. Se lo dejó en pie pero ahora revalida con los permisos
+  mínimos: nunca devuelve un intent que filtre o agrupe por empresa.
+
+## Estado de implementación al 2026-08-06 (paquete F)
+
+La migración 17 (`20260806_17_indicadores_gestion.sql`) está escrita y **también
+queda pendiente de aplicación manual**, después de la 16. Agrega
+`indicadores_gestion(p_desde, p_hasta, p_zona, p_empresa, p_estado, p_inspector)`
+y `zonas_disponibles()`, y no crea ninguna tabla: solo lee.
+
+Los siete indicadores se calculan en PostgreSQL y viajan como un único `jsonb`
+donde cada uno declara procedencia, si tiene datos suficientes, numerador,
+denominador y un detalle en prosa. La sección `#indicadores` del dashboard los
+muestra sin recalcular nada.
+
+Decisiones que conviene conocer antes de leer los números en una presentación:
+
+- **Cobertura territorial.** El universo territorial vive en los GeoJSON
+  servidos, no en PostgreSQL, así que la base no puede dividir por él sin
+  inventarlo. El indicador informa los vínculos ratificados por un administrador
+  sobre el registro administrativo, declarado como dato administrativo oficial.
+  La comparación contra la capa territorial completa sigue siendo una lectura
+  del mapa, no de este indicador.
+- **Inspecciones completadas.** Depende de `programada_para` e
+  `inspeccionada_en`, que hoy la aplicación nunca escribe: el alta de inspección
+  no pide fecha. Mientras siga así, el indicador se muestra explícitamente como
+  "sin datos" y aclara cuántas inspecciones hay cargadas y cuántas tienen
+  resultado. No se lo maquilló con un 0%: si aparece un porcentaje, es porque
+  alguien empezó a programar inspecciones con fecha.
+- **Tasa de regularización.** Se mide sobre `inspeccion_historial`, no sobre el
+  estado vigente: un cartel ya regularizado dejó de figurar como observado, así
+  que contarlo por estado actual daría siempre cero.
+- **Tiempos.** Se reportan como mediana, no promedio, para que un caso viejo no
+  arrastre el número. La demora hasta la primera inspección se mide desde el
+  alta del registro, que es el hecho que el sistema puede fechar con certeza.
+- **Ventana temporal.** Filtra por fecha de alta del registro administrativo.
+- **Permisos.** La segmentación por empresa está cerrada para el rol `consulta`:
+  un filtro por razón social la reconstruye aunque el campo nunca se muestre. El
+  RPC rechaza el parámetro en vez de ignorarlo en silencio.
+- `components/zone-ranking.tsx` seguía sin importarse desde ningún lado y con
+  datos simulados. Se eliminó en este tramo en lugar de revivirlo para
+  indicadores.
+
+## Hallazgo del 2026-08-06: el alta creaba administradores
+
+Al aplicar la migración 16, el trigger `proteger_rol_perfiles` empezó a
+rechazar la creación de cuentas con el mensaje "Un perfil nuevo solo puede nacer
+con rol consulta". La causa no era el trigger: la función `handle_new_user` de
+la instancia seguía siendo la de la **migración 07**, que insertaba
+`'administrador'`.
+
+La migración 10 la había corregido a `'consulta'`, y tanto `CLAUDE.md` como este
+documento lo daban por hecho desde entonces. En la base viva nunca se aplicó.
+Durante ese período, **toda cuenta creada desde el Dashboard nació con el rol
+máximo**, sin ninguna señal.
+
+Corregido por la migración 18, que reafirma la definición correcta y falla si el
+cuerpo de la función volviera a asignar un rol privilegiado.
+
+Dos conclusiones que conviene no olvidar:
+
+- Verificar una función leyendo el archivo del repositorio no prueba nada sobre
+  la instancia. Las migraciones se corren a mano y una puede quedar sin aplicar
+  sin dejar rastro. Para afirmar algo de la base, consultarla.
+- La guarda de la migración 16 hizo exactamente lo que debía: convirtió un
+  desvío silencioso de meses en un error visible. Un fallo ruidoso es el
+  resultado buscado, no un efecto colateral.
+
+## Estado de implementación al 2026-08-06 (paquetes G y H)
+
+La navegación pasó a un único cajón lateral (`components/app-sidebar.tsx`) para
+todos los tamaños de pantalla, y la administración de identidades dejó de ser
+una sección suelta: vive en `#configuracion`, con cinco pestañas.
+
+La **migración 19** (`20260806_19_bitacora_y_corpus.sql`) queda **pendiente de
+aplicación manual**. Agrega `bitacora_unificada` (auditoría paginada en la base),
+`resumen_corpus_rag` y `estado_buckets_evidencia`. Hasta aplicarla, las pestañas
+Auditoría, Seguridad y Corpus fallan en modo cerrado, que es lo correcto.
+
+Decisiones que conviene conocer:
+
+- El cajón se **superpone** al contenido en vez de empujarlo. Es lo que evita
+  que Leaflet recalcule su tamaño, que el spotlight del recorrido guiado se
+  reposicione y que los anclajes apunten a otro lado.
+- Quedó una inconsistencia previa sin tocar: el visor de PDF está en `z-[90]`,
+  o sea **por debajo** de la barra superior. Por eso no se pudo cumplir al pie
+  de la letra "el cajón por debajo del visor de PDF": el cajón va en 1050, sobre
+  la barra. En la práctica no se superponen, porque elegir un ítem cierra el
+  cajón. Subir el visor taparía el encabezado y es una decisión visual que
+  conviene mirar a ojo antes de cambiarla.
+- La pestaña Seguridad separa tres orígenes distintos: lo consultado en vivo
+  (buckets), lo verificado a mano con su fecha (ajustes del panel de Supabase) y
+  lo declarado en el repositorio (migraciones). La aplicación **no puede saber**
+  qué migraciones se aplicaron: no hay CLI ni tabla de migraciones. Presentar esa
+  lista como comprobada sería justamente el dato simulado que este documento
+  prohíbe, y ya pasó una vez que una migración quedara sin aplicar durante meses.
+- La lista de migraciones de esa pantalla tiene un test que la compara con los
+  archivos reales de `supabase/migrations/`, para que no se desactualice sola.
+
+## Estado de implementación al 2026-08-06 (Fábrica Normativa)
+
+Se agregó `#fabrica`, la mesa donde se escribe la nueva ordenanza de cartelería
+artículo por artículo, con tres apoyos permanentes: el borrador recibido, la
+normativa vigente y los carteles relevados. Migraciones 20 a 24, **aplicadas y
+verificadas contra la instancia el 2026-08-06**: 29 comprobaciones en vivo, que
+incluyen los cinco RPC de edición, los 33 artículos sembrados, el borrador como
+único documento en estado `proyecto`, y que `service_role` reciba `42501` al
+intentar insertar, reescribir o borrar una observación.
+
+La regla que gobierna el módulo es una sola: **la persona es la autora y el
+sistema asiste**. Todo lo demás sale de ahí, y se sostiene en PostgreSQL porque
+una invariante que solo vive en la interfaz no es una invariante.
+
+Las cinco decisiones que no se negocian:
+
+1. **Nada se sobrescribe.** Guardar un artículo agrega una versión con motivo
+   obligatorio. El texto del borrador recibido es inmutable por trigger, para
+   poder mostrar siempre qué se cambió y contra qué.
+2. **El proyecto no se cita como si fuera derecho vigente.** El borrador entró
+   al corpus con `estado_legal = 'proyecto'` y la búsqueda exige estados
+   explícitos, sin default permisivo. Un asistente que responde una consulta
+   municipal citando un texto sin sancionar es peor que uno que no responde.
+3. **Un número sin cita textual no existe.** `norma_parametro` valida que la
+   cita aparezca literal en el artículo, y la simulación falla —no asume— si
+   falta un parámetro confirmado. Un cartel sin el dato queda `no_evaluable`:
+   no cumple ni incumple, falta información.
+4. **El asistente propone y nunca guarda.** `/api/fabrica` no llama a ninguna
+   RPC de articulado, y los hallazgos cuya cita no se verifica contra los
+   fragmentos recuperados se descartan antes de llegar a la base.
+5. **Elevar es fail-closed.** Un artículo sin aprobar o un diagnóstico grave sin
+   atender bloquean el documento oficial, y se dice cuál. La versión de trabajo
+   siempre está disponible, marcada como borrador en cada página.
+
+Otras decisiones que conviene conocer:
+
+- **`estado_legal` se perdía en silencio.** `sincronizar_documento_rag` escribe
+  una lista fija de columnas y se comía el campo, así que el borrador quedaba
+  como `vigente` y era citable. Se corrigió con la migración 22 en vez de
+  reescribir una función de 200 líneas ya verificada. Vale como recordatorio: el
+  agujero no estaba en lo que se escribió, sino en lo que una función vieja no
+  sabía copiar.
+- **La siembra del articulado se desacopló de la ingesta.** Estaba atada a que
+  el documento cambiara, así que "sin cambios" la salteaba para siempre. Ahora
+  falla y avisa si el proyecto ya tiene artículos, en vez de pisar trabajo hecho.
+- **El Word se genera en el navegador** con `docx` en import diferido, igual que
+  el XLSX de expedientes; el PDF sale de `@media print`. Meter un navegador
+  headless en una función serverless sería la dependencia más pesada y frágil
+  del proyecto para conseguir lo mismo. El PDF es la pieza menos verificable de
+  acá: conviene mirarlo a ojo antes de usarlo en serio.
+- **Las observaciones de las áreas son el único lugar donde el rol `consulta`
+  escribe**, y escribe una opinión, no un acto administrativo. Es justamente la
+  razón de que el rol exista. Insert-only: nadie edita ni borra, tampoco la
+  propia —se agrega otra—, porque una opinión reescrita después no sirve como
+  antecedente de nada, y estas observaciones son exactamente eso: el antecedente
+  de por qué el articulado terminó como terminó.
+- **Queda abierto** si un diagnóstico grave sobre un artículo *descartado*
+  debería bloquear la elevación. Hoy no bloquea, porque ese artículo no va en el
+  documento. Es discutible y conviene decidirlo con criterio jurídico, no
+  técnico.
+- **Pendiente de decisión de Lucas**: habilitar IA externa
+  (`ENABLE_EXTERNAL_NORMATIVA_AI=true` más marcar documentos como revisados por
+  humano y habilitados para salida externa). Hasta entonces el asistente de la
+  Fábrica se niega a redactar, por diseño, y muestra los fragmentos de la
+  vigente para leerlos en pantalla.
+
 ## Propósito
 
 CartelerIA será una herramienta oficial para tomar decisiones administrativas
@@ -148,6 +394,10 @@ la cartelería urbana.
 
 ## Indicadores de éxito
 
+Los siete están implementados en la migración 17 y en la sección
+`#indicadores`. Ver "Estado de implementación al 2026-08-06 (paquete F)" para
+las salvedades de cada uno.
+
 Los indicadores principales serán:
 
 1. Cobertura territorial:
@@ -182,6 +432,11 @@ período, respetando los permisos de acceso.
 - [x] Reingerir y verificar el corpus RAG con contrato atómico v1.
 - [ ] Ratificar manualmente los 13 vínculos heredados después de aplicar la
   migración 13.
+- [ ] **Aplicar la migración 16 en el SQL Editor.** Está escrita y verificada
+  contra `tsc`, tests y build, pero no se puede probar sin correrla: no hay CLI
+  vinculado. Después de aplicarla conviene revisar cuántas cuentas quedaron con
+  rol `administrador` desde el panel `#usuarios`: el UPDATE masivo de la
+  migración 07 nunca se revirtió en datos.
 - [ ] Crear auditoría de las respuestas normativas; la auditoría operativa ya
   está cubierta por la migración 12.
 - [ ] Implementar revisión/aprobación administrativa versionada del corpus y de
@@ -204,6 +459,19 @@ período, respetando los permisos de acceso.
 
 ### Prioridad media
 
+- Volver a activar `reactStrictMode`. Está apagado desde el 2026-08-06 porque
+  react-leaflet 4.2.1 crea el mapa en un callback de ref cuya limpieza nunca lo
+  destruye, así que el doble montaje de StrictMode rompía el mapa en dev. El
+  arreglo de fondo es migrar a react-leaflet 5, que requiere React 19.
+- Poner cuota a `registrar_acceso_sensible`. Está otorgada a `authenticated` y
+  acepta `recurso_id` como texto libre: una cuenta municipal podría inflar la
+  tabla insert-only atribuyéndose accesos que nunca ocurrieron. Los accesos a
+  evidencia sí pasan por `consumir_cuota_evidencia`; la vía directa de datos
+  fiscales, no.
+- Unificar el cliente `service_role`: `lib/supabase-admin.ts` existe y lo usa la
+  ruta de evidencia, pero `finalize`, `cleanup` y `normativa` todavía lo
+  instancian inline. No se refactorizaron en este tramo por ser código de
+  seguridad ya verificado que no se puede ejercitar sin la base viva.
 - Dividir componentes con exceso de estado local.
 - Completar accesibilidad de diálogos y navegación por teclado.
 - Retirar código sin uso.

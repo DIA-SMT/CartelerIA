@@ -44,12 +44,30 @@ export interface FieldConfig {
   available?: boolean;
   /** Dataset al que pertenece el campo. Ausente = "carteles". */
   dataset?: DatasetKind;
+  /**
+   * true si el campo expone un dato personal o tributario. Una sesión sin
+   * permiso fiscal no puede filtrar ni agrupar por él: aunque no viera la
+   * razón social, un ranking por empresa la reconstruye.
+   */
+  fiscal?: boolean;
   /** Valores válidos (solo enum): clave interna + etiqueta para UI. */
   values?: { value: string; label: string }[];
 }
 
 export function fieldDataset(field: QueryField): DatasetKind {
   return QUERY_FIELDS[field].dataset ?? "carteles";
+}
+
+export function isFiscalField(field: QueryField): boolean {
+  return QUERY_FIELDS[field].fiscal === true;
+}
+
+/**
+ * Permisos con los que se valida un intent. Es un parámetro obligatorio para
+ * que ningún llamador nuevo herede acceso fiscal por omisión.
+ */
+export interface QueryPermissions {
+  canSeeFiscalData: boolean;
 }
 
 export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
@@ -137,7 +155,7 @@ export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
     ],
   },
   sensitiveZone: { field: "sensitiveZone", label: "Zona sensible", kind: "boolean", available: false },
-  empresa: { field: "empresa", label: "Empresa", kind: "text", available: false },
+  empresa: { field: "empresa", label: "Empresa", kind: "text", available: false, fiscal: true },
   distanceToCorridorM: { field: "distanceToCorridorM", label: "Distancia al corredor (m)", kind: "number" },
   distanceToAllowedPlaceM: { field: "distanceToAllowedPlaceM", label: "Distancia a lugar permitido (m)", kind: "number" },
   // Dataset "inspecciones" (tabla Supabase). Los valores de estado salen de
@@ -149,7 +167,7 @@ export const QUERY_FIELDS: Record<QueryField, FieldConfig> = {
     dataset: "inspecciones",
     values: INSPECTION_STATE_ORDER.map((state) => ({ value: state.key, label: state.label })),
   },
-  empresaInspeccion: { field: "empresaInspeccion", label: "Empresa (inspección)", kind: "text", dataset: "inspecciones" },
+  empresaInspeccion: { field: "empresaInspeccion", label: "Empresa (inspección)", kind: "text", dataset: "inspecciones", fiscal: true },
   superficieM2Inspeccion: { field: "superficieM2Inspeccion", label: "Superficie (inspección, m²)", kind: "number", dataset: "inspecciones" },
 };
 
@@ -198,7 +216,7 @@ function enumValueOk(field: QueryField, value: string): boolean {
   return config.kind !== "enum" || (config.values?.some((item) => item.value === value) ?? false);
 }
 
-export function parsePredicate(value: unknown): Predicate | null {
+export function parsePredicate(value: unknown, permissions: QueryPermissions): Predicate | null {
   if (typeof value !== "object" || value === null) return null;
   const p = value as Record<string, unknown>;
 
@@ -206,7 +224,7 @@ export function parsePredicate(value: unknown): Predicate | null {
     if (!Array.isArray(p.clauses) || p.clauses.length === 0) return null;
     const clauses: Predicate[] = [];
     for (const clause of p.clauses) {
-      const parsed = parsePredicate(clause);
+      const parsed = parsePredicate(clause, permissions);
       if (!parsed) return null;
       clauses.push(parsed);
     }
@@ -216,6 +234,7 @@ export function parsePredicate(value: unknown): Predicate | null {
   if (!isQueryField(p.field)) return null;
   const field = p.field;
   if (QUERY_FIELDS[field].available === false) return null;
+  if (isFiscalField(field) && !permissions.canSeeFiscalData) return null;
   const kind = QUERY_FIELDS[field].kind;
 
   switch (p.op) {
@@ -270,7 +289,10 @@ function predicateFields(predicate: Predicate): QueryField[] {
   }
 }
 
-export function parseQueryIntent(value: unknown): QueryIntent | null {
+export function parseQueryIntent(
+  value: unknown,
+  permissions: QueryPermissions,
+): QueryIntent | null {
   if (typeof value !== "object" || value === null) return null;
   const o = value as Record<string, unknown>;
 
@@ -285,7 +307,7 @@ export function parseQueryIntent(value: unknown): QueryIntent | null {
 
   let predicate: Predicate | undefined;
   if (o.predicate != null) {
-    const parsed = parsePredicate(o.predicate);
+    const parsed = parsePredicate(o.predicate, permissions);
     if (!parsed) return null;
     // Todos los campos del predicado deben pertenecer al dataset de la consulta.
     if (predicateFields(parsed).some((field) => fieldDataset(field) !== dataset)) return null;
@@ -305,7 +327,12 @@ export function parseQueryIntent(value: unknown): QueryIntent | null {
     const agg = o.aggregate;
     if (typeof agg !== "object" || agg === null) return null;
     const a = agg as Record<string, unknown>;
-    if (!isQueryField(a.groupBy) || QUERY_FIELDS[a.groupBy].available === false || fieldDataset(a.groupBy) !== dataset) return null;
+    if (
+      !isQueryField(a.groupBy)
+      || QUERY_FIELDS[a.groupBy].available === false
+      || (isFiscalField(a.groupBy) && !permissions.canSeeFiscalData)
+      || fieldDataset(a.groupBy) !== dataset
+    ) return null;
     let top: number | undefined;
     if (Object.hasOwn(a, "top")) {
       if (typeof a.top !== "number" || !Number.isInteger(a.top) || a.top < 1 || a.top > 100) {

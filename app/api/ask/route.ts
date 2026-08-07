@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { parseQueryIntent } from "@/data/map-query";
 import { interpretQuestion } from "@/lib/map-query-interpreter";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
@@ -14,6 +15,10 @@ const RATE_LIMIT = { requests: 30, windowMs: 60_000 };
  * La interpretación es local y determinista: esta ruta no llama a OpenRouter
  * ni reenvía la pregunta a ningún proveedor externo. El cliente actual ejecuta
  * el mismo intérprete directamente en el navegador.
+ *
+ * No tiene sesión, así que no tiene rol: el intent se revalida con los permisos
+ * mínimos. Nunca devuelve un intent que filtre o agrupe por empresa, aunque el
+ * intérprete local lo proponga.
  */
 export async function POST(request: Request) {
   const limited = rateLimit(
@@ -49,8 +54,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "question_too_long" }, { status: 400 });
   }
 
-  return NextResponse.json({
-    intent: interpretQuestion(question.trim()),
-    source: "rules",
-  });
+  const intent = parseQueryIntent(
+    interpretQuestion(question.trim()),
+    { canSeeFiscalData: false },
+  );
+  if (!intent) {
+    return NextResponse.json({ error: "forbidden_field" }, { status: 403 });
+  }
+
+  return NextResponse.json({ intent, source: "rules" });
 }

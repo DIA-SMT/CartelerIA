@@ -52,6 +52,8 @@ import { InspectionForm } from "./inspection-form";
 import { ExpedientePanel } from "./expediente-panel";
 import { PhotoLightbox } from "./photo-lightbox";
 import { RegisterCartelForm } from "./register-cartel-form";
+import { RestrictedByRole } from "./restricted-badge";
+import { registerFiscalDataAccess } from "@/lib/sensitive-access";
 import { StateChangeApprovals } from "./state-change-approvals";
 import { useDismissible } from "@/hooks/use-dismissible";
 
@@ -74,6 +76,8 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
   const [localRecordId, setLocalRecordId] = useState<string | null>(null);
   const [localLinkStatus, setLocalLinkStatus] = useState<TerritorialLinkStatus | null>(null);
   const [activityKey, setActivityKey] = useState(0);
+  /** true si se mostraron datos fiscales y la auditoría de lectura falló. */
+  const [fiscalAuditFailed, setFiscalAuditFailed] = useState(false);
   const { open, close } = useDismissible(onClose, 300);
   const auth = useAuth();
   const previousUserId = useRef<string | null>(auth.user?.id ?? null);
@@ -107,6 +111,25 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
       setShowForm(true);
     }
   }, [pendingForm, auth.user]);
+
+  // Abrir una ficha con datos fiscales es una consulta que debe quedar
+  // registrada. No bloquea la vista: el dato ya llegó con la ficha. Si la traza
+  // no se pudo escribir, se avisa en pantalla en vez de fingir que se registró.
+  const administrative = cartel.properties.administrative;
+  const fiscalRecordId = auth.canSeeFiscal
+    && administrative
+    && (administrative.empresa || administrative.cuit || administrative.padronCisi)
+    ? administrative.recordId
+    : null;
+  useEffect(() => {
+    setFiscalAuditFailed(false);
+    if (!fiscalRecordId) return;
+    let active = true;
+    void registerFiscalDataAccess(fiscalRecordId).then((ok) => {
+      if (active) setFiscalAuditFailed(!ok);
+    });
+    return () => { active = false; };
+  }, [fiscalRecordId]);
 
   // Cerrar y purgar cualquier vista administrativa cuando se pierde la sesión.
   // Esto también desmonta formularios que podrían conservar empresa/CUIT.
@@ -186,7 +209,7 @@ export function CartelDetailPanel({ cartel, onClose }: Props) {
     </header>
 
     <div className="p-4 sm:p-5">
-      {activeTab === "resumen" && <SummaryTab cartel={cartel}/>}
+      {activeTab === "resumen" && <SummaryTab cartel={cartel} canSeeFiscal={auth.canSeeFiscal} fiscalAuditFailed={fiscalAuditFailed}/>}
       {activeTab === "territorio" && <TerritoryTab cartel={cartel}/>}
       {activeTab === "actividad" && <ActivityTab key={`${operationalRecordId ?? "none"}-${auth.user?.id ?? "anonymous"}`} cartelId={operationalRecordId} cartelName={cartel.properties.name || "Cartel relevado"} refreshKey={activityKey} authReady={auth.canRead} canWrite={Boolean(operationalRecordId) && auth.canInspect} auth={auth}/>}
 
@@ -361,10 +384,11 @@ function TerritorialLinkApproval({
   </div>;
 }
 
-function SummaryTab({ cartel }: { cartel: AnalyzedCartel }) {
+function SummaryTab({ cartel, canSeeFiscal, fiscalAuditFailed }: { cartel: AnalyzedCartel; canSeeFiscal: boolean; fiscalAuditFailed: boolean }) {
   const properties = cartel.properties;
   return <div className="space-y-3">
-    {properties.administrative && <><SectionTitle icon={<Building2 size={14}/>} title="Registro administrativo"/><div className="grid grid-cols-2 gap-2"><DataCard label="Empresa" value={properties.administrative.empresa || "No informada"}/><DataCard label="CUIT" value={properties.administrative.cuit || "No informado"}/><DataCard label="Tipo y medida" value={[properties.administrative.tipoCartel, properties.administrative.dimensiones].filter(Boolean).join(" · ") || "Sin datos"}/><DataCard label="Superficie" value={properties.administrative.superficieM2 != null ? `${properties.administrative.superficieM2} m²` : "Sin datos"}/></div></>}
+    {fiscalAuditFailed && <p role="alert" className="flex items-start gap-1.5 rounded-xl bg-amber-50 p-3 text-[10px] font-semibold leading-4 text-amber-800"><Lock size={12} className="mt-0.5 shrink-0"/>Esta consulta de datos fiscales no pudo registrarse en la auditoría. El dato se muestra, pero no quedó traza de quién lo vio.</p>}
+    {properties.administrative && <><SectionTitle icon={<Building2 size={14}/>} title="Registro administrativo"/><div className="grid grid-cols-2 gap-2"><DataCard label="Empresa" value={canSeeFiscal ? properties.administrative.empresa || "No informada" : <RestrictedByRole/>}/><DataCard label="CUIT" value={canSeeFiscal ? properties.administrative.cuit || "No informado" : <RestrictedByRole/>}/><DataCard label="Tipo y medida" value={[properties.administrative.tipoCartel, properties.administrative.dimensiones].filter(Boolean).join(" · ") || "Sin datos"}/><DataCard label="Superficie" value={properties.administrative.superficieM2 != null ? `${properties.administrative.superficieM2} m²` : "Sin datos"}/></div></>}
     <SectionTitle icon={<Ruler size={14}/>} title="Diagnóstico territorial"/>
     <DataCard label="Resultado geométrico" value={analysisLabels[properties.analysisStatus]}/>
     <p className="rounded-xl bg-slate-50 p-3 text-[10px] font-semibold leading-4 text-slate-500">
@@ -402,7 +426,7 @@ function ActivityTab({ cartelId, cartelName, refreshKey, authReady, canWrite, au
     let active = true;
     setLoading(true);
     setError(false);
-    loadInspectionsByCartel(cartelId)
+    loadInspectionsByCartel(cartelId, auth.role)
       .then((data) => { if (active) setInspections(data); })
       .catch(() => {
         if (active) {
@@ -412,7 +436,7 @@ function ActivityTab({ cartelId, cartelName, refreshKey, authReady, canWrite, au
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [cartelId, refreshKey, authReady, mutationKey]);
+  }, [cartelId, refreshKey, authReady, mutationKey, auth.role]);
 
   // Actualización optimista: al cambiar el estado, refrescamos solo esa fila para
   // evitar el parpadeo de recargar toda la lista (el ítem expandido re-carga su
@@ -543,7 +567,9 @@ function InspectionItem({ inspection, cartelName, canWrite, auth, onStateChanged
 
     <div className="px-3 pb-3">
       <div className="grid grid-cols-2 gap-1.5 text-[10px] text-slate-600">
-        {inspection.empresa && <span><b className="text-slate-400">Empresa:</b> {inspection.empresa}</span>}
+        {auth.canSeeFiscal
+          ? inspection.empresa && <span><b className="text-slate-400">Empresa:</b> {inspection.empresa}</span>
+          : <span className="flex items-center gap-1"><b className="text-slate-400">Empresa:</b> <RestrictedByRole/></span>}
         {inspection.superficieM2 != null && <span><b className="text-slate-400">Superficie:</b> {inspection.superficieM2} m²</span>}
       </div>
       {inspection.observaciones && <p className="mt-1.5 rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] leading-4 text-slate-500">{inspection.observaciones}</p>}
@@ -688,7 +714,7 @@ function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
   return <div className="flex items-center gap-2 pt-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">{icon}{title}</div>;
 }
 
-function DataCard({ label, value }: { label: string; value: string }) {
+function DataCard({ label, value }: { label: string; value: ReactNode }) {
   return <div className="rounded-xl bg-slate-50 p-3"><span className="micro-label">{label}</span><b className="mt-1 block text-[11px] capitalize leading-4 text-slate-700">{value}</b></div>;
 }
 

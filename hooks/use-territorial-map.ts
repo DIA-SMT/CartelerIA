@@ -80,7 +80,9 @@ export function useTerritorialMap() {
     setAdministrativeCarteles([]);
     setAdministrativeSource("none");
     setAdministrativeOwnerId(null);
-    loadCarteles().then((result) => {
+    // El rol elige la fuente: con `consulta` se pide la vista sin empresa,
+    // CUIT ni padrón. Si el rol cambia, se vuelve a cargar.
+    loadCarteles(auth.role).then((result) => {
       if (!active) return;
       setAdministrativeCarteles(result.data);
       setAdministrativeSource(result.source);
@@ -89,7 +91,7 @@ export function useTerritorialMap() {
     return () => {
       active = false;
     };
-  }, [auth.canRead, auth.user?.id, administrativeReloadKey]);
+  }, [auth.canRead, auth.user?.id, auth.role, administrativeReloadKey]);
 
   const linked = useMemo(
     () => auth.canRead && auth.user && administrativeOwnerId === auth.user.id

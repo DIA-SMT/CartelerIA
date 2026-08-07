@@ -4,7 +4,8 @@ import {
   isInspectionState,
   type InspectionState,
 } from "@/data/inspections";
-import type { AppRole } from "@/hooks/use-auth";
+import { fiscalSource, type AppRole } from "./roles";
+import { requestEvidenceUrls } from "./evidence-access";
 import {
   abandonEvidenceUpload,
   finalizeEvidence,
@@ -22,6 +23,7 @@ export interface InspectionRecord {
   anchoM: number | null;
   altoM: number | null;
   superficieM2: number | null;
+  /** null también cuando el rol no puede verlos: existen y no se entregaron. */
   empresa: string | null;
   cuit: string | null;
   observaciones: string | null;
@@ -71,6 +73,8 @@ export interface CreateInspectionResult {
   error: string | null;
 }
 
+// `empresa` y `cuit` son opcionales: la vista `inspecciones_consulta` no los
+// trae. Ausente y vacío no son lo mismo (ver InspectionRecord).
 type InspectionRow = {
   id: string;
   cartel_id: string;
@@ -79,8 +83,8 @@ type InspectionRow = {
   ancho_m: number | null;
   alto_m: number | null;
   superficie_m2: number | null;
-  empresa: string | null;
-  cuit: string | null;
+  empresa?: string | null;
+  cuit?: string | null;
   observaciones: string | null;
   programada_para: string | null;
   inspeccionada_en: string | null;
@@ -110,8 +114,8 @@ function fromRow(row: InspectionRow): InspectionRecord {
     anchoM: row.ancho_m,
     altoM: row.alto_m,
     superficieM2: row.superficie_m2,
-    empresa: row.empresa,
-    cuit: row.cuit,
+    empresa: row.empresa ?? null,
+    cuit: row.cuit ?? null,
     observaciones: row.observaciones,
     programadaPara: row.programada_para,
     inspeccionadaEn: row.inspeccionada_en,
@@ -123,22 +127,25 @@ function fromRow(row: InspectionRow): InspectionRecord {
  * Trae todas las inspecciones (para consultas agregadas de "Preguntale al mapa").
  * Requiere sesión: la RLS de `inspecciones` solo permite lectura autenticada.
  * Falla de forma explícita: una caída de la fuente no debe presentarse como
- * "sin inspecciones".
+ * "sin inspecciones". La fuente depende del rol (ver lib/roles.ts).
  */
-export async function loadInspections(): Promise<InspectionRecord[]> {
+export async function loadInspections(role: AppRole | null): Promise<InspectionRecord[]> {
   if (!supabase) throw new Error("Supabase no está configurado.");
   const { data, error } = await supabase
-    .from("inspecciones")
+    .from(fiscalSource("inspecciones", role))
     .select("*")
     .order("created_at", { ascending: false });
   if (error || !data) throw new Error("No se pudieron cargar las inspecciones.");
   return (data as InspectionRow[]).map(fromRow);
 }
 
-export async function loadInspectionsByCartel(cartelId: string): Promise<InspectionRecord[]> {
+export async function loadInspectionsByCartel(
+  cartelId: string,
+  role: AppRole | null,
+): Promise<InspectionRecord[]> {
   if (!supabase) throw new Error("Supabase no está configurado.");
   const { data, error } = await supabase
-    .from("inspecciones")
+    .from(fiscalSource("inspecciones", role))
     .select("*")
     .eq("cartel_id", cartelId)
     .order("created_at", { ascending: false });
@@ -165,8 +172,6 @@ export async function loadInspectionHistory(inspectionId: string): Promise<Inspe
   }));
 }
 
-const SIGNED_URL_TTL_SECONDS = 3600;
-
 export async function loadInspectionPhotos(inspectionId: string): Promise<InspectionPhoto[]> {
   if (!supabase) throw new Error("Supabase no está configurado.");
   const { data, error } = await supabase
@@ -185,17 +190,8 @@ export async function loadInspectionPhotos(inspectionId: string): Promise<Inspec
   }[];
   if (rows.length === 0) return [];
 
-  const { data: signed, error: signedError } = await supabase.storage
-    .from(PHOTO_BUCKET)
-    .createSignedUrls(rows.map((row) => row.storage_path), SIGNED_URL_TTL_SECONDS);
-  if (
-    signedError
-    || !signed
-    || signed.some((item) => !item.signedUrl)
-  ) {
-    throw new Error("No se pudieron autorizar las URLs de la evidencia.");
-  }
-  const urlByPath = new Map((signed ?? []).map((item) => [item.path, item.signedUrl]));
+  // La firma la hace el servidor después de registrar el acceso (migración 16).
+  const urlById = await requestEvidenceUrls("inspeccion_foto", rows.map((row) => row.id));
 
   return rows.map((row) => ({
     id: row.id,
@@ -204,7 +200,7 @@ export async function loadInspectionPhotos(inspectionId: string): Promise<Inspec
     byteSize: row.byte_size,
     mimeType: row.mime_type,
     uploadedBy: row.created_by,
-    url: urlByPath.get(row.storage_path) ?? null,
+    url: urlById.get(row.id) ?? null,
   }));
 }
 
@@ -213,8 +209,12 @@ export interface InspectionEditableFields {
   tipoSoporte: string | null;
   anchoM: number | null;
   altoM: number | null;
-  empresa: string | null;
-  cuit: string | null;
+  /**
+   * `undefined` = no tocar. Una sesión que no recibió estos campos no puede
+   * enviarlos: los leería como vacíos y los guardaría encima del dato real.
+   */
+  empresa?: string | null;
+  cuit?: string | null;
   observaciones: string | null;
 }
 
@@ -233,8 +233,8 @@ export async function updateInspection(
       tipo_soporte: fields.tipoSoporte,
       ancho_m: fields.anchoM,
       alto_m: fields.altoM,
-      empresa: fields.empresa,
-      cuit: fields.cuit,
+      ...(fields.empresa !== undefined ? { empresa: fields.empresa } : {}),
+      ...(fields.cuit !== undefined ? { cuit: fields.cuit } : {}),
       observaciones: fields.observaciones,
     })
     .eq("id", inspectionId)

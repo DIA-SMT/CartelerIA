@@ -36,6 +36,7 @@ interface MatchRow {
   external_ai_allowed: boolean;
   audience: "publico" | "interno";
   ocr_doubtful: boolean;
+  estado_legal: "vigente" | "derogada" | "proyecto";
 }
 
 function isMatchRow(value: unknown): value is MatchRow {
@@ -70,6 +71,10 @@ function isMatchRow(value: unknown): value is MatchRow {
     && typeof row.external_ai_allowed === "boolean"
     && (row.audience === "publico" || row.audience === "interno")
     && typeof row.ocr_doubtful === "boolean"
+    // Defensa en profundidad: la RPC ya filtra por estado, pero si alguna vez
+    // devolviera otra cosa, acá se corta. Un fragmento de un proyecto sin
+    // sancionar no puede llegar a una respuesta normativa por ninguna vía.
+    && row.estado_legal === "vigente"
   );
 }
 
@@ -174,9 +179,19 @@ export async function POST(request: Request) {
   try {
     // 1. Retrieval léxico privado en PostgreSQL. No descarga modelos en el
     // runtime serverless ni envía la pregunta o los documentos a terceros.
+    // Solo normativa VIGENTE. El corpus también contiene el proyecto de
+    // ordenanza en construcción, y responderle a un agente municipal citando un
+    // texto que todavía no se sancionó sería un error grave. El estado es
+    // obligatorio en la RPC justamente para que esto no se pueda olvidar.
+    // `p_solo_ia_externa: false` a propósito: esta ruta recupera todo lo
+    // vigente y decide después si algo puede salir. Restringir acá le sacaría
+    // contexto a la respuesta local, que es la que se da cuando la IA externa
+    // no interviene — y es la mayoría de las veces.
     const { data, error } = await admin.rpc("buscar_rag_chunks_lexico", {
       p_query: q,
       p_match_count: MATCH_COUNT,
+      p_estados: ["vigente"],
+      p_solo_ia_externa: false,
     });
     if (error) {
       // El detalle queda en el log del server; al cliente solo el código.

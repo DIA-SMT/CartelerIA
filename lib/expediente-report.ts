@@ -17,6 +17,18 @@ import type {
   ExpedienteRecord,
 } from "./expediente-repository";
 import type { InspectionRecord } from "./inspection-repository";
+import { RESTRICTED_BY_ROLE_LABEL } from "./roles";
+
+/**
+ * Un informe exportado sobrevive a la sesión que lo generó: si la interfaz le
+ * oculta la razón social a un rol consultivo pero el Excel la incluye, la
+ * restricción no existe. Cuando la sesión no tiene permiso fiscal, el campo se
+ * declara restringido en vez de omitirse en silencio.
+ */
+function empresaParaInforme(empresa: string | null, includeFiscalData: boolean): string {
+  if (!includeFiscalData) return RESTRICTED_BY_ROLE_LABEL;
+  return empresa || "—";
+}
 
 function esc(value: unknown): string {
   return String(value ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
@@ -36,6 +48,8 @@ export interface DossierData {
   historial: ExpedienteHistoryEntry[];
   requests: StateChangeRequest[];
   documentos: ExpedienteDocumento[];
+  /** false en sesiones sin permiso fiscal: el dossier no lleva razón social. */
+  includeFiscalData: boolean;
 }
 
 function buildDossierHtml({
@@ -45,6 +59,7 @@ function buildDossierHtml({
   historial,
   requests,
   documentos,
+  includeFiscalData,
 }: DossierData): string {
   const estado = getExpedienteState(expediente.estado);
   const emitido = new Date().toLocaleString("es-AR");
@@ -139,7 +154,7 @@ function buildDossierHtml({
   <h2>Datos del expediente</h2>
   <div class="grid">
     <div><b>Cartel:</b> ${esc(cartelName)}</div>
-    <div><b>Empresa:</b> ${esc(expediente.empresa || "—")}</div>
+    <div><b>Empresa:</b> ${esc(empresaParaInforme(expediente.empresa, includeFiscalData))}</div>
     <div><b>Dirección:</b> ${esc(expediente.direccion || "—")}</div>
     <div><b>Estado:</b> ${esc(estado.label)}</div>
     <div><b>Apertura:</b> ${fecha(expediente.createdAt)}</div>
@@ -193,14 +208,17 @@ export interface ExpedienteRegistroRow {
   inspecciones: number;
 }
 
-export async function exportExpedientesXlsx(rows: ExpedienteRegistroRow[]): Promise<void> {
+export async function exportExpedientesXlsx(
+  rows: ExpedienteRegistroRow[],
+  includeFiscalData: boolean,
+): Promise<void> {
   // Carga diferida: el generador se descarga solo cuando el usuario exporta.
   const { default: writeExcelFile } = await import("write-excel-file/browser");
   const data = [
     ["Número", "Empresa", "Dirección", "Estado", "Apertura", "Cierre", "Inspecciones", "Observaciones"],
     ...rows.map(({ expediente, inspecciones }) => [
       expediente.numero || "",
-      expediente.empresa || "",
+      includeFiscalData ? expediente.empresa || "" : RESTRICTED_BY_ROLE_LABEL,
       expediente.direccion || "",
       getExpedienteState(expediente.estado).label,
       fecha(expediente.createdAt),

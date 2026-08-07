@@ -107,13 +107,24 @@ const countIntent = interpretQuestion("¿cuántas inspecciones con observaciones
 const countResult = runInspectionQuery(countIntent, inspecciones);
 line(countIntent.dataset === "inspecciones" && countResult.count === 4, `conteo con observaciones = 4 [obtenido: ${countResult.count}]`);
 
+// Los permisos con los que se valida un intent. Estos casos no dependen del
+// rol; la privacidad consultiva se cubre en tests/map-query-privacy.test.mjs.
+const OPERATIVO = { canSeeFiscalData: true };
+const CONSULTIVO = { canSeeFiscalData: false };
+
 // parseQueryIntent debe RECHAZAR un predicado que mezcla datasets
-const crossDataset = parseQueryIntent({ operation: "count", dataset: "inspecciones", predicate: { field: "analysisStatus", op: "eq", value: "fuera_zona_permitida" }, applyToMap: false, unsupported: [], explanation: "" });
+const crossDataset = parseQueryIntent({ operation: "count", dataset: "inspecciones", predicate: { field: "analysisStatus", op: "eq", value: "fuera_zona_permitida" }, applyToMap: false, unsupported: [], explanation: "" }, OPERATIVO);
 line(crossDataset === null, "rechaza predicado con campo de otro dataset");
 
 // También rechaza campos que existen en el contrato pero no tienen fuente oficial.
-const unavailableField = parseQueryIntent({ operation: "count", predicate: { field: "taxStatus", op: "eq", value: "deuda" }, applyToMap: false, unsupported: [], explanation: "" });
+const unavailableField = parseQueryIntent({ operation: "count", predicate: { field: "taxStatus", op: "eq", value: "deuda" }, applyToMap: false, unsupported: [], explanation: "" }, OPERATIVO);
 line(unavailableField === null, "rechaza campo administrativo sin fuente oficial");
+
+// Un rol consultivo no puede rankear por empresa: el ranking reconstruye la
+// razón social aunque el campo no se muestre en ninguna ficha.
+const fiscalRanking = { operation: "aggregate" as const, dataset: "inspecciones" as const, aggregate: { groupBy: "empresaInspeccion" as const, top: 5 }, applyToMap: false, unsupported: [], explanation: "" };
+line(parseQueryIntent(fiscalRanking, OPERATIVO) !== null, "rol operativo conserva el ranking por empresa");
+line(parseQueryIntent(fiscalRanking, CONSULTIVO) === null, "rol consultivo no puede rankear por empresa");
 
 // Sanity extra: el evaluador nunca debe seleccionar más que el total
 const all = runQuery({ operation: "count", applyToMap: false, unsupported: [], explanation: "" }, carteles);

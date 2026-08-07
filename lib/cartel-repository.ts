@@ -1,12 +1,16 @@
 import type { CartelRecord, TerritorialLinkStatus } from "@/data/carteles";
 import type { LoadResult } from "@/data/approvals";
+import { fiscalSource, type AppRole } from "./roles";
 import { supabase } from "./supabase";
 
+// Los campos fiscales son opcionales porque la vista `carteles_consulta` no los
+// tiene: para una sesión consultiva la columna no llega, no llega vacía.
 type CartelRow = {
   id: string; territorial_feature_id?: string | null; territorial_feature_id_propuesto?: string | null;
-  vinculo_estado?: TerritorialLinkStatus; empresa: string; cuit: string; tipo_cartel: string; dimensiones: string;
+  vinculo_estado?: TerritorialLinkStatus; empresa?: string | null; cuit?: string | null;
+  tipo_cartel: string; dimensiones: string;
   superficie_m2: number | null; domicilio: string; numero: string; google_maps_url: string;
-  padron_cisi: string; estado: CartelRecord["estado"]; latitud: number | null; longitud: number | null;
+  padron_cisi?: string | null; estado: CartelRecord["estado"]; latitud: number | null; longitud: number | null;
   location_source: CartelRecord["locationSource"]; status: CartelRecord["status"];
   contamination_level: CartelRecord["contaminationLevel"]; zone: string;
   street_view_image_url: string | null; original_latitud: number | null; original_longitud: number | null;
@@ -43,9 +47,9 @@ function fromRow(row: CartelRow): CartelRecord {
     id: row.id, territorialFeatureId: link.activeFeatureId,
     proposedTerritorialFeatureId: link.proposedFeatureId,
     territorialLinkStatus: link.status,
-    empresa: row.empresa, cuit: row.cuit, tipoCartel: row.tipo_cartel,
+    empresa: row.empresa ?? null, cuit: row.cuit ?? null, tipoCartel: row.tipo_cartel,
     dimensiones: row.dimensiones, superficieM2: row.superficie_m2, domicilio: row.domicilio,
-    numero: row.numero, googleMapsUrl: row.google_maps_url, padronCisi: row.padron_cisi,
+    numero: row.numero, googleMapsUrl: row.google_maps_url, padronCisi: row.padron_cisi ?? null,
     estado: row.estado, latitud: row.latitud, longitud: row.longitud, locationSource: row.location_source,
     status: row.status, contaminationLevel: row.contamination_level, zone: row.zone,
     streetViewImageUrl: row.street_view_image_url, originalLatitud: row.original_latitud,
@@ -61,10 +65,19 @@ export type AdministrativeCartelSource = "supabase" | "unavailable";
  * No existe fallback al JSON local: además de ocultar una caída, importarlo en
  * un módulo cliente incorporaba empresas, CUIT y padrones al bundle público.
  * El llamador solo debe ejecutar esta consulta con una sesión autenticada.
+ *
+ * La fuente depende del rol: un `consulta` lee la vista sin datos fiscales. Si
+ * pidiera la tabla base, la RLS le devolvería cero filas y el mapa se vería
+ * vacío en lugar de restringido.
  */
-export async function loadCarteles(): Promise<{ data: CartelRecord[]; source: AdministrativeCartelSource }> {
+export async function loadCarteles(
+  role: AppRole | null,
+): Promise<{ data: CartelRecord[]; source: AdministrativeCartelSource }> {
   if (!supabase) return { data: [], source: "unavailable" };
-  const { data, error } = await supabase.from("carteles").select("*").order("id");
+  const { data, error } = await supabase
+    .from(fiscalSource("carteles", role))
+    .select("*")
+    .order("id");
   if (error || !data) {
     if (error) console.warn("Registro administrativo no disponible:", error.message);
     return { data: [], source: "unavailable" };

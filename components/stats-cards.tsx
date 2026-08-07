@@ -12,13 +12,42 @@ type Props = {
   loading?: boolean;
 };
 
+/**
+ * Franja de contexto entre el hero y el mapa.
+ *
+ * Es deliberadamente compacta: son datos de encuadre —cuánto hay— y compiten
+ * con el mapa, que es lo que la gente vino a ver. Las métricas de gestión, que
+ * son otra cosa y exigen sesión, viven en la sección Indicadores.
+ */
 export function StatsCards({ cartelesCount, corridorsCount, loading = false }: Props) {
-  const territorial = (value: number) => (loading ? "—" : String(value));
+  const territorial = (value: number) => (loading ? "—" : new Intl.NumberFormat("es-AR").format(value));
   const stats = [
-    { label: "Documentos cargados", value: String(documentosCount), icon: BookOpenText, style: "bg-municipal-50 text-municipal-700" },
-    { label: "Carteles identificados", value: territorial(cartelesCount), icon: Signpost, style: "bg-sky-50 text-sky-600" },
-    { label: "Corredores publicitarios", value: territorial(corridorsCount), icon: Route, style: "bg-amber-50 text-amber-600" },
-    { label: "Categorías normativas", value: String(categoriasCount), icon: MapPinned, style: "bg-blue-50 text-blue-700" }
+    { label: "Carteles identificados", value: territorial(cartelesCount), icon: Signpost },
+    { label: "Corredores publicitarios", value: territorial(corridorsCount), icon: Route },
+    { label: "Documentos cargados", value: String(documentosCount), icon: BookOpenText },
+    { label: "Categorías normativas", value: String(categoriasCount), icon: MapPinned },
   ];
-  return <section className="page-shell relative z-10 -mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{stats.map(({ label, value, icon: Icon, style }) => <article className="stat-card" key={label}><span className={`grid size-11 place-items-center rounded-xl ${style}`}><Icon size={20}/></span><div><strong className="block font-display text-2xl font-extrabold tracking-tight text-ink">{value}</strong><span className="text-xs font-semibold text-slate-400">{label}</span></div></article>)}</section>;
+
+  return (
+    <section className="page-shell relative z-10 -mt-4">
+      <dl className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm sm:gap-x-8 sm:px-5">
+        {stats.map(({ label, value, icon: Icon }, index) => (
+          <div
+            key={label}
+            className={`flex items-center gap-2.5 ${
+              index > 0 ? "sm:border-l sm:border-slate-200 sm:pl-6 lg:pl-8" : ""
+            }`}
+          >
+            <Icon size={16} className="shrink-0 text-municipal-600"/>
+            <div className="min-w-0">
+              <dd className="font-display text-lg font-extrabold leading-none tracking-tight text-ink">
+                {value}
+              </dd>
+              <dt className="mt-0.5 truncate text-micro font-semibold text-slate-400">{label}</dt>
+            </div>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
 }
