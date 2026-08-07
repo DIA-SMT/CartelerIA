@@ -237,12 +237,16 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   la instancia el 2026-08-06): 29 comprobaciones, incluidos los cinco RPC del
   bloque 3, la columna `origen`, los 33 artículos sembrados, y que `service_role`
   reciba `42501` al intentar insertar, reescribir o borrar una observación.
-  **La 27 está pendiente de aplicación**, y hay que aplicarla con el código
-  nuevo ya desplegado: cambia la firma de `buscar_rag_chunks_lexico` a cuatro
-  argumentos, y entre una cosa y la otra `/api/normativa` y `/api/fabrica`
-  devuelven `PGRST202`.
-  Las **25 y 26 están aplicadas y verificadas** (2026-08-06, 9
-  comprobaciones): la sobrecarga vieja de `crear_articulo` de cuatro argumentos
+  Las **25, 26 y 27 están aplicadas y verificadas** (2026-08-06). La 27 subió el
+  recall de 3 a 16 fragmentos habilitados sobre cinco consultas municipales
+  típicas, y se comprobó que la búsqueda restringida devuelve **cero** fragmentos
+  del borrador aun pidiendo `p_estados: ["proyecto"]` explícitamente.
+  Nota de contenido, medida: ni el Decreto 0609/18 ni la Ordenanza 4728/2014
+  regulan distancias a esquinas (cero menciones de "esquina", una de "ochava" en
+  toda la 4728). Un artículo sobre eso es terreno nuevo, no un conflicto — si el
+  asistente no devuelve hallazgos ahí, está en lo cierto.
+  Verificaciones anteriores: 25 y 26 con 9
+  comprobaciones: la sobrecarga vieja de `crear_articulo` de cuatro argumentos
   quedó efectivamente borrada, y `habilitar_documento_ia_externa` le responde a
   `service_role` con `permission denied for function` — el `revoke` lo frena al
   nivel del grant, antes del chequeo interno. El detalle de las reglas está
