@@ -84,7 +84,6 @@ export function PanelDiagnostico({
           clave: parametro.clave,
           valor: parametro.valor,
           unidad: parametro.unidad,
-          cita: parametro.cita,
           confirmado: parametro.confirmadoEn !== null,
         })),
       );
@@ -266,14 +265,8 @@ function FilaParametro({
 
   const confirmar = async () => {
     const numero = Number(valor);
-    if (!Number.isFinite(numero)) {
+    if (!Number.isFinite(numero) || valor.trim() === "") {
       setError("El valor tiene que ser un número.");
-      return;
-    }
-    // Se valida acá lo mismo que valida PostgreSQL, para que el error se vea
-    // antes de enviar y no como un rechazo de la base.
-    if (!articulo.texto.includes(cita.trim()) || cita.trim().length < 25) {
-      setError("La cita tiene que estar copiada textualmente del artículo (mínimo 25 caracteres).");
       return;
     }
     setGuardando(true);
@@ -304,9 +297,20 @@ function FilaParametro({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-tiny font-bold text-slate-700">{PARAMETRO_LABELS[definicion.clave]}</span>
         {guardado ? (
-          <span className="badge-soft">
-            <i style={{ background: "#16a34a" }}/>
-            {String(guardado.valor)} {guardado.unidad ?? ""}
+          <span className="flex flex-wrap items-center gap-1.5">
+            <span className="badge-soft">
+              <i style={{ background: "#16a34a" }}/>
+              {String(guardado.valor)} {guardado.unidad ?? ""}
+            </span>
+            {/* El respaldo textual dejó de ser obligatorio, así que se dice
+                cuál lo tiene: sin esto, un número cargado a mano y otro citado
+                del artículo se ven igual. */}
+            {guardado.cita && (
+              <span className="badge-soft" title={guardado.cita}>
+                <i style={{ background: "#0891b2" }}/>
+                citado del artículo
+              </span>
+            )}
           </span>
         ) : (
           <span className="text-micro text-slate-400">sin cargar</span>
@@ -335,7 +339,7 @@ function FilaParametro({
           </label>
           <label className="block">
             <span className="micro-label">
-              Dónde lo dice el artículo
+              Dónde lo dice el artículo (opcional)
               {citaAutomatica && (
                 <span className="badge-soft ml-1.5">
                   <i style={{ background: "#0891b2" }}/>
@@ -349,7 +353,7 @@ function FilaParametro({
               onChange={(event) => { setCita(event.target.value); setCitaAutomatica(false); }}
               rows={2}
               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-tiny outline-none focus:border-municipal-500"
-              placeholder="Se busca sola al escribir el valor. Si no aparece, pegá la parte del artículo que lo fija."
+              placeholder="Se busca sola al escribir el valor. Si el artículo escribe la medida en letras no la va a encontrar, y no pasa nada."
             />
           </label>
           {error && <p role="alert" className="text-micro font-semibold text-red-700">{error}</p>}

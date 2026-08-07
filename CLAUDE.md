@@ -121,10 +121,14 @@ Todavía no hay una suite general ni configuración de ESLint.
     porque el modelo empezó la cita con "como" donde el artículo dice "Como".
     Una cita inventada no coincide por casualidad en 25 caracteres, así que
     ignorar la caja no debilita nada.
-  - `norma_parametro` sigue exigiendo cita **textual** del artículo
-    (`position(cita in texto)`), pero la cita se propone sola a partir del
-    número (`proponerCitaParaValor`): confirmar es un clic, sin perder la
-    garantía. `lib/norma-simulador.ts` es determinístico: un dato faltante da
+  - `norma_parametro`: la cita del artículo es **opcional** desde la migración
+    30. Se propone sola a partir del número (`proponerCitaParaValor`), pero hay
+    artículos que escriben la medida en letras o entre corchetes y ahí no existe
+    oración que citar — exigirla dejaba a la persona sin poder cargar el
+    parámetro. Lo que sobrevive: **si viene una cita, tiene que estar textual en
+    el artículo o no se guarda**; una cita que no está aparenta un respaldo que
+    no existe. La pantalla marca cuáles tienen respaldo y cuáles no.
+    `lib/norma-simulador.ts` es determinístico: un dato faltante da
     `no_evaluable`, nunca `cumple`.
   - **Una sola salida: PDF**, desde `@media print`. Se sacaron el Word (y la
     dependencia `docx`) y el Excel de observaciones. El XLSX de expedientes es

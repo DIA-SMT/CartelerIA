@@ -40,8 +40,6 @@ export interface ParametroConfirmado {
   /** Numérico para los máximos y mínimos; lista de valores para las zonas. */
   valor: number | string[];
   unidad: string | null;
-  /** Cita textual del artículo, ya verificada contra el texto. */
-  cita: string;
   confirmado: boolean;
 }
 

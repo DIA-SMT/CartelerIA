@@ -1044,11 +1044,21 @@ test("el asistente propone pero nunca guarda", async () => {
     /grant execute on function public\.confirmar_parametro\([^)]*\) to service_role/i,
   );
 
-  // Un parámetro necesita cita verificable EN el artículo. La cita ahora se
-  // propone sola, pero PostgreSQL la sigue validando textual: es lo que evita
-  // que un número salga de la nada.
-  assert.match(sql, /position\(btrim\(p_cita\) in v_texto\) = 0/);
-  assert.match(sql, /La cita no aparece textualmente en el articulo/);
+  // La cita del parámetro dejó de ser obligatoria (migración 30) porque había
+  // artículos que escriben la medida en letras y no había oración que citar.
+  // Lo que sobrevive: si viene una cita, tiene que estar textual en el
+  // artículo, o no se guarda. Una cita que no está aparenta un respaldo que no
+  // existe, y eso es peor que no tener ninguna.
+  const sinCita = await source("supabase/migrations/20260807_30_parametro_sin_cita_obligatoria.sql");
+  assert.match(sinCita, /alter table public\.norma_parametro alter column cita drop not null;/);
+  assert.match(sinCita, /if v_cita is not null and position\(v_cita in v_texto\) = 0 then\s*v_cita := null;/);
+  assert.doesNotMatch(
+    sinCita,
+    /raise exception 'El parametro necesita la cita textual/,
+    "cargar un parámetro ya no exige cita",
+  );
+  // Y el rol operativo sigue siendo obligatorio: eso no se tocó.
+  assert.match(sinCita, /Confirmar un parametro exige un rol operativo/);
 
   // Si la idea no alcanza, el asistente lo dice en vez de rellenar.
   assert.match(route, /suficiente: false/);

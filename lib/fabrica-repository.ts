@@ -213,7 +213,16 @@ export interface ParametroGuardado {
   clave: ClaveParametro;
   valor: number | string[];
   unidad: string | null;
-  cita: string;
+  /**
+   * La oración del artículo de donde salió el número, cuando la hay.
+   *
+   * Es opcional desde la migración 30: hay artículos que escriben la medida en
+   * letras o entre corchetes, y ahí no existe ninguna oración que contenga el
+   * número. Cuando está, PostgreSQL ya comprobó que aparece textual — una cita
+   * que no está en el artículo no se guarda, porque aparentaría un respaldo que
+   * no existe.
+   */
+  cita: string | null;
   fundamento: string | null;
   confirmadoEn: string | null;
 }
@@ -245,7 +254,7 @@ export async function loadParametros(articuloId: string): Promise<LoadResult<Par
       clave: row.clave,
       valor,
       unidad: typeof row.unidad === "string" ? row.unidad : null,
-      cita: typeof row.cita === "string" ? row.cita : "",
+      cita: typeof row.cita === "string" && row.cita.trim() !== "" ? row.cita : null,
       fundamento: typeof row.fundamento === "string" ? row.fundamento : null,
       confirmadoEn: typeof row.confirmado_en === "string" ? row.confirmado_en : null,
     });
@@ -271,14 +280,13 @@ export async function confirmarParametro(input: {
     p_fundamento: input.fundamento,
   });
   if (error) {
-    const conocido = /no aparece textualmente/i.test(error.message)
-      ? "La cita tiene que estar copiada textualmente del artículo."
-      : /cita textual/i.test(error.message)
-        ? "Pegá la cita del artículo que sostiene este parámetro (mínimo 25 caracteres)."
-        : /rol operativo/i.test(error.message)
-          ? "Tu rol no permite confirmar parámetros."
-          : null;
-    return { ok: false, error: conocido ?? "No se pudo confirmar el parámetro." };
+    const conocido = /rol operativo/i.test(error.message)
+      ? "Tu rol no permite cargar parámetros."
+      : /cita textual|no aparece textualmente|null value.*cita/i.test(error.message)
+        // Los tres solo aparecen si falta correr la migración 30.
+        ? "Falta aplicar la migración 30 en el SQL Editor."
+        : null;
+    return { ok: false, error: conocido ?? "No se pudo cargar el parámetro." };
   }
   return { ok: true, error: null };
 }
