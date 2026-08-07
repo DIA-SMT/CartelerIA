@@ -1367,6 +1367,40 @@ test("el articulo no trae puesto su propio numero", async () => {
   assert.match(ruta, /NO encabezás el texto con "ARTÍCULO N"/);
 });
 
+test("volver a la pestaña no recarga la aplicacion entera", async () => {
+  const provider = await source("components/auth-provider.tsx");
+
+  // Supabase refresca el token cuando la pestaña vuelve a tener foco, y eso
+  // dispara onAuthStateChange. Si `applySession` corriera entero, el
+  // `setRole(null)` deja `canRead`/`canInspect`/`canSeeFiscal` en false por un
+  // instante y todas las pantallas que dependen de eso se van al esqueleto:
+  // desde afuera se ve como si la página se recargara sola.
+  assert.match(
+    provider,
+    /if \(\(nextUser\?\.id \?\? null\) === usuarioActualId\.current\) \{/,
+    "un refresco de token no puede seguir el camino de un cambio de sesión",
+  );
+  // El corte se hace ANTES de tocar nada de lo visible.
+  const guarda = provider.slice(
+    provider.indexOf("const applySession"),
+    provider.indexOf("const sequence = ++sessionSequence.current"),
+  );
+  assert.doesNotMatch(guarda, /setUser\(/, "el camino del refresco no toca el usuario");
+  assert.doesNotMatch(guarda, /setRole\(null\)/, "el camino del refresco no borra el rol");
+
+  // Pero el rol se revalida igual, en silencio: si un administrador degradó a
+  // alguien con la app abierta, el cambio tiene que llegar sin recargar.
+  assert.match(guarda, /const roleResult = await fetchRole\(nextUser\.id\)/);
+  assert.match(guarda, /setRole\(\(actual\) => \(actual === roleResult\.role \? actual : roleResult\.role\)\)/);
+  // Y con las mismas guardas de carrera que el camino completo.
+  assert.match(guarda, /if \(vigente !== sessionSequence\.current\) return;/);
+  assert.match(guarda, /if \(usuarioActualId\.current !== nextUser\.id\) return;/);
+
+  // Cerrar sesión limpia el ref: si no, volver a entrar con la misma cuenta
+  // pasaría por el camino del refresco y nunca cargaría el rol.
+  assert.match(provider, /usuarioActualId\.current = null;\s*setUser\(null\);/);
+});
+
 test("el articulo abierto vive en la URL y sobrevive a la ida y vuelta", async () => {
   const fabrica = await source("components/fabrica/index.tsx");
   const dashboard = await source("components/dashboard.tsx");

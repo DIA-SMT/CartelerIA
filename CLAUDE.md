@@ -28,6 +28,14 @@ Todavía no hay una suite general ni configuración de ESLint.
 - **Sesión**: `AuthProvider` único montado en `app/layout.tsx`
   (`components/auth-provider.tsx`). `hooks/use-auth.ts` es solo re-export para
   compatibilidad. No instanciar estado de auth en componentes.
+  **`applySession` corta cuando el usuario no cambió**, y no es una
+  optimización: Supabase refresca el token al volver el foco a la pestaña y eso
+  dispara `onAuthStateChange`. Sin el corte, el `setRole(null)` deja
+  `canRead`/`canInspect`/`canSeeFiscal` en false por un instante, todas las
+  pantallas se van al esqueleto y recargan — desde afuera parece que la página
+  se recarga sola cada vez que volvés. En ese camino el rol igual se revalida en
+  silencio y solo se escribe si cambió, para que una degradación hecha por un
+  administrador llegue sin parpadeo.
 - **Registro administrativo privado**: `loadCarteles(role)` solo se ejecuta con
   sesión y no tiene fallback estático. No importar `data/carteles.json` desde
   módulos cliente: contiene empresa, CUIT y padrón y terminaría en el bundle
