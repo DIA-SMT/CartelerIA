@@ -81,18 +81,6 @@ export function Dashboard() {
     if (document) openDocument(document, page);
   };
 
-  /**
-   * Pinta en el mapa el conjunto exacto que devolvió una simulación.
-   *
-   * Reutiliza la allow-list de IDs que ya existe en los filtros —la misma que
-   * usa "Preguntale al mapa"— en vez de dibujar un mapa nuevo dentro de la
-   * Fábrica.
-   */
-  const verEnMapa = useCallback((ids: string[]) => {
-    territorial.setFilters({ ...initialTerritorialFilters, ids });
-    window.location.hash = "#mapa";
-  }, [territorial]);
-
   /** Localiza un cartel en el mapa de la página: lo selecciona (vuelo + ficha) y scrollea hasta él. */
   const locateCartel = (cartel: AnalyzedCartel) => {
     selectCartel(cartel);
@@ -105,11 +93,7 @@ export function Dashboard() {
       {mostrarConfiguracion ? (
         <Configuracion onVolver={() => { window.location.hash = "#inicio"; }}/>
       ) : mostrarFabrica ? (
-        <Fabrica
-          onVolver={() => { window.location.hash = "#inicio"; }}
-          carteles={territorial.carteles}
-          onVerEnMapa={verEnMapa}
-        />
+        <Fabrica onVolver={() => { window.location.hash = "#inicio"; }}/>
       ) : (
         <>
           <div data-territorial-background-zone className="relative isolate overflow-hidden">

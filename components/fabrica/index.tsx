@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, FileText, History, Loader2, PenLine, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
-import type { AnalyzedCartel } from "@/data/territorial";
 import { useAuth } from "@/hooks/use-auth";
 import {
   ORIGEN_ARTICULO_LABELS,
@@ -17,8 +16,8 @@ import { toast } from "../toaster";
 import { ArticuladoCompleto } from "./articulado-completo";
 import { HistorialArticulo } from "./historial-articulo";
 import { LienzoArticulo } from "./lienzo-articulo";
-import { PanelDiagnostico } from "./panel-diagnostico";
 import { RevisorProyecto } from "./revisor-proyecto";
+import { Simulador } from "./simulador";
 
 type LoadPhase = "idle" | "loading" | "ready" | "error";
 
@@ -58,16 +57,7 @@ function escribirHash(articuloId: string | null) {
  * y que el texto del borrador recibido quede siempre a la vista para poder
  * explicar por qué se cambió.
  */
-export default function Fabrica({
-  onVolver,
-  carteles,
-  onVerEnMapa,
-}: {
-  onVolver: () => void;
-  /** Capas ya cargadas por el dashboard: no se vuelven a pedir. */
-  carteles: AnalyzedCartel[];
-  onVerEnMapa: (ids: string[]) => void;
-}) {
+export default function Fabrica({ onVolver }: { onVolver: () => void }) {
   const auth = useAuth();
   const puedeEscribir = auth.canInspect;
 
@@ -454,16 +444,15 @@ export default function Fabrica({
               {/* Revisa el texto del editor, no el guardado: sirve mientras se
                   escribe, que es cuando conviene enterarse. */}
               <RevisorProyecto articulo={seleccionado} texto={texto}/>
-
-              <PanelDiagnostico
-                articulo={seleccionado}
-                carteles={carteles}
-                onVerEnMapa={onVerEnMapa}
-              />
             </div>
           )}
         </div>
       )}
+
+      {/* Fuera del editor: calibrar los números es del documento entero, no de
+          un artículo. Adentro pedía los mismos tres parámetros en los treinta y
+          tres, incluido el que define el objeto de la ordenanza. */}
+      {proyecto && loadPhase === "ready" && <Simulador/>}
 
       {historialDe && (
         <HistorialArticulo articulo={historialDe} onClose={() => setHistorialDe(null)}/>

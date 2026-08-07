@@ -64,10 +64,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roleError, setRoleError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sessionSequence = useRef(0);
+  /** Quién está adentro ahora. En un ref porque `applySession` no re-crea. */
+  const usuarioActualId = useRef<string | null>(null);
 
+  /**
+   * Aplica una sesión, pero **solo si cambió quién está adentro**.
+   *
+   * Supabase refresca el token solo cuando la pestaña vuelve a tener foco, y
+   * eso dispara `onAuthStateChange`. Sin este corte, cada vez que se volvía a
+   * la pestaña se hacía `setRole(null)`: con el rol en null, `canRead`,
+   * `canInspect` y `canSeeFiscal` caen a false por un instante, todas las
+   * pantallas que dependen de eso se van al esqueleto, y al volver el rol
+   * recargan enteras. Desde afuera se ve como si la página se recargara sola.
+   *
+   * Un refresco de token no es un cambio de sesión: es la misma persona con un
+   * token nuevo. Cambiar de usuario, entrar y salir sí pasan de largo el corte,
+   * porque ahí el id cambia (o pasa a null).
+   */
   const applySession = useCallback(async (session: Session | null) => {
-    const sequence = ++sessionSequence.current;
     const nextUser = session?.user ?? null;
+
+    if ((nextUser?.id ?? null) === usuarioActualId.current) {
+      if (!nextUser) return;
+      // Sigue siendo la misma persona, así que no se toca nada de lo visible.
+      // Igual se revalida el rol en silencio y solo se escribe si cambió: si un
+      // administrador degradó a alguien mientras tenía la app abierta, el
+      // cambio llega igual, pero sin parpadeo. (La barrera real es la RLS, no
+      // este estado; esto es para que la interfaz no mienta.)
+      const vigente = sessionSequence.current;
+      const roleResult = await fetchRole(nextUser.id);
+      if (vigente !== sessionSequence.current) return;
+      if (usuarioActualId.current !== nextUser.id) return;
+      setRole((actual) => (actual === roleResult.role ? actual : roleResult.role));
+      setRoleError((actual) => (actual === roleResult.error ? actual : roleResult.error));
+      return;
+    }
+
+    const sequence = ++sessionSequence.current;
+    usuarioActualId.current = nextUser?.id ?? null;
     setUser(nextUser);
     setRole(null);
     setRoleError(null);
@@ -136,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) return;
     // Purga permisos de inmediato; no depende de que termine la llamada de red.
     sessionSequence.current += 1;
+    usuarioActualId.current = null;
     setUser(null);
     setRole(null);
     setRoleError(null);

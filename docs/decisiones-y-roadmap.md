@@ -235,6 +235,12 @@ Decisiones que conviene conocer:
 
 ## Estado de implementación al 2026-08-06 (Fábrica Normativa)
 
+> **Parcialmente superado.** Lo que sigue describe el módulo como se construyó
+> primero, sobre la premisa de que el documento recibido era un borrador a
+> aprobar artículo por artículo. Esa premisa era equivocada y el mismo día se
+> revirtió buena parte: ver *"La Fábrica deja de pedir permiso"* más abajo. Se
+> conserva porque explica por qué existen tablas y RPC que hoy no se usan.
+
 Se agregó `#fabrica`, la mesa donde se escribe la nueva ordenanza de cartelería
 artículo por artículo, con tres apoyos permanentes: el borrador recibido, la
 normativa vigente y los carteles relevados. Migraciones 20 a 24, **aplicadas y
@@ -298,6 +304,96 @@ Otras decisiones que conviene conocer:
   humano y habilitados para salida externa). Hasta entonces el asistente de la
   Fábrica se niega a redactar, por diseño, y muestra los fragmentos de la
   vigente para leerlos en pantalla.
+
+## 2026-08-06, cierre del día: la Fábrica deja de pedir permiso
+
+Lucas lo dijo así: *"creo que complicamos las cosas al pedo… lo que hizo mi jefe
+el archivo Word sería como la nueva normativa que regularía el tema de carteles
+en SMT, entonces lo que hizo mi jefe está bien"*.
+
+Tenía razón, y la premisa equivocada era del diseño original: se asumió que el
+documento recibido era un borrador a revisar y aprobar. **No lo es: es la
+normativa nueva.** Sobre esa premisa se montó un aparato de aprobaciones que
+tiene sentido para un expediente administrativo y ninguno para una mesa de
+redacción.
+
+### Qué quedó
+
+Lista de artículos · Guardar · Quitar del documento · Artículo nuevo (lienzo) ·
+Revisar contra el documento · impacto sobre los carteles · exportar a PDF.
+
+Sin estados, sin fundamentos obligatorios, sin compuertas. Entre los dos commits
+del cierre se borraron unas 2400 líneas.
+
+### Qué se sacó y por qué
+
+- **Los cuatro estados y sus diálogos.** Queda un botón para quitar un artículo
+  del documento y su reverso. `estado` sobrevive como mecanismo, no como
+  etiqueta que alguien lea.
+- **Los motivos obligatorios.** El historial se sigue escribiendo solo, con
+  fecha y autor. Lo único que desapareció es la obligación de justificarse.
+- **Word y Excel.** Una sola salida: PDF. Dos formatos menos que mantener y una
+  decisión menos que tomar cada vez.
+- **El contraste contra la normativa vigente**, con sus diagnósticos y la
+  compuerta de exportación. Con eso salió del camino toda la maquinaria de
+  habilitar documentos del corpus, que era el motivo por el que el asistente se
+  negaba a redactar la mayoría de las veces.
+- **Las observaciones de las áreas.**
+
+### Qué se mantuvo, y el criterio
+
+Se mantuvo lo que **no cuesta un solo clic**: el historial automático, la
+verificación textual de las citas, y que no salgan datos personales al proveedor
+externo. Una garantía que no le pide nada a quien trabaja no es ceremonia.
+
+### Lo que se aprendió construyendo esto
+
+- **Una condición que nunca corta nada, escrita como si cortara, engaña.** Al
+  sacar el veto del OCR dudoso, la tentación era escribir
+  `not ocr_doubtful or human_reviewed`. Es una tautología —la revisión humana ya
+  era obligatoria— y se leería como un guard. Se sacó el término y se explicó
+  por qué.
+- **La verificación de citas descartaba hallazgos correctos.** Probando el
+  revisor contra los 33 artículos reales, detectó una contradicción de verdad
+  —un artículo fijaba 2 m² y el 14 fija 60 m²— y se descartó porque el modelo
+  empezó la cita con "como" donde el artículo dice "Como". Ahora la comparación
+  ignora mayúsculas y devuelve el recorte de la fuente. Una cita inventada no
+  coincide por casualidad en 25 caracteres.
+- **Un editor que guarda en memoria tiene que avisar antes de cerrarse.** Se
+  perdieron cinco páginas de corrección de OCR por no tener ese aviso, que sí
+  se le había puesto al lienzo de artículos el mismo día.
+- **Reordenar el trabajo por lo que destraba, no por el plan.** El plan decía
+  corregir el OCR primero; medir mostró que la búsqueda ni siquiera llegaba al
+  documento habilitado, así que eso iba antes.
+
+### Sin uso, a propósito
+
+Estas piezas quedaron construidas y sin conectar. No molestan y se pueden
+retomar; conviene saber que están:
+
+- `norma_observacion` (migración 24): tabla sin uso. Se puede borrar cuando
+  convenga; se dejó para no obligar a correr un drop.
+- `norma_diagnostico` y sus RPC (migración 23): sin uso desde que se sacó el
+  contraste contra la vigente.
+- El editor de OCR y la habilitación de IA externa por documento (migraciones
+  26 a 28): la Fábrica ya no los necesita, pero **siguen sirviendo a
+  `/api/normativa`**, que es otra sección.
+- **`doc-02` (Decreto 0609/18) sigue habilitado para salir hacia OpenRouter.**
+  Lo autorizó Lucas con fundamento el 2026-08-06 para probar la Fábrica. La
+  Fábrica ya no lo usa; `/api/normativa` sí. Si se quiere dar de baja, se hace
+  desde Configuración › Corpus.
+
+### Lo que sigue
+
+1. **Cambiar `OPENROUTER_MODEL`**, que sigue en `openai/gpt-4o-mini`. Ahora que
+   el asistente redacta y revisa sin depender del corpus, el modelo es el cuello
+   de botella.
+2. **Pasada visual completa** de la Fábrica simplificada en un navegador real,
+   incluido el PDF. Nada de esto se pudo mirar a ojo desde el entorno de
+   trabajo.
+3. Decidir si el panel de parámetros y simulación se queda como está. Lucas
+   pidió conservarlo; la cita ahora se autocompleta, así que la fricción que
+   tenía se fue.
 
 ## Propósito
 
