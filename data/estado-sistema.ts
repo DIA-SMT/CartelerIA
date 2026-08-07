@@ -105,4 +105,5 @@ export const MIGRACIONES_DECLARADAS: MigracionDeclarada[] = [
   { numero: 26, archivo: "20260806_26_habilitacion_ia_externa.sql", resumen: "La salida hacia IA externa se autoriza con fundamento" },
   { numero: 27, archivo: "20260806_27_busqueda_solo_habilitados.sql", resumen: "La búsqueda puede limitarse a lo que sí puede salir" },
   { numero: 28, archivo: "20260806_28_ocr_dudoso_revisado.sql", resumen: "La duda del OCR la contesta la revisión humana" },
+  { numero: 29, archivo: "20260806_29_fabrica_sin_ceremonia.sql", resumen: "La Fábrica deja de pedir fundamentos" },
 ];

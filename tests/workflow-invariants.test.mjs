@@ -823,7 +823,7 @@ test("un proyecto sin sancionar no puede volverse publico ni salir a IA externa"
 
 test("guardar un articulo versiona y nunca sobrescribe", async () => {
   const [sql, ui] = await Promise.all([
-    source("supabase/migrations/20260806_21_fabrica_normativa.sql"),
+    source("supabase/migrations/20260806_29_fabrica_sin_ceremonia.sql"),
     source("components/fabrica/index.tsx"),
   ]);
 
@@ -833,8 +833,10 @@ test("guardar un articulo versiona y nunca sobrescribe", async () => {
   );
   assert.ok(guardar.length > 0, "no se pudo aislar guardar_articulo");
 
-  // Cada guardado AGREGA una fila al historial y recién después actualiza el
-  // texto vigente. Nunca hay un update que reemplace una version.
+  // Esto es lo que se mantiene aunque se haya sacado toda la ceremonia: cada
+  // guardado AGREGA una fila al historial y recién después actualiza el texto
+  // vigente. Nunca hay un update que reemplace una versión. No cuesta un clic
+  // y es lo único que permite recuperar un texto que alguien pisó.
   assert.match(guardar, /insert into public\.norma_articulo_version/);
   assert.ok(
     guardar.indexOf("insert into public.norma_articulo_version")
@@ -843,32 +845,20 @@ test("guardar un articulo versiona y nunca sobrescribe", async () => {
   );
   assert.doesNotMatch(guardar, /update public\.norma_articulo_version/);
   assert.doesNotMatch(guardar, /delete from public\.norma_articulo_version/);
-  // La version nueva es la siguiente, no un reemplazo de la anterior.
   assert.match(guardar, /v_siguiente := v_versiones \+ 1/);
 
-  // Motivo obligatorio a partir del segundo guardado.
-  assert.match(guardar, /v_versiones > 0 and char_length\(btrim\(coalesce\(p_motivo, ''\)\)\) < 12/);
-
-  // Un articulo aprobado no se edita en silencio.
-  assert.match(guardar, /raise exception 'Un articulo aprobado debe volver a revision antes de editarse'/);
-
-  // Escribir exige rol operativo; el rol consulta no mueve estados.
+  // Escribir sigue exigiendo rol operativo: es lo único que quedó del control
+  // de acceso, y no le pide nada a quien escribe.
   assert.match(guardar, /Escribir el articulado exige un rol operativo/);
-  assert.match(sql, /El rol consulta no modifica el articulado/);
 
-  // Aprobar es un acto administrativo, no una edicion mas.
-  assert.match(
-    sql,
-    /p_estado = 'aprobado' and v_rol not in \(\s*\n\s*'administrador'::public\.app_rol,\s*\n\s*'coordinador'::public\.app_rol/i,
-  );
+  // Y lo que se fue: ni motivo obligatorio, ni estados que defender.
+  assert.doesNotMatch(guardar, /char_length\(btrim\(coalesce\(p_motivo, ''\)\)\) < 12/);
+  assert.doesNotMatch(guardar, /debe volver a revision antes de editarse/);
+  assert.doesNotMatch(ui, /MOTIVO_MIN_LENGTH/);
+  assert.doesNotMatch(ui, /ESTADO_ARTICULO_LABELS|SIGUIENTES\[/);
 
-  // La interfaz no deja mover un estado sin fundamento escrito.
-  assert.match(ui, /disabled=\{motivo\.trim\(\)\.length < MOTIVO_MIN_LENGTH\}/);
-  // Y el distintivo de proyecto sin sancionar es permanente, no una nota al pie.
+  // El distintivo de proyecto sin sancionar es permanente, no una nota al pie.
   assert.match(ui, /Proyecto sin sancionar/);
-  // El asistente todavia no escribe: no hay ninguna llamada que cree articulos
-  // sin pasar por el editor.
-  assert.doesNotMatch(ui, /crearArticulo\(/);
 });
 
 test("un fallo de carga se ve como error, nunca como carga eterna", async () => {
@@ -1054,34 +1044,26 @@ test("el asistente propone pero nunca guarda", async () => {
     /grant execute on function public\.confirmar_parametro\([^)]*\) to service_role/i,
   );
 
-  // Un parámetro necesita cita verificable EN el artículo.
+  // Un parámetro necesita cita verificable EN el artículo. La cita ahora se
+  // propone sola, pero PostgreSQL la sigue validando textual: es lo que evita
+  // que un número salga de la nada.
   assert.match(sql, /position\(btrim\(p_cita\) in v_texto\) = 0/);
   assert.match(sql, /La cita no aparece textualmente en el articulo/);
 
   // Si la idea no alcanza, el asistente lo dice en vez de rellenar.
   assert.match(route, /suficiente: false/);
   assert.match(route, /NO rellenás/);
-  // Y nunca inventa números que no estén en el contexto.
+  // Y nunca inventa números que no estén en la idea.
   assert.match(route, /No inventás números de artículo, de ordenanza, plazos, montos ni medidas/);
-  // Una lista vacía de hallazgos es válida y frecuente.
-  assert.match(route, /Devolver una lista vacía es una respuesta VÁLIDA y FRECUENTE/);
 
-  // Misma política de IA externa que /api/normativa: nada sale del entorno sin
-  // habilitación explícita del documento. Desde la migración 26 se decide
-  // documento por documento en vez de bloquear la consulta entera.
+  // La ruta ya no consulta el corpus: el documento que se escribe ES la
+  // normativa nueva, no un borrador a contrastar contra lo anterior.
+  assert.doesNotMatch(route, /buscar_rag_chunks_lexico/);
+  assert.doesNotMatch(route, /diagnosticar_vigente/);
+
+  // Lo único que sigue frenando la salida hacia el proveedor externo.
   assert.match(route, /ENABLE_EXTERNAL_NORMATIVA_AI/);
-  assert.match(route, /fragmento\.external_ai_allowed\s*$/m);
-  assert.match(route, /fragmento\.human_reviewed\s*$/m);
-  assert.match(route, /fragmento\.audience === "publico"/);
-  // `ocr_doubtful` salió del predicado en la migración 28: lo cubre su propio
-  // test, junto con por qué no se lo reemplazó por una tautología.
-  assert.match(route, /hasPotentialPii\(consulta, contexto\)/);
-  // El contexto sale SIEMPRE de la normativa vigente.
-  assert.match(route, /p_estados: \["vigente"\]/);
-
-  // Saneado una sola vez: lo que ve el modelo es contra lo que se verifica.
-  assert.match(route, /const saneadosHabilitados = habilitados\.map\(\(fragmento\) => sanearFragmento/);
-  assert.match(route, /verificarHallazgos\(\s*\n?\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*\n?\s*saneadosHabilitados,?\s*\n?\s*\)/);
+  assert.match(route, /hasPotentialPii\(idea\)/);
 
   // Defensas de toda ruta nueva, con cuota propia.
   assert.match(route, /rateLimit\(`fabrica:/);
@@ -1090,216 +1072,30 @@ test("el asistente propone pero nunca guarda", async () => {
   assert.match(route, /AbortSignal\.timeout\(LLM_TIMEOUT_MS\)/);
   assert.match(route, /"Cache-Control": "no-store"/);
   assert.doesNotMatch(route, /error:\s*\w*[Ee]rror\.message/);
-
-  // Un diagnóstico se atiende, no se borra.
-  assert.match(sql, /Un diagnostico no se borra: se atiende con fundamento/);
-  assert.match(sql, /El contenido de un diagnostico es inmutable/);
 });
 
-test("la exportacion para elevar es fail-closed", async () => {
-  const { ensamblarArticulado, evaluarElevacion, pieDelDocumento } =
-    await import("../lib/norma-export.ts");
+test("la cita del parametro se propone sola sin dejar de ser textual", async () => {
+  const { proponerCitaParaValor } = await import("../lib/norma-citas.ts");
+  const articulo = "Los anuncios se clasifican segun su soporte. La superficie maxima "
+    + "permitida por cara sera de 6 metros cuadrados en toda la via publica. "
+    + "El incumplimiento se sanciona conforme al regimen general.";
 
-  const art = (id, orden, estado) => ({
-    id, orden, estado, numero: null, sumilla: `S${orden}`,
-    texto: "Texto del artículo con longitud suficiente para el documento.",
-    origen: "borrador_recibido", textoOriginal: null, aprobadoEn: null, actualizadoEn: "",
-  });
+  const cita = proponerCitaParaValor(articulo, 6);
+  assert.notEqual(cita, null, "tendría que encontrar la oración del 6");
+  // Lo que importa: la propuesta es un recorte EXACTO del artículo, porque
+  // PostgreSQL valida con `position(cita in texto)`.
+  assert.ok(articulo.includes(cita), "la cita propuesta tiene que estar textual en el artículo");
+  assert.match(cita, /6 metros cuadrados/);
+  assert.doesNotMatch(cita, /clasifican/, "no se lleva la oración anterior puesta");
 
-  // La numeración se recalcula al ensamblar: el `orden` es lo que manda, así
-  // que reordenar no obliga a renumerar a mano.
-  const desordenados = [art("c", 3, "aprobado"), art("a", 1, "aprobado"), art("b", 2, "aprobado")];
-  assert.deepEqual(ensamblarArticulado(desordenados).map((a) => a.numero), [1, 2, 3]);
-  assert.deepEqual(ensamblarArticulado(desordenados).map((a) => a.articuloId), ["a", "b", "c"]);
-
-  // Un descartado sale del documento pero no se borra de la base.
-  const conDescartado = [...desordenados, art("d", 4, "descartado")];
-  assert.equal(ensamblarArticulado(conDescartado).length, 3);
-
-  // Todo aprobado y sin diagnósticos graves: se puede elevar.
-  assert.equal(evaluarElevacion(desordenados, []).puede, true);
-
-  // Un artículo sin aprobar bloquea, y se dice cuál.
-  const conPendiente = [art("a", 1, "aprobado"), art("b", 2, "en_revision")];
-  const bloqueado = evaluarElevacion(conPendiente, []);
-  assert.equal(bloqueado.puede, false);
-  assert.equal(bloqueado.faltantes.length, 1);
-  assert.equal(bloqueado.faltantes[0].tipo, "articulo_sin_aprobar");
-  assert.equal(bloqueado.faltantes[0].articuloId, "b", "el faltante enlaza al artículo pendiente");
-  assert.match(bloqueado.faltantes[0].detalle, /artículo 2/);
-
-  // Un diagnóstico grave sin atender también bloquea.
-  const conGrave = evaluarElevacion(desordenados, [
-    { articuloId: "b", severidad: "alta", atendidoEn: null },
-  ]);
-  assert.equal(conGrave.puede, false);
-  assert.equal(conGrave.faltantes[0].tipo, "diagnostico_grave_sin_atender");
-
-  // Atendido, deja de bloquear.
-  assert.equal(
-    evaluarElevacion(desordenados, [{ articuloId: "b", severidad: "alta", atendidoEn: "2026-08-06" }]).puede,
-    true,
-  );
-  // Y uno leve nunca bloqueó.
-  assert.equal(
-    evaluarElevacion(desordenados, [{ articuloId: "b", severidad: "media", atendidoEn: null }]).puede,
-    true,
-  );
-  // Un diagnóstico grave sobre un artículo descartado no bloquea: ese artículo
-  // no va en el documento.
-  assert.equal(
-    evaluarElevacion(conDescartado, [{ articuloId: "d", severidad: "alta", atendidoEn: null }]).puede,
-    true,
-  );
-
-  // Un proyecto sin artículos no se eleva.
-  assert.equal(evaluarElevacion([], []).puede, false);
-
-  // El pie declara cómo se hizo el documento: es más defendible decirlo.
-  const oficial = pieDelDocumento("Proyecto X", true);
-  assert.match(oficial, /asistencia de herramientas automáticas y revisión humana/i);
-  assert.match(oficial, /Versión para elevar/);
-  const trabajo = pieDelDocumento("Proyecto X", false);
-  assert.match(trabajo, /BORRADOR/);
-  assert.match(trabajo, /No utilizar como documento oficial/);
-
-  // La interfaz deshabilita el botón oficial y falla cerrado si no puede
-  // verificar los diagnósticos.
-  const ui = await source("components/fabrica/articulado-completo.tsx");
-  assert.match(ui, /disabled=\{exportando \|\| cargando \|\| !evaluacion\?\.puede\}/);
-  assert.match(ui, /if \(oficial && !evaluacion\?\.puede\) return;/);
-  assert.match(ui, /puede: false,[\s\S]{0,200}No se pudieron verificar los diagnósticos/);
-});
-
-test("el documento impreso no se contradice sobre si es oficial", async () => {
-  const ui = await source("components/fabrica/articulado-completo.tsx");
-  const css = await source("app/globals.css");
-
-  // Una sola fuente de verdad. Si la marca de borrador vuelve a mirar
-  // `sinAprobar`, un articulado aprobado con un diagnóstico grave sin atender
-  // sale sin marca arriba y con la leyenda de borrador abajo.
-  assert.match(ui, /const esOficial = Boolean\(evaluacion\?\.puede\);/);
-  assert.match(ui, /\{!esOficial && <p className="marca-borrador">/);
-  assert.match(ui, /pieDelDocumento\(proyecto\.titulo, esOficial\)/);
-  assert.doesNotMatch(
-    ui,
-    /sinAprobar > 0 && <p className="marca-borrador"/,
-    "la marca de borrador no puede depender solo de los artículos sin aprobar",
-  );
-  assert.doesNotMatch(
-    ui,
-    /pieDelDocumento\([^)]*sinAprobar/,
-    "el pie tiene que leer la misma evaluación que la marca",
-  );
-  // Mientras carga no se sabe, y no saber no es estar en condiciones.
-  assert.match(ui, /const motivoBorrador = cargando/);
-
-  // El panel se monta por portal: sin eso la regla de impresión no apaga nada
-  // y se imprime el tablero entero.
-  assert.match(ui, /return createPortal\(/);
-  assert.match(ui, /className="print-root fixed/);
-  assert.match(ui, /document\.body,\s*\);/);
-  assert.match(css, /body > \*:not\(\.print-root\) \{ display: none !important; \}/);
-
-  // La espera del montaje va en un componente de afuera: `useModalShell` lee su
-  // ref al montarse y una sola vez, así que un `return null` con el hook ya
-  // llamado dejaría el overlay sin scroll lock ni focus trap para siempre.
-  assert.match(
-    ui,
-    /export function ArticuladoCompleto\(props: PropsArticulado\) \{[\s\S]{0,240}if \(!montado\) return null;[\s\S]{0,80}<PanelArticulado \{\.\.\.props\}/,
-    "el guard de montaje tiene que envolver al panel, no vivir adentro",
-  );
-  assert.doesNotMatch(
-    ui,
-    /useModalShell\(panelRef\);[\s\S]{0,900}if \(!montado\) return null;/,
-    "no puede haber un return antes de que el ref del panel exista",
-  );
-
-  // La marca corriente se repite por página con el único mecanismo que los
-  // navegadores implementan. `position: running()` no es uno de ellos.
-  assert.match(css, /\.documento-normativo \.marca-corriente \{ display: table-header-group; \}/);
-  assert.match(css, /\.documento-normativo \.cuerpo \{ display: table-row-group; \}/);
-  assert.doesNotMatch(css, /position: running\(/, "position: running() no existe en los navegadores");
-
-  // El nombre del archivo es el mismo salga por Word o por PDF.
-  assert.match(ui, /document\.title = nombreDocumento\(esOficial\);/);
-  assert.match(ui, /window\.addEventListener\("afterprint", restaurar\);/);
-  const exportador = await source("lib/norma-export.ts");
-  assert.match(exportador, /enlace\.download = `\$\{nombreDocumento\(input\.oficial\)\}\.docx`;/);
-});
-
-test("la salida hacia IA externa se autoriza por documento y se declara que no vio el modelo", async () => {
-  const sql = await source("supabase/migrations/20260806_26_habilitacion_ia_externa.sql");
-  const ruta = await source("app/api/fabrica/route.ts");
-  const aviso = await source("components/fabrica/fragmentos-vigente.tsx");
-
-  // Habilitar es un acto administrativo, no una bandera que se toca a mano.
-  assert.match(sql, /coalesce\(auth\.role\(\), ''\) = 'service_role'/);
-  assert.match(sql, /v_rol is distinct from 'administrador'::public\.app_rol/);
-  assert.match(sql, /char_length\(btrim\(coalesce\(p_fundamento, ''\)\)\) < 12/);
-  assert.match(
-    sql,
-    /insert into public\.auditoria_eventos[\s\S]{0,700}'fundamento', btrim\(p_fundamento\)/,
-    "el fundamento tiene que quedar al lado del antes y el después",
-  );
-  assert.match(
-    sql,
-    /revoke all on function public\.habilitar_documento_ia_externa\(text, boolean, boolean, text\)\s*from public, anon, service_role;/,
-  );
-
-  // Dos barreras que no dependen de quién llame.
-  assert.match(sql, /Un documento interno no sale del municipio/);
-  assert.match(sql, /un proyecto sin sancionar, nunca/);
-  assert.match(sql, /Un documento sin revision humana no se habilita para IA externa/);
-  // Y esas barreras son SOLO al habilitar: apagar tiene que poder hacerse ya.
-  assert.match(sql, /if p_ia_externa then[\s\S]{0,900}end if;\s*update public\.rag_documentos/);
-
-  // La ruta filtra en vez de bloquear: antes un solo fragmento restringido
-  // cortaba la consulta entera, así que habilitar un documento no servía de nada.
-  assert.doesNotMatch(
-    ruta,
-    /const fuenteRestringida = fragmentos\.some/,
-    "un fragmento restringido no puede volver a bloquear toda la consulta",
-  );
-
-  // Y son DOS búsquedas: la función corta en 8 filas antes de mirar quién puede
-  // salir, así que filtrar el resultado deja afuera lo único que servía.
-  const busqueda = await source("supabase/migrations/20260806_27_busqueda_solo_habilitados.sql");
-  assert.match(busqueda, /drop function if exists public\.buscar_rag_chunks_lexico\(text, integer, text\[\]\);/);
-  assert.match(
-    busqueda,
-    /not coalesce\(p_solo_ia_externa, false\)\s*or \(\s*d\.audience = 'publico'\s*and d\.human_reviewed\s*and d\.external_ai_allowed\s*and not d\.ocr_doubtful\s*\)/,
-    "el filtro tiene que ser el mismo que aplica la ruta antes de mandar nada afuera",
-  );
-  assert.match(
-    busqueda,
-    /and d\.estado_legal = any\(s\.permitidos\)/,
-    "el estado legal sigue siendo obligatorio: el borrador no se cita",
-  );
-  assert.match(ruta, /const \[general, habilitada\] = await Promise\.all\(\[buscar\(false\), buscar\(true\)\]\)/);
-  assert.match(ruta, /const sinHabilitados = habilitados\.length === 0;/);
-  // La búsqueda restringida ya filtró, pero lo que sale se comprueba igual acá.
-  assert.match(ruta, /\.filter\(puedeSalir\)/);
-
-  // Los otros dos que llaman a la misma función quedaron con la firma nueva.
-  const normativa = await source("app/api/normativa/route.ts");
-  const verificador = await source("scripts/verify-live-integrity.mjs");
-  assert.match(normativa, /p_solo_ia_externa: false/);
-  assert.match(verificador, /p_estados: \["vigente"\],\s*p_solo_ia_externa: false/);
-
-  // Las citas se verifican contra lo que el modelo VIO. Contra todo, una cita
-  // inventada que coincidiera con un fragmento retenido pasaría por verificada.
-  assert.match(ruta, /verificarHallazgos\(\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*saneadosHabilitados,\s*\)/);
-  assert.match(ruta, /const saneadosHabilitados = habilitados\.map/);
-
-  // Y el precio de filtrar se declara: un "sin hallazgos" calculado sin ver
-  // todo no es un certificado de que no hay conflicto.
-  // `visto` sale del conjunto que efectivamente fue al modelo, no de volver a
-  // evaluar la regla: si el contexto se armara distinto, la marca mentiría.
-  assert.match(ruta, /const vistos = new Set\(habilitados\.map/);
-  assert.match(ruta, /visto: vistos\.has\(/);
-  assert.match(aviso, /El asistente no vio \{sinVer\.length\} de los \{fragmentos\.length\} fragmentos/);
-  assert.match(aviso, /no quiere decir que no haya conflicto/);
+  // Un número que no está no se inventa, y uno pegado a otro no confunde.
+  assert.equal(proponerCitaParaValor(articulo, 9), null);
+  assert.equal(proponerCitaParaValor("El maximo es de 60 metros cuadrados por cara.", 6), null,
+    "el 6 de 60 no cuenta");
+  // Decimales escritos con coma, como se escriben en un artículo.
+  assert.notEqual(proponerCitaParaValor("La distancia minima al corredor sera de 2,5 metros.", 2.5), null);
+  // Y una oración demasiado corta no vale como cita.
+  assert.equal(proponerCitaParaValor("Son 6 metros.", 6), null);
 });
 
 test("un articulo nuevo guarda que se pidio y quien lo escribio", async () => {
@@ -1314,15 +1110,27 @@ test("un articulo nuevo guarda que se pidio y quien lo escribio", async () => {
   assert.match(sql, /drop function if exists public\.crear_articulo\(uuid, text, text, text\);/);
   assert.match(sql, /create or replace function public\.crear_articulo\(\s*p_proyecto_id uuid,\s*p_texto text,\s*p_sumilla text,\s*p_origen text,\s*p_motivo text\s*\)/);
 
-  // El motivo es obligatorio y es lo que se graba en la versión 1. Antes era la
-  // constante 'Redaccion inicial', que no dice nada.
-  assert.match(sql, /char_length\(btrim\(coalesce\(p_motivo, ''\)\)\) < 12/);
+  // El motivo es lo que se graba en la versión 1. Antes era la constante
+  // 'Redaccion inicial', que no dice nada. Desde la migración 29 es opcional:
+  // cuando el artículo sale del lienzo lleva la idea en criollo, y cuando se
+  // escribe a mano queda en null en vez de una frase de relleno.
+  const ceremonia = await source("supabase/migrations/20260806_29_fabrica_sin_ceremonia.sql");
   assert.match(
-    sql,
-    /insert into public\.norma_articulo_version[\s\S]{0,400}v_rol, btrim\(p_motivo\)/,
-    "la versión 1 tiene que llevar el motivo de la persona",
+    ceremonia,
+    /insert into public\.norma_articulo_version[\s\S]{0,500}nullif\(btrim\(coalesce\(p_motivo, ''\)\), ''\)/,
+    "la versión 1 tiene que llevar el motivo cuando lo hay",
   );
-  assert.doesNotMatch(sql, /'Redaccion inicial'/);
+  assert.doesNotMatch(ceremonia, /'Redaccion inicial'/);
+  assert.doesNotMatch(
+    ceremonia,
+    /char_length\(btrim\(coalesce\(p_motivo, ''\)\)\) < 12/,
+    "el motivo ya no es obligatorio",
+  );
+  assert.doesNotMatch(
+    ceremonia,
+    /char_length\(btrim\(coalesce\(p_fundamento, ''\)\)\) < 12/,
+    "el cambio de estado ya no exige fundamento",
+  );
 
   // Un artículo nuevo nunca puede declararse como recibido en el borrador: eso
   // lo volvería intocable por el trigger de `texto_original`.
@@ -1441,33 +1249,6 @@ test("la correccion del OCR vuelve al archivo sin falsear la medicion", async ()
   assert.match(panel, /if \(event\.key !== "Escape" \|\| confirmDialogIsOpen\(\)\) return;\s*intentarCerrar\(\);/, "Escape");
 });
 
-test("el OCR dudoso deja de vetar cuando una persona reviso", async () => {
-  const sql = await source("supabase/migrations/20260806_28_ocr_dudoso_revisado.sql");
-  const ruta = await source("app/api/fabrica/route.ts");
-
-  // La firma no cambia: alcanza con `create or replace` y no hay sobrecarga que
-  // borrar, a diferencia de la 27.
-  assert.match(sql, /create or replace function public\.buscar_rag_chunks_lexico\(\s*p_query text,\s*p_match_count integer,\s*p_estados text\[\],\s*p_solo_ia_externa boolean\s*\)/);
-  assert.doesNotMatch(sql, /drop function if exists public\.buscar_rag_chunks_lexico/);
-
-  // El OCR dudoso ya no aparece en el predicado de salida, ni en el SQL ni en
-  // la ruta. Y no se reemplaza por `or human_reviewed`, que sería una
-  // tautología: la revisión humana ya es obligatoria en las dos.
-  const predicadoSql = sql.slice(sql.indexOf("not coalesce(p_solo_ia_externa"), sql.indexOf("and length(e.texto)"));
-  assert.match(predicadoSql, /d\.audience = 'publico'\s*and d\.human_reviewed\s*and d\.external_ai_allowed/);
-  assert.doesNotMatch(predicadoSql, /ocr_doubtful/, "el OCR dudoso no vuelve al predicado de salida");
-
-  const predicadoRuta = ruta.slice(ruta.indexOf("const puedeSalir"), ruta.indexOf("const habilitados"));
-  assert.match(predicadoRuta, /fragmento\.audience === "publico"\s*&& fragmento\.human_reviewed\s*&& fragmento\.external_ai_allowed\s*\);/);
-  assert.doesNotMatch(predicadoRuta, /ocr_doubtful/);
-
-  // Pero la columna sigue existiendo y la pantalla la muestra: la duda de la
-  // máquina se contesta, no se borra.
-  const panel = await source("components/configuracion/revisar-documento.tsx");
-  assert.match(panel, /documento\.ocrDudoso &&/);
-  assert.match(panel, /La duda es de la máquina y no se borra/);
-});
-
 test("el articulo no trae puesto su propio numero", async () => {
   const { quitarEncabezadoArticulo } = await import("../lib/articulado.ts");
   const cuerpo = "La superficie máxima permitida para un cartel publicitario colocado en la vía pública será de seis metros cuadrados por cara.";
@@ -1530,7 +1311,6 @@ test("el articulo abierto vive en la URL y sobrevive a la ida y vuelta", async (
 
   // Un solo camino para abrir un artículo, para que estado y URL no se separen.
   assert.match(fabrica, /onClick=\{\(\) => seleccionar\(articulo\.id\)\}/);
-  assert.match(fabrica, /onIrAlArticulo=\{seleccionar\}/);
   assert.doesNotMatch(
     fabrica,
     /onClick=\{\(\) => setSeleccionId\(/,
@@ -1554,110 +1334,6 @@ test("el articulo abierto vive en la URL y sobrevive a la ida y vuelta", async (
   // Y el texto sin guardar avisa antes de perderse: ahora que el artículo
   // vuelve solo, una redacción que no vuelve se leería como dato comido.
   assert.match(fabrica, /window\.addEventListener\("beforeunload", avisar\)/);
-});
-
-test("una observacion no se edita ni se borra, ni siquiera la propia", async () => {
-  const sql = await source("supabase/migrations/20260806_24_observaciones_articulo.sql");
-
-  // Ninguna sesión escribe la tabla directamente: solo por RPC.
-  assert.match(
-    sql,
-    /revoke insert, update, delete on public\.norma_observacion\s+from anon, authenticated, service_role;/,
-    "alguna sesión conserva escritura directa sobre las observaciones",
-  );
-  assert.doesNotMatch(
-    sql,
-    /create policy[\s\S]{0,120}on public\.norma_observacion\s+for (insert|update|delete|all)/i,
-    "no puede haber policy de escritura sobre las observaciones",
-  );
-
-  // El texto y la autoría son inmutables, y borrar está prohibido de plano.
-  assert.match(sql, /before update or delete on public\.norma_observacion/);
-  assert.match(sql, /if tg_op = 'DELETE' then\s+raise exception 'Una observacion no se borra/);
-  assert.match(
-    sql,
-    /new\.texto is distinct from old\.texto[\s\S]{0,320}raise exception 'El texto y la autoria de una observacion son inmutables'/,
-    "el trigger tiene que rechazar cualquier reescritura del texto o de la autoría",
-  );
-  // Reabrir una atendida borraría el rastro de que ya se había resuelto.
-  assert.match(sql, /if old\.atendido_en is not null then\s+raise exception 'Una observacion ya atendida no se modifica'/);
-
-  // El rol `consulta` escribe acá y solo acá: es una opinión, no un acto.
-  assert.match(
-    sql,
-    /create or replace function public\.crear_observacion[\s\S]{0,900}if v_rol is null then/,
-    "crear_observacion tiene que aceptar cualquier perfil reconocido, incluido consulta",
-  );
-  assert.doesNotMatch(
-    sql,
-    /create or replace function public\.crear_observacion[\s\S]{0,900}v_rol = any\(/,
-    "crear_observacion no debe restringirse a los roles operativos",
-  );
-
-  // Atender es del administrador y exige fundamento, sin tocar el texto original.
-  assert.match(
-    sql,
-    /create or replace function public\.atender_observacion[\s\S]{0,600}v_rol is distinct from 'administrador'/,
-  );
-  assert.match(
-    sql,
-    /create or replace function public\.atender_observacion[\s\S]{0,900}char_length\(btrim\(coalesce\(p_fundamento, ''\)\)\) < 12/,
-  );
-  assert.doesNotMatch(
-    sql,
-    /create or replace function public\.atender_observacion[\s\S]{0,900}set[\s\S]{0,200}texto\s*=/,
-    "atender no puede reescribir el texto de la observación",
-  );
-
-  // La interfaz no ofrece editar ni borrar: solo agregar otra.
-  const ui = await source("components/fabrica/observaciones-articulo.tsx");
-  assert.doesNotMatch(ui, /editarObservacion|borrarObservacion|eliminarObservacion/);
-  assert.match(ui, /No se puede editar: si querés corregirla, agregá otra/);
-
-  // El agrupado por artículo respeta el orden y no se come las observaciones de
-  // los artículos descartados: alguien opinó sobre ese texto igual.
-  const { agruparObservaciones } = await import("../lib/norma-export.ts");
-  const art = (id, orden, estado) => ({
-    id, orden, estado, numero: orden, sumilla: `S${orden}`,
-    texto: "Texto del artículo.", origen: "borrador_recibido",
-    textoOriginal: null, aprobadoEn: null, actualizadoEn: "",
-  });
-  const obs = (articuloId, creadoEn, texto) => ({
-    articuloId, texto, autorNombre: "Área X", autorRol: "consulta",
-    creadoEn, atendidoEn: null, fundamento: null,
-  });
-
-  const filas = agruparObservaciones(
-    [art("b", 2, "aprobado"), art("a", 1, "aprobado"), art("d", 3, "descartado")],
-    [
-      obs("d", "2026-08-03", "Sobre el descartado"),
-      obs("b", "2026-08-02", "Segunda del dos"),
-      obs("a", "2026-08-01", "Primera del uno"),
-      obs("b", "2026-08-01", "Primera del dos"),
-    ],
-  );
-  assert.deepEqual(
-    filas.map((fila) => fila.observacion),
-    ["Primera del uno", "Primera del dos", "Segunda del dos", "Sobre el descartado"],
-    "las observaciones salen por orden de artículo y, dentro de cada uno, cronológicas",
-  );
-  assert.match(filas[3].articulo, /descartado/, "el descarte se declara, no se oculta");
-  assert.equal(filas[0].estado, "Pendiente");
-
-  // Una observación atendida viaja con su fundamento y el texto original intacto.
-  const atendida = agruparObservaciones(
-    [art("a", 1, "aprobado")],
-    [{
-      articuloId: "a", texto: "Texto original", autorNombre: "Área X", autorRol: "consulta",
-      creadoEn: "2026-08-01", atendidoEn: "2026-08-05", fundamento: "Se incorporó al inciso b.",
-    }],
-  );
-  assert.equal(atendida[0].observacion, "Texto original");
-  assert.equal(atendida[0].estado, "Atendida");
-  assert.equal(atendida[0].fundamento, "Se incorporó al inciso b.");
-
-  // Un artículo sin observaciones no genera fila vacía.
-  assert.equal(agruparObservaciones([art("a", 1, "aprobado")], []).length, 0);
 });
 
 test("las migraciones declaradas coinciden con los archivos reales", async () => {

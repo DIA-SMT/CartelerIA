@@ -1,47 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, FileText, History, Loader2, PenLine, RefreshCw, Save, Table2 } from "lucide-react";
+import { AlertTriangle, FileText, History, Loader2, PenLine, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
 import type { AnalyzedCartel } from "@/data/territorial";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  ESTADO_ARTICULO_COLORS,
-  ESTADO_ARTICULO_LABELS,
-  MOTIVO_MIN_LENGTH,
   ORIGEN_ARTICULO_LABELS,
   cambiarEstadoArticulo,
   guardarArticulo,
   loadArticulos,
-  loadObservacionesDelProyecto,
   loadProyectoActivo,
   type ArticuloNorma,
-  type EstadoArticulo,
   type ProyectoNorma,
 } from "@/lib/fabrica-repository";
-import { agruparObservaciones, exportarObservacionesXlsx } from "@/lib/norma-export";
-import { ConfirmDialog } from "../confirm-dialog";
 import { toast } from "../toaster";
 import { ArticuladoCompleto } from "./articulado-completo";
 import { HistorialArticulo } from "./historial-articulo";
 import { LienzoArticulo } from "./lienzo-articulo";
-import { ObservacionesArticulo } from "./observaciones-articulo";
 import { PanelDiagnostico } from "./panel-diagnostico";
 
 type LoadPhase = "idle" | "loading" | "ready" | "error";
-
-type CambioPendiente = {
-  articulo: ArticuloNorma;
-  estado: EstadoArticulo;
-  fundamento: string;
-};
-
-/** Transiciones ofrecidas desde cada estado. Descartar sale de cualquiera. */
-const SIGUIENTES: Record<EstadoArticulo, EstadoArticulo[]> = {
-  propuesto: ["en_revision", "descartado"],
-  en_revision: ["aprobado", "propuesto", "descartado"],
-  aprobado: ["en_revision"],
-  descartado: ["propuesto"],
-};
 
 /**
  * Lee el artículo abierto del hash: `#fabrica?articulo=<uuid>`.
@@ -104,14 +82,11 @@ export default function Fabrica({
 
   const [texto, setTexto] = useState("");
   const [sumilla, setSumilla] = useState("");
-  const [motivo, setMotivo] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
-  const [cambio, setCambio] = useState<CambioPendiente | null>(null);
   const [historialDe, setHistorialDe] = useState<ArticuloNorma | null>(null);
   const [verArticulado, setVerArticulado] = useState(false);
   const [lienzoAbierto, setLienzoAbierto] = useState(false);
-  const [exportando, setExportando] = useState(false);
   const refreshSequence = useRef(0);
   const botonActivoRef = useRef<HTMLButtonElement>(null);
 
@@ -182,13 +157,10 @@ export default function Fabrica({
     }
   }, [loadPhase, seleccionId, articulos]);
 
-  // Abrir un artículo carga su texto vigente en el editor y limpia el motivo:
-  // arrastrar el motivo del artículo anterior sería asentar un fundamento que
-  // no corresponde.
+  // Abrir un artículo carga su texto vigente en el editor.
   useEffect(() => {
     setTexto(seleccionado?.texto ?? "");
     setSumilla(seleccionado?.sumilla ?? "");
-    setMotivo("");
     setFormError(null);
   }, [seleccionado?.id, seleccionado?.texto, seleccionado?.sumilla]);
 
@@ -216,74 +188,54 @@ export default function Fabrica({
 
   const guardar = async () => {
     if (!seleccionado || guardando) return;
-    if (motivo.trim().length < MOTIVO_MIN_LENGTH) {
-      setFormError(`Contá qué cambiaste y por qué (mínimo ${MOTIVO_MIN_LENGTH} caracteres).`);
-      return;
-    }
     setGuardando(true);
     setFormError(null);
     try {
+      // Sin motivo: guardar es guardar. La versión se registra igual, con
+      // fecha y autor, así que el texto anterior no se pierde.
       const result = await guardarArticulo({
         articuloId: seleccionado.id,
         texto,
         sumilla: sumilla.trim() || null,
-        motivo: motivo.trim(),
+        motivo: "",
       });
       if (!result.ok) {
         setFormError(result.error);
         toast(result.error ?? "No se pudo guardar.", "error");
         return;
       }
-      toast("Guardado como versión nueva. El texto anterior queda en el historial.");
-      setMotivo("");
+      toast("Guardado.");
       await refresh();
     } finally {
       setGuardando(false);
     }
   };
 
-  const aplicarCambio = async (pendiente: CambioPendiente) => {
-    setCambio(null);
+  /**
+   * Quitar un artículo del documento, y volver a meterlo.
+   *
+   * Es lo único que queda del viejo juego de estados: `descartado` significa
+   * "no va en el documento" y nada más. No se borra, así que volver atrás es
+   * un clic y el texto sigue en el historial.
+   */
+  const alternarInclusion = async (articulo: ArticuloNorma) => {
+    const quitar = articulo.estado !== "descartado";
     const result = await cambiarEstadoArticulo(
-      pendiente.articulo.id,
-      pendiente.estado,
-      pendiente.fundamento,
+      articulo.id,
+      quitar ? "descartado" : "propuesto",
+      "",
     );
     if (!result.ok) {
-      toast(result.error ?? "No se pudo cambiar el estado.", "error");
+      toast(result.error ?? "No se pudo cambiar el artículo.", "error");
       return;
     }
-    toast(`Artículo ${ESTADO_ARTICULO_LABELS[pendiente.estado].toLowerCase()}.`);
+    toast(quitar ? "Quitado del documento. Podés volver a incluirlo." : "Vuelve al documento.");
     await refresh();
-  };
-
-  const exportarObservaciones = async () => {
-    if (!proyecto || exportando) return;
-    setExportando(true);
-    try {
-      const resultado = await loadObservacionesDelProyecto(proyecto.id);
-      if (!resultado.ok) {
-        toast(resultado.error ?? "No se pudieron cargar las observaciones.", "error");
-        return;
-      }
-      const filas = agruparObservaciones(articulos, resultado.data);
-      if (filas.length === 0) {
-        toast("Todavía no hay observaciones para exportar.", "error");
-        return;
-      }
-      await exportarObservacionesXlsx(filas);
-      toast(`Planilla generada con ${filas.length} observaciones.`);
-    } catch {
-      toast("No se pudo generar la planilla.", "error");
-    } finally {
-      setExportando(false);
-    }
   };
 
   if (!auth.canRead) return null;
 
-  const aprobados = articulos.filter((articulo) => articulo.estado === "aprobado").length;
-  const vigentes = articulos.filter((articulo) => articulo.estado !== "descartado").length;
+  const incluidos = articulos.filter((articulo) => articulo.estado !== "descartado").length;
 
   return (
     <section id="fabrica" className="section-block !mt-8">
@@ -305,19 +257,13 @@ export default function Fabrica({
           </span>
         </div>
         <p className="mt-2 text-tiny leading-5 text-slate-500">
-          {proyecto
-            ? `${proyecto.titulo}. `
-            : ""}
-          Cada guardado crea una versión nueva: el texto anterior nunca se pierde. La
-          redacción es de la persona; el sistema asiste.
+          {proyecto ? `${proyecto.titulo}. ` : ""}
+          {incluidos} artículo{incluidos === 1 ? "" : "s"} en el documento. Cada guardado
+          deja el texto anterior en el historial.
         </p>
       </header>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="badge-soft">
-          <i style={{ background: ESTADO_ARTICULO_COLORS.aprobado }}/>
-          {aprobados} de {vigentes} aprobados
-        </span>
         {proyecto && puedeEscribir && (
           <button
             type="button"
@@ -339,26 +285,14 @@ export default function Fabrica({
           Actualizar
         </button>
         {proyecto && articulos.length > 0 && (
-          <>
-            <button
-              type="button"
-              onClick={() => setVerArticulado(true)}
-              className="secondary-button compact"
-            >
-              <FileText size={13}/>
-              Ver articulado completo
-            </button>
-            <button
-              type="button"
-              onClick={exportarObservaciones}
-              disabled={exportando}
-              title="Descargar todas las observaciones agrupadas por artículo"
-              className="secondary-button compact disabled:opacity-50"
-            >
-              {exportando ? <Loader2 size={13} className="animate-spin"/> : <Table2 size={13}/>}
-              Observaciones en Excel
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => setVerArticulado(true)}
+            className="secondary-button compact"
+          >
+            <FileText size={13}/>
+            Ver y exportar el documento
+          </button>
         )}
       </div>
 
@@ -406,10 +340,12 @@ export default function Fabrica({
                         <b className={`text-tiny ${activo ? "text-municipal-700" : "text-ink"}`}>
                           Artículo {articulo.numero ?? articulo.orden}
                         </b>
-                        <span className="badge-soft shrink-0">
-                          <i style={{ background: ESTADO_ARTICULO_COLORS[articulo.estado] }}/>
-                          {ESTADO_ARTICULO_LABELS[articulo.estado]}
-                        </span>
+                        {articulo.estado === "descartado" && (
+                          <span className="badge-soft shrink-0">
+                            <i style={{ background: "#94a3b8" }}/>
+                            Fuera
+                          </span>
+                        )}
                       </div>
                       <p className="mt-0.5 truncate text-micro text-slate-500">
                         {articulo.sumilla || articulo.texto.slice(0, 60)}
@@ -474,18 +410,6 @@ export default function Fabrica({
 
               {puedeEscribir && (
                 <>
-                  <label className="mt-3 block">
-                    <span className="micro-label">Motivo del cambio (obligatorio)</span>
-                    <textarea
-                      value={motivo}
-                      onChange={(event) => setMotivo(event.target.value)}
-                      rows={2}
-                      maxLength={500}
-                      placeholder={`Qué cambiaste y por qué (mínimo ${MOTIVO_MIN_LENGTH} caracteres)`}
-                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-tiny text-slate-700 outline-none focus:border-municipal-500"
-                    />
-                  </label>
-
                   {formError && (
                     <p role="alert" className="mt-2 text-micro font-semibold text-red-700">{formError}</p>
                   )}
@@ -495,36 +419,34 @@ export default function Fabrica({
                       type="button"
                       onClick={guardar}
                       disabled={guardando || !sucio}
-                      title={sucio ? "Guardar como versión nueva" : "No hay cambios que guardar"}
+                      title={sucio ? "Guardar" : "No hay cambios que guardar"}
                       className="primary-button compact disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {guardando ? <Loader2 size={13} className="animate-spin"/> : <Save size={13}/>}
-                      Guardar versión
+                      Guardar
                     </button>
 
-                    {SIGUIENTES[seleccionado.estado].map((estado) => (
-                      <button
-                        key={estado}
-                        type="button"
-                        onClick={() => setCambio({ articulo: seleccionado, estado, fundamento: motivo.trim() })}
-                        disabled={motivo.trim().length < MOTIVO_MIN_LENGTH}
-                        title={
-                          motivo.trim().length < MOTIVO_MIN_LENGTH
-                            ? "Escribí primero el fundamento en el campo de motivo."
-                            : `Pasar a ${ESTADO_ARTICULO_LABELS[estado]}`
-                        }
-                        className="secondary-button compact disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {ESTADO_ARTICULO_LABELS[estado]}
-                      </button>
-                    ))}
+                    <button
+                      type="button"
+                      onClick={() => void alternarInclusion(seleccionado)}
+                      title={
+                        seleccionado.estado === "descartado"
+                          ? "Volver a incluirlo en el documento"
+                          : "Sacarlo del documento. No se borra: podés volver a incluirlo."
+                      }
+                      className="secondary-button compact"
+                    >
+                      {seleccionado.estado === "descartado"
+                        ? <><RotateCcw size={13}/>Volver a incluir</>
+                        : <><Trash2 size={13}/>Quitar del documento</>}
+                    </button>
                   </div>
                 </>
               )}
 
               {!puedeEscribir && (
                 <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-micro leading-4 text-slate-500">
-                  Tu rol puede leer el articulado y dejar observaciones, pero no editarlo.
+                  Tu rol puede leer el articulado, pero no editarlo.
                 </p>
               )}
 
@@ -533,23 +455,9 @@ export default function Fabrica({
                 carteles={carteles}
                 onVerEnMapa={onVerEnMapa}
               />
-
-              <ObservacionesArticulo articulo={seleccionado}/>
             </div>
           )}
         </div>
-      )}
-
-      {cambio && (
-        <ConfirmDialog
-          title={`Pasar el artículo a ${ESTADO_ARTICULO_LABELS[cambio.estado]}`}
-          description={`Artículo ${cambio.articulo.numero ?? cambio.articulo.orden}. El cambio queda asentado con este fundamento:`}
-          quote={cambio.fundamento}
-          tone={cambio.estado === "descartado" ? "discard" : cambio.estado === "aprobado" ? "approve" : "reject"}
-          confirmLabel={ESTADO_ARTICULO_LABELS[cambio.estado]}
-          onConfirm={() => void aplicarCambio(cambio)}
-          onCancel={() => setCambio(null)}
-        />
       )}
 
       {historialDe && (
@@ -574,7 +482,6 @@ export default function Fabrica({
           proyecto={proyecto}
           articulos={articulos}
           onClose={() => setVerArticulado(false)}
-          onIrAlArticulo={seleccionar}
         />
       )}
     </section>

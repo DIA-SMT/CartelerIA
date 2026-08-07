@@ -3,25 +3,14 @@ import { esClaveParametro, type ClaveParametro } from "./norma-simulador";
 import { isAppRole, type AppRole } from "./roles";
 import { supabase } from "./supabase";
 
-/** Mismo mínimo que exigen `guardar_articulo` y `cambiar_estado_articulo`. */
-export const MOTIVO_MIN_LENGTH = 12;
-
+/**
+ * `estado` sobrevive como mecanismo, no como etiqueta que alguien lea: la
+ * pantalla solo usa `descartado` para sacar un artículo del documento y
+ * `propuesto` para volver a incluirlo. Los otros dos valores quedan en la
+ * columna por compatibilidad con lo ya cargado.
+ */
 export type EstadoArticulo = "propuesto" | "en_revision" | "aprobado" | "descartado";
 export type OrigenArticulo = "borrador_recibido" | "redactado" | "asistente";
-
-export const ESTADO_ARTICULO_LABELS: Record<EstadoArticulo, string> = {
-  propuesto: "Propuesto",
-  en_revision: "En revisión",
-  aprobado: "Aprobado",
-  descartado: "Descartado",
-};
-
-export const ESTADO_ARTICULO_COLORS: Record<EstadoArticulo, string> = {
-  propuesto: "#64748b",
-  en_revision: "#f59e0b",
-  aprobado: "#16a34a",
-  descartado: "#dc2626",
-};
 
 export const ORIGEN_ARTICULO_LABELS: Record<OrigenArticulo, string> = {
   borrador_recibido: "Del borrador",
@@ -165,15 +154,12 @@ export async function loadVersiones(articuloId: string): Promise<LoadResult<Vers
  * un error inesperado no debe volcar detalle de la base en pantalla.
  */
 const ERRORES: { match: RegExp; message: string }[] = [
-  { match: /aprobado debe volver a revision/i, message: "Este artículo está aprobado. Devolvelo a revisión antes de editarlo." },
-  { match: /descartado no se edita/i, message: "Un artículo descartado no se edita. Volvelo a propuesto primero." },
-  { match: /motivo del cambio es obligatorio/i, message: `Contá qué cambiaste y por qué (mínimo ${MOTIVO_MIN_LENGTH} caracteres).` },
-  { match: /fundamento de al menos/i, message: `El cambio de estado necesita un fundamento de al menos ${MOTIVO_MIN_LENGTH} caracteres.` },
-  { match: /exige rol administrador o coordinador/i, message: "Aprobar un artículo exige rol administrador o coordinador." },
   { match: /exige un rol operativo/i, message: "Tu rol no permite escribir el articulado." },
-  { match: /rol consulta no modifica/i, message: "El rol consulta puede observar, pero no modificar el articulado." },
   { match: /demasiado corto/i, message: "El texto del artículo es demasiado corto." },
-  { match: /de donde sale/i, message: `Contá de dónde sale el artículo (mínimo ${MOTIVO_MIN_LENGTH} caracteres).` },
+  // Estos dos solo aparecen si falta correr la migración 29, que es la que
+  // saca los fundamentos obligatorios.
+  { match: /motivo del cambio es obligatorio/i, message: "Falta aplicar la migración 29 en el SQL Editor." },
+  { match: /fundamento de al menos/i, message: "Falta aplicar la migración 29 en el SQL Editor." },
 ];
 
 function traducir(mensaje: string, porDefecto: string): string {
@@ -232,19 +218,6 @@ export interface ParametroGuardado {
   confirmadoEn: string | null;
 }
 
-export interface DiagnosticoGuardado {
-  id: string;
-  tipo: string;
-  severidad: "baja" | "media" | "alta";
-  descripcion: string;
-  referencia: string | null;
-  cita: string | null;
-  confianza: string | null;
-  generadoEn: string;
-  atendidoEn: string | null;
-  fundamento: string | null;
-}
-
 function valorDeParametro(value: unknown): number | string[] | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
@@ -280,77 +253,6 @@ export async function loadParametros(articuloId: string): Promise<LoadResult<Par
   return { ok: true, data: parametros, error: null };
 }
 
-export async function loadDiagnosticos(articuloId: string): Promise<LoadResult<DiagnosticoGuardado[]>> {
-  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
-  const { data, error } = await supabase
-    .from("norma_diagnostico")
-    .select("id, tipo, severidad, descripcion, referencia, cita, datos, generado_en, atendido_en, fundamento")
-    .eq("articulo_id", articuloId)
-    .order("generado_en", { ascending: false });
-  if (error || !data) {
-    return { ok: false, data: [], error: "No se pudieron cargar los diagnósticos." };
-  }
-  const diagnosticos: DiagnosticoGuardado[] = [];
-  for (const row of data as Record<string, unknown>[]) {
-    if (typeof row.id !== "string" || typeof row.descripcion !== "string") {
-      return { ok: false, data: [], error: "Los diagnósticos devolvieron un contrato inesperado." };
-    }
-    const severidad = row.severidad === "alta" || row.severidad === "media" ? row.severidad : "baja";
-    const datos = row.datos as { confianza?: unknown } | null;
-    diagnosticos.push({
-      id: row.id,
-      tipo: typeof row.tipo === "string" ? row.tipo : "vacio",
-      severidad,
-      descripcion: row.descripcion,
-      referencia: typeof row.referencia === "string" ? row.referencia : null,
-      cita: typeof row.cita === "string" ? row.cita : null,
-      confianza: typeof datos?.confianza === "string" ? datos.confianza : null,
-      generadoEn: typeof row.generado_en === "string" ? row.generado_en : "",
-      atendidoEn: typeof row.atendido_en === "string" ? row.atendido_en : null,
-      fundamento: typeof row.fundamento === "string" ? row.fundamento : null,
-    });
-  }
-  return { ok: true, data: diagnosticos, error: null };
-}
-
-/**
- * Diagnósticos de todo el proyecto, para la compuerta de exportación.
- *
- * Se traen solo las tres columnas que la compuerta necesita: no hace falta el
- * texto del hallazgo para saber si bloquea.
- */
-export async function loadDiagnosticosDelProyecto(
-  proyectoId: string,
-): Promise<LoadResult<{ articuloId: string; severidad: string; atendidoEn: string | null }[]>> {
-  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
-  const { data: articulos, error: articulosError } = await supabase
-    .from("norma_articulo")
-    .select("id")
-    .eq("proyecto_id", proyectoId);
-  if (articulosError || !articulos) {
-    return { ok: false, data: [], error: "No se pudo verificar el articulado del proyecto." };
-  }
-  const ids = (articulos as { id: string }[]).map((fila) => fila.id);
-  if (ids.length === 0) return { ok: true, data: [], error: null };
-
-  const { data, error } = await supabase
-    .from("norma_diagnostico")
-    .select("articulo_id, severidad, atendido_en")
-    .in("articulo_id", ids);
-  if (error || !data) {
-    return { ok: false, data: [], error: "No se pudieron verificar los diagnósticos del proyecto." };
-  }
-  return {
-    ok: true,
-    data: (data as Record<string, unknown>[]).map((fila) => ({
-      articuloId: String(fila.articulo_id),
-      severidad: typeof fila.severidad === "string" ? fila.severidad : "baja",
-      atendidoEn: typeof fila.atendido_en === "string" ? fila.atendido_en : null,
-    })),
-    error: null,
-  };
-}
-
 export async function confirmarParametro(input: {
   articuloId: string;
   clave: ClaveParametro;
@@ -379,253 +281,6 @@ export async function confirmarParametro(input: {
     return { ok: false, error: conocido ?? "No se pudo confirmar el parámetro." };
   }
   return { ok: true, error: null };
-}
-
-export async function atenderDiagnostico(
-  diagnosticoId: string,
-  fundamento: string,
-): Promise<ResultadoEscritura> {
-  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
-  const { error } = await supabase.rpc("atender_diagnostico", {
-    p_diagnostico_id: diagnosticoId,
-    p_fundamento: fundamento,
-  });
-  if (error) {
-    return {
-      ok: false,
-      error: /rol administrador o coordinador/i.test(error.message)
-        ? "Atender un diagnóstico exige rol administrador o coordinador."
-        : /fundamento/i.test(error.message)
-          ? `El fundamento debe tener al menos ${MOTIVO_MIN_LENGTH} caracteres.`
-          : "No se pudo atender el diagnóstico.",
-    };
-  }
-  return { ok: true, error: null };
-}
-
-/**
- * Un fragmento de la vigente que la búsqueda recuperó.
- *
- * `visto` es la parte que importa: el modelo solo recibe los fragmentos de
- * documentos habilitados. Los demás se muestran igual en pantalla para leerlos,
- * pero un "sin hallazgos" calculado sin mirarlos no es lo mismo que uno
- * calculado con todo a la vista, y la interfaz tiene que decirlo.
- */
-export interface FragmentoRecuperado {
-  titulo: string;
-  seccion: string | null;
-  contenido: string;
-  visto: boolean;
-}
-
-function toFragmentos(valor: unknown): FragmentoRecuperado[] {
-  if (!Array.isArray(valor)) return [];
-  return valor
-    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
-    .filter((item) => typeof item.titulo === "string" && typeof item.contenido === "string")
-    .map((item) => ({
-      titulo: item.titulo as string,
-      seccion: typeof item.seccion === "string" ? item.seccion : null,
-      contenido: item.contenido as string,
-      // Sin la marca explícita se asume NO visto: es la lectura prudente.
-      visto: item.visto === true,
-    }));
-}
-
-export interface RespuestaAsistente {
-  ok: boolean;
-  asistido: boolean;
-  motivo: string | null;
-  fragmentos: FragmentoRecuperado[];
-  /** Cuántos de esos fragmentos NO llegaron al modelo. */
-  sinVer: number;
-  error: string | null;
-}
-
-/**
- * Por qué el asistente no intervino, en castellano.
- *
- * Vive acá y no en un componente porque explica el campo `motivo` del contrato
- * de la ruta: las dos pantallas que lo consumen tienen que decir lo mismo.
- * Ninguno de los tres casos es una falla: son decisiones de política.
- */
-export const MOTIVO_ASISTENTE: Record<string, string> = {
-  asistencia_deshabilitada: "La asistencia por IA externa está deshabilitada en este entorno.",
-  fuente_restringida: "La normativa recuperada no está habilitada para salir a un servicio externo. Se muestran los fragmentos para leerlos acá.",
-  pii_detectada: "El texto contiene identificadores personales, así que no se envía a un servicio externo.",
-};
-
-/**
- * Diagnóstico contra la normativa vigente.
- *
- * Devuelve también los fragmentos recuperados cuando la asistencia está
- * deshabilitada: aunque el modelo no redacte, tener a la vista qué dice la
- * norma vigente sobre el tema sigue siendo útil para redactar.
- */
-export async function diagnosticarContraVigente(
-  articuloId: string,
-  texto: string,
-): Promise<RespuestaAsistente> {
-  const vacio = { ok: false, asistido: false, motivo: null, fragmentos: [], sinVer: 0, error: "" };
-  if (!supabase) return { ...vacio, error: "Supabase no está configurado." };
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token;
-  if (!token) return { ...vacio, error: "Tu sesión no está vigente." };
-
-  let respuesta: Response;
-  try {
-    respuesta = await fetch("/api/fabrica", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ accion: "diagnosticar_vigente", articuloId, texto }),
-    });
-  } catch {
-    return { ...vacio, error: "No se pudo contactar al servidor." };
-  }
-
-  let payload: Record<string, unknown> = {};
-  try {
-    payload = await respuesta.json() as Record<string, unknown>;
-  } catch {
-    // Se resuelve por el status.
-  }
-  if (!respuesta.ok) {
-    return { ...vacio, error: "No se pudo ejecutar el diagnóstico." };
-  }
-  const fragmentos = toFragmentos(payload.fragmentos);
-  return {
-    ok: true,
-    asistido: payload.asistido === true,
-    motivo: typeof payload.motivo === "string" ? payload.motivo : null,
-    fragmentos,
-    sinVer: fragmentos.filter((fragmento) => !fragmento.visto).length,
-    error: null,
-  };
-}
-
-// ----------------------------------------------------------------------------
-// Observaciones de las áreas
-// ----------------------------------------------------------------------------
-export interface Observacion {
-  id: string;
-  articuloId: string;
-  texto: string;
-  autorNombre: string | null;
-  autorRol: AppRole | null;
-  creadoEn: string;
-  atendidoEn: string | null;
-  fundamento: string | null;
-}
-
-function toObservacion(row: Record<string, unknown>): Observacion | null {
-  if (typeof row.id !== "string" || typeof row.texto !== "string") return null;
-  return {
-    id: row.id,
-    articuloId: String(row.articulo_id),
-    texto: row.texto,
-    autorNombre: typeof row.autor_nombre === "string" ? row.autor_nombre : null,
-    autorRol: isAppRole(row.autor_rol) ? row.autor_rol : null,
-    creadoEn: typeof row.creado_en === "string" ? row.creado_en : "",
-    atendidoEn: typeof row.atendido_en === "string" ? row.atendido_en : null,
-    fundamento: typeof row.fundamento === "string" ? row.fundamento : null,
-  };
-}
-
-export async function loadObservaciones(articuloId: string): Promise<LoadResult<Observacion[]>> {
-  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
-  const { data, error } = await supabase
-    .from("norma_observacion")
-    .select("id, articulo_id, texto, autor_nombre, autor_rol, creado_en, atendido_en, fundamento")
-    .eq("articulo_id", articuloId)
-    .order("creado_en", { ascending: false });
-  if (error || !data) {
-    return { ok: false, data: [], error: "No se pudieron cargar las observaciones." };
-  }
-  const observaciones: Observacion[] = [];
-  for (const row of data as Record<string, unknown>[]) {
-    const observacion = toObservacion(row);
-    if (!observacion) {
-      return { ok: false, data: [], error: "Las observaciones devolvieron un contrato inesperado." };
-    }
-    observaciones.push(observacion);
-  }
-  return { ok: true, data: observaciones, error: null };
-}
-
-export async function crearObservacion(
-  articuloId: string,
-  texto: string,
-): Promise<ResultadoEscritura> {
-  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
-  const { error } = await supabase.rpc("crear_observacion", {
-    p_articulo_id: articuloId,
-    p_texto: texto,
-  });
-  if (error) {
-    return {
-      ok: false,
-      error: /demasiado corta/i.test(error.message)
-        ? "La observación es demasiado corta."
-        : "No se pudo guardar la observación.",
-    };
-  }
-  return { ok: true, error: null };
-}
-
-export async function atenderObservacion(
-  observacionId: string,
-  fundamento: string,
-): Promise<ResultadoEscritura> {
-  if (!supabase) return { ok: false, error: "Supabase no está configurado." };
-  const { error } = await supabase.rpc("atender_observacion", {
-    p_observacion_id: observacionId,
-    p_fundamento: fundamento,
-  });
-  if (error) {
-    return {
-      ok: false,
-      error: /Solo un administrador/i.test(error.message)
-        ? "Solo un administrador marca una observación como atendida."
-        : /fundamento/i.test(error.message)
-          ? `El fundamento debe tener al menos ${MOTIVO_MIN_LENGTH} caracteres.`
-          : "No se pudo atender la observación.",
-    };
-  }
-  return { ok: true, error: null };
-}
-
-/** Todas las observaciones del proyecto, para exportarlas agrupadas. */
-export async function loadObservacionesDelProyecto(
-  proyectoId: string,
-): Promise<LoadResult<Observacion[]>> {
-  if (!supabase) return { ok: false, data: [], error: "Supabase no está configurado." };
-  const { data: articulos, error: articulosError } = await supabase
-    .from("norma_articulo")
-    .select("id")
-    .eq("proyecto_id", proyectoId);
-  if (articulosError || !articulos) {
-    return { ok: false, data: [], error: "No se pudo verificar el articulado." };
-  }
-  const ids = (articulos as { id: string }[]).map((fila) => fila.id);
-  if (ids.length === 0) return { ok: true, data: [], error: null };
-
-  const { data, error } = await supabase
-    .from("norma_observacion")
-    .select("id, articulo_id, texto, autor_nombre, autor_rol, creado_en, atendido_en, fundamento")
-    .in("articulo_id", ids)
-    .order("creado_en", { ascending: false });
-  if (error || !data) {
-    return { ok: false, data: [], error: "No se pudieron cargar las observaciones del proyecto." };
-  }
-  const observaciones: Observacion[] = [];
-  for (const row of data as Record<string, unknown>[]) {
-    const observacion = toObservacion(row);
-    if (!observacion) {
-      return { ok: false, data: [], error: "Las observaciones devolvieron un contrato inesperado." };
-    }
-    observaciones.push(observacion);
-  }
-  return { ok: true, data: observaciones, error: null };
 }
 
 /**
@@ -679,11 +334,14 @@ export interface PropuestaArticulo {
   falta: string | null;
   sumilla: string | null;
   texto: string;
-  fragmentos: FragmentoRecuperado[];
-  /** Cuántos de esos fragmentos NO llegaron al modelo. */
-  sinVer: number;
   error: string | null;
 }
+
+/** Por qué el asistente no intervino, en castellano. */
+export const MOTIVO_ASISTENTE: Record<string, string> = {
+  asistencia_deshabilitada: "La asistencia por IA externa está deshabilitada en este entorno.",
+  pii_detectada: "El texto contiene identificadores personales, así que no se envía a un servicio externo.",
+};
 
 /**
  * Convierte una idea en lenguaje llano en un artículo con forma jurídica.
@@ -698,7 +356,7 @@ export interface PropuestaArticulo {
 export async function proponerArticulo(idea: string): Promise<PropuestaArticulo> {
   const vacio = {
     ok: false, asistido: false, motivo: null, suficiente: false,
-    falta: null, sumilla: null, texto: "", fragmentos: [], sinVer: 0, error: "",
+    falta: null, sumilla: null, texto: "", error: "",
   };
   if (!supabase) return { ...vacio, error: "Supabase no está configurado." };
   const { data: sessionData } = await supabase.auth.getSession();
@@ -731,18 +389,14 @@ export async function proponerArticulo(idea: string): Promise<PropuestaArticulo>
     };
   }
 
-  const fragmentos = toFragmentos(payload.fragmentos);
-
   return {
     ok: true,
     asistido: payload.asistido === true,
     motivo: typeof payload.motivo === "string" ? payload.motivo : null,
-    sinVer: fragmentos.filter((fragmento) => !fragmento.visto).length,
     suficiente: payload.suficiente === true,
     falta: typeof payload.falta === "string" ? payload.falta : null,
     sumilla: typeof payload.sumilla === "string" ? payload.sumilla : null,
     texto: typeof payload.texto === "string" ? payload.texto : "",
-    fragmentos,
     error: null,
   };
 }

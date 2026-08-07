@@ -70,6 +70,58 @@ function esConfianza(value: unknown): value is Confianza {
  * modelo. La cita se sanea con la MISMA función porque el modelo puede haber
  * normalizado un espacio al copiar, pero nada más.
  */
+/**
+ * Busca en el artículo la oración donde aparece un número, para proponerla como
+ * cita sin que nadie tenga que copiarla a mano.
+ *
+ * PostgreSQL exige que la cita esté **textual** en el artículo, así que lo que
+ * se devuelve es un recorte exacto del texto original: nada de normalizar
+ * espacios ni arreglar la puntuación, porque eso rompería la comprobación.
+ *
+ * Devuelve `null` cuando no encuentra el número o cuando la oración es
+ * demasiado corta para valer como cita. Proponer algo dudoso sería peor que no
+ * proponer nada: la idea es ahorrar el copiar y pegar, no adivinar.
+ */
+export function proponerCitaParaValor(texto: string, valor: number): string | null {
+  if (!Number.isFinite(valor) || texto.length === 0) return null;
+
+  // El número tal como se escribiría en un artículo: "6", "6,5" o "6.5".
+  const entero = String(valor);
+  const conComa = entero.replace(".", ",");
+  const patron = new RegExp(
+    `(?<![\\d,.])(?:${[entero, conComa].map(escaparRegex).join("|")})(?![\\d,.])`,
+  );
+
+  for (const oracion of recortarOraciones(texto)) {
+    const fragmento = texto.slice(oracion.inicio, oracion.fin).trim();
+    if (fragmento.length < CITA_MIN) continue;
+    if (patron.test(fragmento)) return fragmento;
+  }
+  return null;
+}
+
+function escaparRegex(valor: string): string {
+  return valor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Cortes de oración con sus posiciones, para poder recortar el original. */
+function recortarOraciones(texto: string): { inicio: number; fin: number }[] {
+  const cortes: { inicio: number; fin: number }[] = [];
+  let inicio = 0;
+  for (let i = 0; i < texto.length; i += 1) {
+    const caracter = texto[i]!;
+    // El punto de una abreviatura o de un decimal no corta oración.
+    const cortaAqui = caracter === "\n"
+      || caracter === ";"
+      || (caracter === "." && !/\d/.test(texto[i + 1] ?? "") && !/\d/.test(texto[i - 1] ?? ""));
+    if (!cortaAqui) continue;
+    cortes.push({ inicio, fin: i + 1 });
+    inicio = i + 1;
+  }
+  if (inicio < texto.length) cortes.push({ inicio, fin: texto.length });
+  return cortes;
+}
+
 export function citaVerifica(cita: string, fragmentosSaneados: string[]): boolean {
   const buscada = sanearFragmento(cita);
   if (buscada.length < CITA_MIN) return false;

@@ -7,14 +7,11 @@ import { useDismissible } from "@/hooks/use-dismissible";
 import { useModalShell } from "@/hooks/use-modal-shell";
 import {
   MOTIVO_ASISTENTE,
-  MOTIVO_MIN_LENGTH,
   crearArticulo,
   proponerArticulo,
-  type FragmentoRecuperado,
 } from "@/lib/fabrica-repository";
 import { ConfirmDialog, confirmDialogIsOpen } from "../confirm-dialog";
 import { toast } from "../toaster";
-import { FragmentosVigente } from "./fragmentos-vigente";
 
 /** Piso de la ruta para pedirle una propuesta al asistente. */
 const IDEA_MINIMA = 20;
@@ -64,7 +61,6 @@ function PanelLienzo({ proyectoId, onClose, onCreado }: PropsLienzo) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [falta, setFalta] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [fragmentos, setFragmentos] = useState<FragmentoRecuperado[]>([]);
   const [confirmarSalida, setConfirmarSalida] = useState(false);
 
   const hayTrabajo = idea.trim().length > 0 || texto.trim().length > 0;
@@ -97,8 +93,6 @@ function PanelLienzo({ proyectoId, onClose, onCreado }: PropsLienzo) {
         setError(propuesta.error);
         return;
       }
-      setFragmentos(propuesta.fragmentos);
-
       if (!propuesta.asistido) {
         setAviso(MOTIVO_ASISTENTE[propuesta.motivo ?? ""] ?? "El asistente no redactó la propuesta.");
         return;
@@ -122,10 +116,6 @@ function PanelLienzo({ proyectoId, onClose, onCreado }: PropsLienzo) {
     if (creando) return;
     if (texto.trim().length < TEXTO_MINIMO) {
       setError(`El artículo necesita al menos ${TEXTO_MINIMO} caracteres.`);
-      return;
-    }
-    if (idea.trim().length < MOTIVO_MIN_LENGTH) {
-      setError(`Contá de dónde sale el artículo (mínimo ${MOTIVO_MIN_LENGTH} caracteres).`);
       return;
     }
     setCreando(true);
@@ -296,7 +286,6 @@ function PanelLienzo({ proyectoId, onClose, onCreado }: PropsLienzo) {
             </p>
           )}
 
-          <FragmentosVigente fragmentos={fragmentos} asistido={aviso === null}/>
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 p-4">
@@ -311,13 +300,11 @@ function PanelLienzo({ proyectoId, onClose, onCreado }: PropsLienzo) {
             <button
               type="button"
               onClick={crear}
-              disabled={creando || texto.trim().length < TEXTO_MINIMO || idea.trim().length < MOTIVO_MIN_LENGTH}
+              disabled={creando || texto.trim().length < TEXTO_MINIMO}
               title={
                 texto.trim().length < TEXTO_MINIMO
                   ? "Todavía no hay artículo que crear."
-                  : idea.trim().length < MOTIVO_MIN_LENGTH
-                    ? "Contá de dónde sale el artículo en la columna de la izquierda."
-                    : "Crear el artículo"
+                  : "Crear el artículo"
               }
               className="primary-button compact disabled:cursor-not-allowed disabled:opacity-50"
             >
