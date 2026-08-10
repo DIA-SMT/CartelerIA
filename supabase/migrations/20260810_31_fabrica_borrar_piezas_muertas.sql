@@ -27,18 +27,23 @@
 -- app/api/fabrica/route.ts en cada llamada al asistente-.
 --
 -- ----------------------------------------------------------------------------
--- ANTES DE CORRER: esto borra datos y no hay vuelta atras
+-- Que se lleva: nada que haga falta guardar
 -- ----------------------------------------------------------------------------
--- Para ver que se lleva, corre primero esto en el SQL Editor:
+-- Consultado contra la instancia el 2026-08-10, antes de escribir esto:
+-- `norma_diagnostico` y `norma_observacion` estan VACIAS, y `norma_parametro`
+-- tiene 3 filas -superficie 6 m2, dos distancias de 15 m- las tres colgadas del
+-- articulo 1, que es el del objeto y no habla ni de superficies ni de
+-- distancias. Es el bug de interfaz del panel viejo: pedia los parametros desde
+-- el articulo que estuviera abierto. Lucas confirmo que eran de prueba y que
+-- esos numeros no sirven.
+--
+-- Si por lo que sea pasa tiempo hasta que se corra, el conteo se rehace asi:
 --
 --   select 'norma_parametro'   as tabla, count(*) from public.norma_parametro
 --   union all
 --   select 'norma_diagnostico', count(*) from public.norma_diagnostico
 --   union all
 --   select 'norma_observacion', count(*) from public.norma_observacion;
---
--- Si alguna trae filas que te importan -por ejemplo parametros que cargaste
--- probando el panel viejo- exportalas antes; el simulador de hoy no las lee.
 --
 -- Si nunca corriste la migracion 30, saltala: tocaba `norma_parametro`, que
 -- esta borra. Correrla despues de esta falla con 42P01.
