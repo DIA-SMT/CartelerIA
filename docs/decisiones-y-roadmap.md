@@ -373,8 +373,10 @@ retomar; conviene saber que están:
 
 - `norma_observacion` (migración 24): tabla sin uso. Se puede borrar cuando
   convenga; se dejó para no obligar a correr un drop.
+  *(Borrada el 2026-08-10 por la migración 31.)*
 - `norma_diagnostico` y sus RPC (migración 23): sin uso desde que se sacó el
   contraste contra la vigente.
+  *(Borradas el 2026-08-10 por la migración 31.)*
 - El editor de OCR y la habilitación de IA externa por documento (migraciones
   26 a 28): la Fábrica ya no los necesita, pero **siguen sirviendo a
   `/api/normativa`**, que es otra sección.
@@ -394,6 +396,86 @@ retomar; conviene saber que están:
 3. Decidir si el panel de parámetros y simulación se queda como está. Lucas
    pidió conservarlo; la cita ahora se autocompleta, así que la fricción que
    tenía se fue.
+
+## 2026-08-07: el simulador no se entendía porque no podía contestar
+
+Lucas: *"no entiendo esta herramienta, en todos los articulos me pide lo mismo y
+no todos los articulos tratan de lo mismo"*. La queja era de interfaz y medir
+mostró algo peor abajo.
+
+**La superficie solo se le adjunta a un cartel del mapa cuando su vínculo
+territorial está aprobado, y hay 1 aprobado de 253.** El panel calculaba sobre
+un cartel y devolvía "no evaluable" para todo el resto. No es que se entendiera
+mal: no podía contestar nada.
+
+Sobre el **registro administrativo** la cobertura es otra —superficie 249/253,
+tipo y zona 253/253— y ninguno de esos datos necesita geometría. El simulador
+lee de ahí (`lib/norma-simulador.ts`, `components/fabrica/simulador.tsx`).
+
+Y salió del editor de artículos. Calibrar los números de la ordenanza es una
+actividad del documento entero: adentro pedía los mismos tres parámetros en los
+treinta y tres, incluido el que define el objeto. Ahora es un panel propio donde
+se mueve el número y el resultado se recalcula, con corte por zona y por tipo, y
+la distribución de superficies de hoy —mínimo, mediana, máximo, cuartiles— para
+elegir un máximo con criterio en vez de tantear. No guarda nada: lo que se
+decide se escribe en el artículo.
+
+Las reglas de **distancia** siguen sin poder simularse porque salen de la
+geometría. Se muestran bloqueadas diciendo qué las destraba —ratificar los
+vínculos— en vez de omitirlas, que se leería como olvido.
+
+Ese mismo día se arreglaron dos cosas más:
+
+- **Volver a la pestaña ya no recarga la aplicación entera.** Supabase refresca
+  el token al recuperar el foco y eso dispara `onAuthStateChange`; el
+  `setRole(null)` intermedio mandaba todas las pantallas al esqueleto. Ahora
+  `applySession` corta cuando el usuario no cambió, y el rol igual se revalida
+  en silencio para que una degradación llegue sin parpadeo.
+- **Cargar un parámetro dejó de exigir la cita** (migración 30). Había artículos
+  que escriben la medida en letras y no había oración que citar. Quedó sin
+  efecto tres horas después, cuando el simulador dejó de guardar parámetros.
+
+### Lo que se aprendió
+
+**Antes de rediseñar una pantalla que no se entiende, medir cuántos casos puede
+contestar.** La queja era de interfaz y el problema era de cobertura: rediseñar
+sin medir habría dado un panel más lindo que seguía sin servir.
+
+## 2026-08-10: se borra lo que quedó sin uso
+
+Migración 31 (`20260810_31_fabrica_borrar_piezas_muertas.sql`), pendiente de
+correr a mano en el SQL Editor. Trae en el encabezado el `select` de conteos
+para mirar antes, y las dos consultas de comprobación para después.
+
+Se borran tres piezas y las funciones que solo existían para escribirlas:
+
+- `norma_parametro` y `confirmar_parametro` (migración 23, relajada por la 30).
+- `norma_diagnostico`, `registrar_diagnosticos`, `atender_diagnostico` (23).
+- `norma_observacion`, `crear_observacion`, `atender_observacion` (24).
+
+**Por qué borrar en vez de dejarlas.** Una tabla vacía que nadie escribe se lee
+como una función apagada: la próxima persona que abra el esquema va a preguntar
+por qué la Fábrica tiene diagnósticos que no aparecen en ninguna pantalla. El
+esquema tiene que decir lo que el sistema hace.
+
+Lo que **no** se toca: `norma_proyecto`, `norma_articulo`,
+`norma_articulo_version`, `actor_fabrica`, los cuatro RPC de escritura del
+articulado y `consumir_cuota_fabrica` —esta última es la que más cerca pasó del
+filo: nació en la misma migración 23 que los diagnósticos y la llama
+`/api/fabrica` en cada pedido—. Un test cubre las dos mitades: que la migración
+borre lo muerto y que no mencione lo vivo.
+
+La migración 30 queda superada y su encabezado lo dice: si nunca se corrió, hay
+que saltearla (tocaba una tabla que ya no existe).
+
+### Estado de los tres pendientes del cierre del 06
+
+1. `OPENROUTER_MODEL` **sigue en `openai/gpt-4o-mini`**, en `.env.local` y en
+   Vercel. Abierto.
+2. Pasada visual en un navegador real, incluido el PDF. Abierto, y ahora
+   incluye el simulador nuevo.
+3. El panel de parámetros y simulación: resuelto el 07, rehecho como panel
+   propio sobre el registro.
 
 ## Propósito
 
@@ -528,11 +610,10 @@ período, respetando los permisos de acceso.
 - [x] Reingerir y verificar el corpus RAG con contrato atómico v1.
 - [ ] Ratificar manualmente los 13 vínculos heredados después de aplicar la
   migración 13.
-- [ ] **Aplicar la migración 16 en el SQL Editor.** Está escrita y verificada
-  contra `tsc`, tests y build, pero no se puede probar sin correrla: no hay CLI
-  vinculado. Después de aplicarla conviene revisar cuántas cuentas quedaron con
-  rol `administrador` desde el panel `#usuarios`: el UPDATE masivo de la
-  migración 07 nunca se revirtió en datos.
+- [x] **Aplicar la migración 16 en el SQL Editor.** Aplicada y verificada el
+  2026-08-06 (31 comprobaciones contra la instancia). Al correrla apareció el
+  hallazgo de arriba: el alta seguía creando administradores. Lo corrigió la
+  migración 18.
 - [ ] Crear auditoría de las respuestas normativas; la auditoría operativa ya
   está cubierta por la migración 12.
 - [ ] Implementar revisión/aprobación administrativa versionada del corpus y de
