@@ -134,7 +134,7 @@ Todavía no hay una suite general ni configuración de ESLint.
     calculadora, y lo que se decide se escribe en el artículo.
     Las reglas de **distancia** siguen sin poder simularse: salen de la
     geometría y necesitan el vínculo. Se muestran bloqueadas con el motivo, no
-    omitidas. `norma_parametro` y `confirmar_parametro` quedaron **sin uso**.
+    omitidas.
   - **Una sola salida: PDF**, desde `@media print`. Se sacaron el Word (y la
     dependencia `docx`) y el Excel de observaciones. El XLSX de expedientes es
     de otra sección y no se toca.
@@ -147,12 +147,14 @@ Todavía no hay una suite general ni configuración de ESLint.
     `location.hash` scrollea a la sección y saca el foco del editor. Un id que
     no existe se limpia **recién** con `loadPhase === "ready"`: antes
     descartaría una selección válida solo por llegar primero.
-  - `norma_observacion` (migración 24) quedó **sin uso**: se sacaron las
-    observaciones de las áreas. La tabla sigue en la base para no obligar a un
-    drop; se puede borrar cuando convenga.
-  -  (migración 24) quedó **sin uso**: se sacaron las
-    observaciones de las áreas. La tabla sigue en la base para no obligar a un
-    drop; se puede borrar cuando convenga.
+  - **Lo que quedó sin uso se borró (migración 31, 2026-08-10):**
+    `norma_parametro`/`confirmar_parametro` (el simulador no guarda nada),
+    `norma_diagnostico` y sus RPC (se fue el contraste contra la vigente) y
+    `norma_observacion` con las suyas (se fueron las observaciones de las
+    áreas). Un test verifica que la migración las borre y que **no** toque lo
+    vivo — ojo con `consumir_cuota_fabrica`, que nació en la misma migración 23
+    que los diagnósticos y la usa `/api/fabrica` en cada llamada. La migración
+    30 quedó superada: tocaba `norma_parametro`.
 - **Motion, detalle a saber**: el token `DEFAULT` (250ms) de
   `transitionDuration` **no tiene clase utilitaria** — ni `duration` ni
   `duration-DEFAULT` se generan. Los overlays usan `duration-200`; `duration-fast`
@@ -248,6 +250,10 @@ Tokens `municipal` y `brandYellow` de `tailwind.config.ts`; logo
   recall de 3 a 16 fragmentos habilitados sobre cinco consultas municipales
   típicas, y se comprobó que la búsqueda restringida devuelve **cero** fragmentos
   del borrador aun pidiendo `p_estados: ["proyecto"]` explícitamente.
+  **De la 28 en adelante el estado de aplicación no está verificado** (28, 29,
+  30 y 31). La 31 se escribió el 2026-08-10 y hay que correrla a mano; la 30
+  quedó superada por ella. Antes de asumir cualquiera aplicada, consultar la
+  instancia — leer el archivo del repo no prueba nada.
   Nota de contenido, medida: ni el Decreto 0609/18 ni la Ordenanza 4728/2014
   regulan distancias a esquinas (cero menciones de "esquina", una de "ochava" en
   toda la 4728). Un artículo sobre eso es terreno nuevo, no un conflicto — si el

@@ -952,13 +952,10 @@ test("una cita que no aparece textualmente se descarta", async () => {
 });
 
 test("el asistente propone pero nunca guarda", async () => {
-  const [route, sql] = await Promise.all([
-    source("app/api/fabrica/route.ts"),
-    source("supabase/migrations/20260806_23_diagnostico_normativo.sql"),
-  ]);
+  const route = await source("app/api/fabrica/route.ts");
 
   // La ruta no tiene ninguna vía para escribir el articulado.
-  for (const escritura of ["guardar_articulo", "crear_articulo", "cambiar_estado_articulo", "confirmar_parametro"]) {
+  for (const escritura of ["guardar_articulo", "crear_articulo", "cambiar_estado_articulo"]) {
     assert.doesNotMatch(
       route,
       new RegExp(`rpc\\("${escritura}"`),
@@ -967,31 +964,6 @@ test("el asistente propone pero nunca guarda", async () => {
   }
   // La propuesta vuelve al navegador, no a la base.
   assert.match(route, /asistido: true,\s*\n\s*suficiente: true/);
-
-  // Y aunque quisiera, la RPC que confirma parámetros excluye a service_role:
-  // pide una persona con rol operativo.
-  assert.match(sql, /Confirmar un parametro exige un rol operativo/);
-  assert.match(sql, /select a\.actor_id, a\.actor_rol into v_actor, v_rol from public\.actor_fabrica\(\)/);
-  assert.doesNotMatch(
-    sql,
-    /grant execute on function public\.confirmar_parametro\([^)]*\) to service_role/i,
-  );
-
-  // La cita del parámetro dejó de ser obligatoria (migración 30) porque había
-  // artículos que escriben la medida en letras y no había oración que citar.
-  // Lo que sobrevive: si viene una cita, tiene que estar textual en el
-  // artículo, o no se guarda. Una cita que no está aparenta un respaldo que no
-  // existe, y eso es peor que no tener ninguna.
-  const sinCita = await source("supabase/migrations/20260807_30_parametro_sin_cita_obligatoria.sql");
-  assert.match(sinCita, /alter table public\.norma_parametro alter column cita drop not null;/);
-  assert.match(sinCita, /if v_cita is not null and position\(v_cita in v_texto\) = 0 then\s*v_cita := null;/);
-  assert.doesNotMatch(
-    sinCita,
-    /raise exception 'El parametro necesita la cita textual/,
-    "cargar un parámetro ya no exige cita",
-  );
-  // Y el rol operativo sigue siendo obligatorio: eso no se tocó.
-  assert.match(sinCita, /Confirmar un parametro exige un rol operativo/);
 
   // Si la idea no alcanza, el asistente lo dice en vez de rellenar.
   assert.match(route, /suficiente: false/);
@@ -1117,6 +1089,65 @@ test("el simulador lee el registro y no el mapa, y un cartel sin dato no cumple 
   assert.doesNotMatch(fabrica, /PanelDiagnostico/);
 });
 
+test("las piezas muertas de la Fabrica se borran de verdad, y las vivas no", async () => {
+  const sql = await source("supabase/migrations/20260810_31_fabrica_borrar_piezas_muertas.sql");
+
+  // Tres tablas y las funciones que solo existían para escribirlas. Se listan
+  // una por una a propósito: un `drop` que falta deja una tabla vacía que nadie
+  // escribe, y eso se lee como una función apagada, no como algo que se fue.
+  for (const tabla of ["norma_parametro", "norma_diagnostico", "norma_observacion"]) {
+    assert.match(sql, new RegExp(`drop table if exists public\\.${tabla};`), `falta borrar ${tabla}`);
+  }
+  for (const funcion of [
+    "confirmar_parametro\\(uuid, text, jsonb, text, text, text\\)",
+    "registrar_diagnosticos\\(uuid, jsonb\\)",
+    "atender_diagnostico\\(uuid, text\\)",
+    "crear_observacion\\(uuid, text\\)",
+    "atender_observacion\\(uuid, text\\)",
+    "proteger_diagnostico\\(\\)",
+    "proteger_observacion\\(\\)",
+  ]) {
+    assert.match(sql, new RegExp(`drop function if exists public\\.${funcion};`));
+  }
+  // Las firmas van completas: `drop function` a secas falla con sobrecargas, y
+  // es justamente el caso del que nos queremos enterar.
+  assert.doesNotMatch(sql, /drop function if exists public\.\w+;/);
+  // Y ningún `drop` lleva `cascade`: si algo dependiera de estas tablas,
+  // preferimos que la migración falle antes que llevárselo puesto sin mirarlo.
+  assert.doesNotMatch(sql, /^drop[^;]*cascade/im);
+
+  // Lo que está vivo no se toca. `consumir_cuota_fabrica` es la que más cerca
+  // pasó del filo: nació en la misma migración 23 que los diagnósticos y la
+  // llama la ruta del asistente en cada pedido.
+  for (const vivo of [
+    "norma_proyecto", "norma_articulo", "norma_articulo_version",
+    "guardar_articulo", "crear_articulo", "cambiar_estado_articulo",
+    "reordenar_articulos", "actor_fabrica", "consumir_cuota_fabrica",
+  ]) {
+    assert.doesNotMatch(sql, new RegExp(`drop (table|function) if exists public\\.${vivo}\\b`), `${vivo} sigue en uso`);
+  }
+  const ruta = await source("app/api/fabrica/route.ts");
+  assert.match(ruta, /consumir_cuota_fabrica/);
+
+  // Y del lado del código no puede quedar ninguna llamada: una RPC que ya no
+  // existe responde PGRST202, el mismo código que una firma mal escrita, así
+  // que fallaría sin decir por qué.
+  const archivos = [
+    "app/api/fabrica/route.ts",
+    "lib/fabrica-repository.ts",
+    "lib/norma-citas.ts",
+    "lib/norma-export.ts",
+    "lib/norma-relacionados.ts",
+    "lib/norma-simulador.ts",
+    ...(await readdir(new URL("../components/fabrica/", import.meta.url)))
+      .map((archivo) => `components/fabrica/${archivo}`),
+  ];
+  const muertas = /norma_parametro|confirmar_parametro|norma_diagnostico|registrar_diagnosticos|atender_diagnostico|norma_observacion|crear_observacion|atender_observacion/;
+  for (const archivo of archivos) {
+    assert.doesNotMatch(await source(archivo), muertas, `${archivo} llama a algo que ya no existe`);
+  }
+});
+
 test("el revisor mira el propio documento y no inventa hallazgos", async () => {
   const { articulosRelacionados } = await import("../lib/norma-relacionados.ts");
   const ruta = await source("app/api/fabrica/route.ts");
@@ -1155,7 +1186,7 @@ test("el revisor mira el propio documento y no inventa hallazgos", async () => {
   assert.match(ruta, /verificarHallazgos\(\s*crudosHallazgos as HallazgoSinVerificar\[\],\s*saneados,\s*\)/);
 
   // Y no escribe nada: es un par de ojos más, no una compuerta.
-  for (const escritura of ["guardar_articulo", "crear_articulo", "cambiar_estado_articulo", "registrar_diagnosticos"]) {
+  for (const escritura of ["guardar_articulo", "crear_articulo", "cambiar_estado_articulo"]) {
     assert.doesNotMatch(ruta, new RegExp(`rpc\\("${escritura}"`));
   }
   assert.match(ui, /Esto no bloquea nada: decidís vos/);

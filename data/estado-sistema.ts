@@ -107,4 +107,5 @@ export const MIGRACIONES_DECLARADAS: MigracionDeclarada[] = [
   { numero: 28, archivo: "20260806_28_ocr_dudoso_revisado.sql", resumen: "La duda del OCR la contesta la revisión humana" },
   { numero: 29, archivo: "20260806_29_fabrica_sin_ceremonia.sql", resumen: "La Fábrica deja de pedir fundamentos" },
   { numero: 30, archivo: "20260807_30_parametro_sin_cita_obligatoria.sql", resumen: "La cita del parámetro pasa a ser opcional" },
+  { numero: 31, archivo: "20260810_31_fabrica_borrar_piezas_muertas.sql", resumen: "Se borran las piezas de la Fábrica que quedaron sin uso" },
 ];

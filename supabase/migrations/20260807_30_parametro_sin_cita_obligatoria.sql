@@ -1,6 +1,12 @@
 -- ============================================================================
 -- Fase 30 - Cargar un parametro deja de exigir la cita
 -- ----------------------------------------------------------------------------
+-- SUPERADA POR LA MIGRACION 31 (2026-08-10), que borra `norma_parametro` y
+-- `confirmar_parametro`: el simulador salio del editor de articulos y dejo de
+-- guardar nada. El archivo queda como registro de lo que se corrio. Si nunca la
+-- aplicaste, saltala y corre directamente la 31; aplicarla despues falla con
+-- 42P01 porque la tabla ya no existe.
+--
 -- Ejecutar despues de 20260806_29_fabrica_sin_ceremonia.sql.
 --
 -- La cita textual venia de la premisa del diseño original: que cada numero
