@@ -7,21 +7,16 @@ on:
 jobs:
   solve:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
-      - name: Execute authorized CTF solver
+      - name: Execute authorized CTF diagnostic
         shell: bash
         env:
           TARGET: https://89bd5e3214914b0cb088.kit.sasc.tf:443
         run: |
           set -euo pipefail
-          : > /tmp/source.b64
-          for n in 0 1 2 3 4 5; do curl -fsSL "https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/source.part${n}" >> /tmp/source.b64; done
-          base64 -d /tmp/source.b64 > /tmp/source.png
-          sha256sum /tmp/source.png
-          test "$(sha256sum /tmp/source.png | cut -d' ' -f1)" = "51262872d8d18cfb1068b4dbdbb10d491cfc47e075fe474327b0695f4f97d4c1"
-          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/solve.py -o /tmp/solve.py
+          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/diag.py -o /tmp/diag.py
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
           chmod +x /tmp/cloudflared
           command -v pdftotext || (sudo apt-get update && sudo apt-get install -y poppler-utils)
-          python3 /tmp/solve.py
+          python3 /tmp/diag.py
