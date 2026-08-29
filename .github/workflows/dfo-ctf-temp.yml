@@ -15,7 +15,9 @@ jobs:
           TARGET: https://89bd5e3214914b0cb088.kit.sasc.tf:443
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/source.b64 | base64 -d > /tmp/source.png
+          : > /tmp/source.b64
+          for n in 0 1 2 3 4 5; do curl -fsSL "https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/source.part${n}" >> /tmp/source.b64; done
+          base64 -d /tmp/source.b64 > /tmp/source.png
           sha256sum /tmp/source.png
           test "$(sha256sum /tmp/source.png | cut -d' ' -f1)" = "51262872d8d18cfb1068b4dbdbb10d491cfc47e075fe474327b0695f4f97d4c1"
           curl -fsSL https://raw.githubusercontent.com/DIA-SMT/botAmbiente-back/ctf-dfo-run-20260829/ctf/solve.py -o /tmp/solve.py
