@@ -27,16 +27,18 @@ jobs:
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=15 -o ExitOnForwardFailure=yes -R 80:localhost:8765 nokey@localhost.run > /tmp/tunnel.log 2>&1 &
           TPID=$!
           for i in $(seq 1 30); do
-            cat /tmp/tunnel.log || true
-            URL=$(grep -Eo 'https://[A-Za-z0-9.-]+' /tmp/tunnel.log | head -1 || true)
+            URL=$(grep -Eo 'https://[A-Za-z0-9]+\.lhr\.life' /tmp/tunnel.log | tail -1 || true)
             [ -n "$URL" ] && break
             sleep 2
           done
+          cat /tmp/tunnel.log | grep -E 'tunneled|authenticated|connection id' || true
           echo "URL=$URL"
           [ -n "$URL" ]
-          curl -sv --path-as-is "$URL/normal" -o /tmp/a 2>&1 || true
+          echo '=== NORMAL ==='
+          curl -sSvk --path-as-is "$URL/normal" -o /tmp/a 2>&1 | tail -20 || true
           cat /tmp/a || true
-          curl -sv --path-as-is "$URL/%2e%2e/%2e%2e/TRAVTEST" -o /tmp/b 2>&1 || true
+          echo '=== TRAV ==='
+          curl -sSvk --path-as-is "$URL/%2e%2e/%2e%2e/TRAVTEST" -o /tmp/b 2>&1 | tail -30 || true
           cat /tmp/b || true
           sleep 2
           echo '=== SERVER LOG ==='
